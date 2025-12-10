@@ -74,7 +74,16 @@ class ConfigManager:
 
     def _load_strategy_config(self) -> StrategyConfig:
         """加载策略配置"""
+        investment_type = os.getenv('INVESTMENT_TYPE', 'conservative')
+
+        # 验证投资类型
+        valid_types = ['conservative', 'moderate', 'aggressive']
+        if investment_type not in valid_types:
+            logger.warning(f"无效的投资类型 '{investment_type}'，使用默认值 'conservative'")
+            investment_type = 'conservative'
+
         return StrategyConfig(
+            investment_type=investment_type,
             profit_lock_enabled=True,
             sell_signal_enabled=True,
             buy_signal_enabled=True,

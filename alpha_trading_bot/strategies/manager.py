@@ -97,33 +97,68 @@ class StrategyManager(BaseComponent):
             if price > 0 and high > low:
                 price_position = (price - low) / (high - low)
 
-                # 保守策略信号
-                if price_position < 0.2:
-                    signals.append({
-                        'type': 'buy',
-                        'confidence': 0.7,
-                        'reason': '保守策略：价格处于低位',
-                        'source': 'conservative_strategy',
-                        'timestamp': datetime.now()
-                    })
-                elif price_position > 0.8:
-                    signals.append({
-                        'type': 'sell',
-                        'confidence': 0.7,
-                        'reason': '保守策略：价格处于高位',
-                        'source': 'conservative_strategy',
-                        'timestamp': datetime.now()
-                    })
+                # 获取当前投资类型配置
+                from ..config import load_config
+                config = load_config()
+                investment_type = config.strategies.investment_type
 
-                # 激进策略信号
-                if price_position < 0.1:
-                    signals.append({
-                        'type': 'buy',
-                        'confidence': 0.8,
-                        'reason': '激进策略：价格极度低估',
-                        'source': 'aggressive_strategy',
-                        'timestamp': datetime.now()
-                    })
+                # 根据投资类型生成对应的策略信号
+                if investment_type == 'conservative':
+                    # 稳健型策略：低买高卖，低频次交易
+                    if price_position < 0.2:
+                        signals.append({
+                            'type': 'buy',
+                            'confidence': 0.7,
+                            'reason': '稳健策略：价格处于相对低位，适合建仓',
+                            'source': 'conservative_strategy',
+                            'timestamp': datetime.now()
+                        })
+                    elif price_position > 0.8:
+                        signals.append({
+                            'type': 'sell',
+                            'confidence': 0.7,
+                            'reason': '稳健策略：价格处于相对高位，考虑减仓',
+                            'source': 'conservative_strategy',
+                            'timestamp': datetime.now()
+                        })
+
+                elif investment_type == 'moderate':
+                    # 中等型策略：趋势跟踪，中等频次交易
+                    if price_position < 0.3:
+                        signals.append({
+                            'type': 'buy',
+                            'confidence': 0.75,
+                            'reason': '中等策略：价格回调，可能存在买入机会',
+                            'source': 'moderate_strategy',
+                            'timestamp': datetime.now()
+                        })
+                    elif price_position > 0.7:
+                        signals.append({
+                            'type': 'sell',
+                            'confidence': 0.75,
+                            'reason': '中等策略：价格反弹，可能存在卖出机会',
+                            'source': 'moderate_strategy',
+                            'timestamp': datetime.now()
+                        })
+
+                elif investment_type == 'aggressive':
+                    # 激进型策略：追涨杀跌，高频次交易
+                    if price_position < 0.15:
+                        signals.append({
+                            'type': 'buy',
+                            'confidence': 0.8,
+                            'reason': '激进策略：价格极度低估，超跌反弹机会',
+                            'source': 'aggressive_strategy',
+                            'timestamp': datetime.now()
+                        })
+                    elif price_position > 0.85:
+                        signals.append({
+                            'type': 'sell',
+                            'confidence': 0.8,
+                            'reason': '激进策略：价格极度高估，回调风险较大',
+                            'source': 'aggressive_strategy',
+                            'timestamp': datetime.now()
+                        })
 
         except Exception as e:
             logger.error(f"生成策略信号失败: {e}")
@@ -137,15 +172,30 @@ class StrategyManager(BaseComponent):
             if not signals:
                 return {'type': 'hold', 'confidence': 0.5, 'reason': '无可用信号'}
 
-            # 按置信度排序
-            signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+            # 获取当前投资类型配置
+            from ..config import load_config
+            config = load_config()
+            investment_type = config.strategies.investment_type
 
-            # 返回最佳信号
+            # 优先选择当前投资类型的策略信号
+            type_signals = [s for s in signals if investment_type in s.get('source', '')]
+            if type_signals:
+                # 在当前投资类型中选择置信度最高的
+                type_signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
+                best_signal = type_signals[0]
+                return {
+                    'selected_signal': best_signal,
+                    'alternatives': type_signals[1:3] if len(type_signals) > 1 else [],
+                    'selection_reason': f'{investment_type}策略优先，最高置信度'
+                }
+
+            # 如果没有当前投资类型的信号，选择所有信号中置信度最高的
+            signals.sort(key=lambda x: x.get('confidence', 0), reverse=True)
             best_signal = signals[0]
             return {
                 'selected_signal': best_signal,
                 'alternatives': signals[1:3],  # 备选方案
-                'selection_reason': '最高置信度'
+                'selection_reason': '最高置信度（无匹配投资类型信号）'
             }
 
         except Exception as e:
@@ -237,7 +287,7 @@ async def create_strategy_manager() -> StrategyManager:
         name="AlphaStrategyManager",
         enable_backtesting=config.strategies.smart_tp_sl_enabled,
         enable_optimization=config.strategies.smart_tp_sl_enabled,
-        default_strategy=config.system.log_level.lower(),
+        default_strategy=config.strategies.investment_type,  # 使用投资类型作为默认策略
         max_active_strategies=3
     )
 

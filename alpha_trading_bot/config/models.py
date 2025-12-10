@@ -49,6 +49,7 @@ class TradingConfig:
 @dataclass
 class StrategyConfig:
     """策略配置"""
+    investment_type: str = 'conservative'  # 投资策略类型: conservative/moderate/aggressive
     profit_lock_enabled: bool = True
     sell_signal_enabled: bool = True
     buy_signal_enabled: bool = True
