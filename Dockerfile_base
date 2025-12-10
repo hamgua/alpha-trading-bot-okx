@@ -1,17 +1,15 @@
 # 官方 Python 3.11 slim 基础镜像
-FROM hamgua/python:3.11-slim
+FROM python:3.11-slim-bullseye
 
 # 设置时区
 ENV TZ=Asia/Shanghai
 
-# 替换 APT 源为 USTC，避免网络问题
-RUN echo "deb https://mirrors.ustc.edu.cn/debian/ trixie main" > /etc/apt/sources.list && \
-    echo "deb https://mirrors.ustc.edu.cn/debian/ trixie-updates main" >> /etc/apt/sources.list && \
-    echo "deb https://mirrors.ustc.edu.cn/debian-security trixie-security main" >> /etc/apt/sources.list && \
-    rm -rf /etc/apt/sources.list.d/* || true
-
-# 安装系统依赖（构建 numpy / pandas 必须）
-RUN apt-get update && \
+# 合并RUN指令减少层数
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye main" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main" >> /etc/apt/sources.list && \
+    rm -rf /etc/apt/sources.list.d/* && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         build-essential \
         gcc \
@@ -24,25 +22,22 @@ RUN apt-get update && \
         libssl-dev \
         libffi-dev \
         zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# 设置工作目录
-WORKDIR /app
-
-# 复制依赖文件
-COPY requirements.txt .
-
-# Python 环境变量优化
+# Python环境优化
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100
 
-# 配置 pip 源（清华大学）
-RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ && \
+# 配置pip源并升级pip
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn && \
-    pip install --upgrade pip && \
-    pip install --no-cache-dir --default-timeout=1000 -r requirements.txt
+    pip install --upgrade pip
+
+# 设置工作目录
+WORKDIR /app
 
 # 默认命令（作为 Base 镜像不直接运行项目）
 CMD ["sleep", "infinity"]
