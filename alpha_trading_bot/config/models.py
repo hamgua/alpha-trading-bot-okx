@@ -78,6 +78,13 @@ class AIConfig:
     min_confidence_threshold: float = 0.3
     ai_provider: str = 'kimi'
     fallback_enabled: bool = True
+    # AI融合配置
+    use_multi_ai_fusion: bool = True
+    ai_default_provider: str = 'deepseek'
+    ai_fusion_providers: List[str] = None
+    ai_fusion_weights: Dict[str, float] = None
+    ai_fusion_strategy: str = 'weighted'  # consensus/weighted/majority/confidence
+    ai_fusion_threshold: float = 0.6
 
 @dataclass
 class SystemConfig:

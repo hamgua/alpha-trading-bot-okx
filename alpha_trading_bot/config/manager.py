@@ -106,6 +106,22 @@ class ConfigManager:
 
     def _load_ai_config(self) -> AIConfig:
         """加载AI配置"""
+        # 解析AI融合提供商列表
+        fusion_providers_str = os.getenv('AI_FUSION_PROVIDERS', 'deepseek,kimi,qwen')
+        fusion_providers = [p.strip() for p in fusion_providers_str.split(',') if p.strip()]
+
+        # 解析AI融合权重
+        fusion_weights_str = os.getenv('AI_FUSION_WEIGHTS', '')
+        fusion_weights = {}
+        if fusion_weights_str:
+            try:
+                for item in fusion_weights_str.split(','):
+                    if ':' in item:
+                        provider, weight = item.split(':', 1)
+                        fusion_weights[provider.strip()] = float(weight.strip())
+            except ValueError:
+                logger.warning(f"AI融合权重格式错误: {fusion_weights_str}")
+
         return AIConfig(
             use_multi_ai=os.getenv('USE_MULTI_AI', 'false').lower() == 'true',
             cache_duration=int(os.getenv('AI_CACHE_DURATION', '900')),
@@ -113,7 +129,14 @@ class ConfigManager:
             max_retries=int(os.getenv('AI_MAX_RETRIES', '2')),
             min_confidence_threshold=float(os.getenv('AI_MIN_CONFIDENCE', '0.3')),
             ai_provider=os.getenv('AI_PROVIDER', 'kimi'),
-            fallback_enabled=os.getenv('AI_FALLBACK_ENABLED', 'true').lower() == 'true'
+            fallback_enabled=os.getenv('AI_FALLBACK_ENABLED', 'true').lower() == 'true',
+            # AI融合配置
+            use_multi_ai_fusion=os.getenv('USE_MULTI_AI_FUSION', 'true').lower() == 'true',
+            ai_default_provider=os.getenv('AI_DEFAULT_PROVIDER', 'deepseek'),
+            ai_fusion_providers=fusion_providers,
+            ai_fusion_weights=fusion_weights if fusion_weights else None,
+            ai_fusion_strategy=os.getenv('AI_FUSION_STRATEGY', 'weighted'),
+            ai_fusion_threshold=float(os.getenv('AI_FUSION_THRESHOLD', '0.6'))
         )
 
     def _load_system_config(self) -> SystemConfig:

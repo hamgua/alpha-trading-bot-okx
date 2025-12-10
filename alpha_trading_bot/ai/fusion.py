@@ -28,7 +28,11 @@ class AIFusion:
             'fallback': 0.60
         }
 
-    async def fuse_signals(self, signals: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    async def fuse_signals(self, signals: List[Dict[str, Any]],
+                          strategy: str = 'weighted',
+                          threshold: float = 0.6,
+                          weights: Optional[Dict[str, float]] = None,
+                          fusion_providers: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
         """融合多个AI信号"""
         try:
             if not signals:
@@ -38,37 +42,18 @@ class AIFusion:
                 # 只有一个信号，直接返回
                 return signals[0]
 
-            logger.info(f"融合 {len(signals)} 个AI信号")
+            logger.info(f"融合 {len(signals)} 个AI信号，策略: {strategy}")
 
-            # 1. 分析信号一致性
-            consensus = self._calculate_consensus(signals)
+            # 根据策略选择融合方法
+            if strategy == 'consensus':
+                return await self._fuse_by_consensus(signals, threshold)
+            elif strategy == 'majority':
+                return await self._fuse_by_majority(signals, threshold)
+            elif strategy == 'confidence':
+                return await self._fuse_by_confidence(signals)
+            else:  # weighted
+                return await self._fuse_by_weighted(signals, weights, fusion_providers)
 
-            # 2. 计算融合分数
-            fused_scores = self._calculate_fused_scores(signals, consensus)
-
-            # 3. 确定最终信号
-            final_signal = self._determine_final_signal(fused_scores, signals)
-
-            # 4. 计算融合置信度
-            final_confidence = self._calculate_fused_confidence(signals, consensus)
-
-            result = {
-                'signal': final_signal,
-                'confidence': final_confidence,
-                'reason': self._build_fusion_reason(signals, consensus, final_signal),
-                'timestamp': datetime.now().isoformat(),
-                'provider': 'fusion',
-                'fused_signals': len(signals),
-                'consensus_score': consensus['score'],
-                'individual_signals': signals
-            }
-
-            logger.info(f"信号融合完成: {final_signal} (置信度: {final_confidence:.2f})")
-            return result
-
-        except Exception as e:
-            logger.error(f"信号融合失败: {e}")
-            return None
 
     def _calculate_consensus(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         """计算信号一致性"""
@@ -258,6 +243,152 @@ class AIFusion:
     def get_provider_scores(self) -> Dict[str, float]:
         """获取提供商评分"""
         return self.provider_scores.copy()
+
+    async def _fuse_by_consensus(self, signals: List[Dict[str, Any]], threshold: float) -> Optional[Dict[str, Any]]:
+        """共识策略：所有模型达成一致才行动"""
+        try:
+            consensus = self._calculate_consensus(signals)
+
+            # 如果共识度达到阈值，返回主导信号
+            if consensus['consensus_score'] >= threshold:
+                dominant_signal = consensus['dominant_signal']
+
+                # 找到该信号的平均置信度
+                signal_confidences = [
+                    s.get('confidence', 0.5) for s in signals
+                    if s.get('signal', 'HOLD') == dominant_signal
+                ]
+                avg_confidence = sum(signal_confidences) / len(signal_confidences) if signal_confidences else 0.5
+
+                return {
+                    'signal': dominant_signal,
+                    'confidence': avg_confidence,
+                    'reason': f"共识策略：{consensus['consensus_score']:.0%}模型支持{dominant_signal}",
+                    'timestamp': datetime.now().isoformat(),
+                    'provider': 'fusion',
+                    'fused_signals': len(signals),
+                    'consensus_score': consensus['consensus_score'],
+                    'individual_signals': signals
+                }
+            else:
+                # 未达成共识，返回HOLD
+                return {
+                    'signal': 'HOLD',
+                    'confidence': 0.5,
+                    'reason': f"未达成共识（{consensus['consensus_score']:.0%} < {threshold:.0%}）",
+                    'timestamp': datetime.now().isoformat(),
+                    'provider': 'fusion',
+                    'fused_signals': len(signals),
+                    'consensus_score': consensus['consensus_score'],
+                    'individual_signals': signals
+                }
+
+        except Exception as e:
+            logger.error(f"共识融合失败: {e}")
+            return None
+
+    async def _fuse_by_majority(self, signals: List[Dict[str, Any]], threshold: float) -> Optional[Dict[str, Any]]:
+        """多数表决策略"""
+        try:
+            consensus = self._calculate_consensus(signals)
+            total_signals = len(signals)
+
+            # 检查是否有信号获得多数支持
+            for signal_type, count in consensus['signal_distribution'].items():
+                if count / total_signals >= threshold:
+                    # 找到该信号的平均置信度
+                    signal_confidences = [
+                        s.get('confidence', 0.5) for s in signals
+                        if s.get('signal', 'HOLD') == signal_type
+                    ]
+                    avg_confidence = sum(signal_confidences) / len(signal_confidences) if signal_confidences else 0.5
+
+                    return {
+                        'signal': signal_type,
+                        'confidence': avg_confidence,
+                        'reason': f"多数表决：{count}/{total_signals}模型支持{signal_type}",
+                        'timestamp': datetime.now().isoformat(),
+                        'provider': 'fusion',
+                        'fused_signals': len(signals),
+                        'consensus_score': count / total_signals,
+                        'individual_signals': signals
+                    }
+
+            # 没有任何信号达到阈值，返回HOLD
+            return {
+                'signal': 'HOLD',
+                'confidence': 0.5,
+                'reason': "未形成多数意见",
+                'timestamp': datetime.now().isoformat(),
+                'provider': 'fusion',
+                'fused_signals': len(signals),
+                'consensus_score': consensus['consensus_score'],
+                'individual_signals': signals
+            }
+
+        except Exception as e:
+            logger.error(f"多数表决融合失败: {e}")
+            return None
+
+    async def _fuse_by_confidence(self, signals: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """置信度优先策略"""
+        try:
+            # 选择置信度最高的信号
+            best_signal = max(signals, key=lambda x: x.get('confidence', 0))
+
+            return {
+                'signal': best_signal.get('signal', 'HOLD'),
+                'confidence': best_signal.get('confidence', 0.5),
+                'reason': f"置信度优先：{best_signal.get('provider', 'unknown')}提供最高置信度信号",
+                'timestamp': datetime.now().isoformat(),
+                'provider': 'fusion',
+                'fused_signals': len(signals),
+                'best_provider': best_signal.get('provider', 'unknown'),
+                'individual_signals': signals
+            }
+
+        except Exception as e:
+            logger.error(f"置信度优先融合失败: {e}")
+            return None
+
+    async def _fuse_by_weighted(self, signals: List[Dict[str, Any]],
+                               weights: Optional[Dict[str, float]] = None,
+                               fusion_providers: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+        """加权平均策略"""
+        try:
+            # 使用提供的权重或默认权重
+            if weights:
+                self.set_fusion_weights(weights)
+
+            # 1. 分析信号一致性
+            consensus = self._calculate_consensus(signals)
+
+            # 2. 计算融合分数
+            fused_scores = self._calculate_fused_scores(signals, consensus)
+
+            # 3. 确定最终信号
+            final_signal = self._determine_final_signal(fused_scores, signals)
+
+            # 4. 计算融合置信度
+            final_confidence = self._calculate_fused_confidence(signals, consensus)
+
+            result = {
+                'signal': final_signal,
+                'confidence': final_confidence,
+                'reason': self._build_fusion_reason(signals, consensus, final_signal),
+                'timestamp': datetime.now().isoformat(),
+                'provider': 'fusion',
+                'fused_signals': len(signals),
+                'consensus_score': consensus['consensus_score'],
+                'individual_signals': signals
+            }
+
+            logger.info(f"加权融合完成: {final_signal} (置信度: {final_confidence:.2f})")
+            return result
+
+        except Exception as e:
+            logger.error(f"加权融合失败: {e}")
+            return None
 
     def set_fusion_weights(self, weights: Dict[str, float]) -> None:
         """设置融合权重"""

@@ -107,8 +107,11 @@ class AIManager(BaseComponent):
     async def _generate_single_ai_signal(self, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """生成单个AI信号"""
         try:
-            # 选择提供商
-            provider = self.config.primary_provider
+            from ..config import load_config
+            config = load_config()
+
+            # 选择提供商 - 优先使用配置中的默认提供商
+            provider = config.ai.ai_default_provider
             if provider not in self.providers and self.providers:
                 provider = self.providers[0]
 
@@ -151,7 +154,20 @@ class AIManager(BaseComponent):
 
             # 如果启用了融合，进行信号融合
             if self.config.fusion_enabled and len(results) > 1:
-                fused_signal = await self.ai_fusion.fuse_signals(results)
+                from ..config import load_config
+                config = load_config()
+
+                # 获取融合配置
+                fusion_strategy = config.ai.ai_fusion_strategy
+                fusion_threshold = config.ai.ai_fusion_threshold
+                fusion_weights = config.ai.ai_fusion_weights
+
+                fused_signal = await self.ai_fusion.fuse_signals(
+                    results,
+                    strategy=fusion_strategy,
+                    threshold=fusion_threshold,
+                    weights=fusion_weights
+                )
                 if fused_signal:
                     return [fused_signal]
 
