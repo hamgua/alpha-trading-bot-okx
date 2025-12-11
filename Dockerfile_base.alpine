@@ -1,0 +1,80 @@
+# Alpine Linux 优化版本（极致精简）
+# 阶段1：构建阶段
+FROM python:3.11-alpine as builder
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+# 安装构建依赖
+RUN apk add --no-cache \
+        build-base \
+        gcc \
+        g++ \
+        gfortran \
+        openblas-dev \
+        lapack-dev \
+        openssl-dev \
+        libffi-dev \
+        zlib-dev \
+        curl \
+        linux-headers \
+        musl-dev
+
+# Python环境优化
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100
+
+# 配置pip源（使用阿里云镜像）
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ && \
+    pip config set global.trusted-host mirrors.aliyun.com && \
+    pip install --upgrade pip
+
+# 创建工作目录
+WORKDIR /build
+
+# 复制并安装Python依赖
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir --only-binary=numpy,numpy scipy || \
+    pip install --user --no-cache-dir -r requirements.txt
+
+# 阶段2：运行时阶段
+FROM python:3.11-alpine
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+# 安装运行时依赖（最小化）
+RUN apk add --no-cache \
+        ca-certificates \
+        tzdata \
+        curl \
+        procps \
+        libstdc++ \
+        openblas \
+        lapack
+
+# Python环境优化
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 复制Python环境和包
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# 设置PATH
+ENV PATH=/root/.local/bin:$PATH
+
+# 设置工作目录
+WORKDIR /app
+
+# 默认命令
+CMD ["sleep", "infinity"]
+
+# docker 构建底层运行镜像命令
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_v1.5.0-alpine -f Dockerfile_base.alpine ./
+# docker push hamgua/alpha-trading-bot-okx:base_v1.5.0-alpine

@@ -1,0 +1,88 @@
+# 多阶段构建优化版本
+# 阶段1：构建阶段
+FROM python:3.11-slim-bullseye as builder
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+# 安装构建依赖（仅构建阶段需要）
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye main" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main" >> /etc/apt/sources.list && \
+    rm -rf /etc/apt/sources.list.d/* && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+        g++ \
+        gfortran \
+        libblas-dev \
+        liblapack-dev \
+        libssl-dev \
+        libffi-dev \
+        zlib1g-dev \
+        ca-certificates \
+        curl \
+        && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Python环境优化
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=100
+
+# 配置pip源
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn && \
+    pip install --upgrade pip
+
+# 创建工作目录
+WORKDIR /build
+
+# 复制并安装Python依赖（使用预编译wheel优先）
+COPY requirements.txt .
+RUN pip install --user --no-cache-dir --only-binary=numpy,numpy scipy || \
+    pip install --user --no-cache-dir -r requirements.txt
+
+# 阶段2：运行时阶段
+FROM python:3.11-slim-bullseye
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+
+# 复制必要的系统库（仅运行时需要的）
+RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye main" > /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main" >> /etc/apt/sources.list && \
+    echo "deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main" >> /etc/apt/sources.list && \
+    rm -rf /etc/apt/sources.list.d/* && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        tzdata \
+        curl \
+        procps \
+        && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+# Python环境优化
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# 复制Python环境和安装的包
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+
+# 设置PATH
+ENV PATH=/root/.local/bin:$PATH
+
+# 设置工作目录
+WORKDIR /app
+
+# 默认命令（作为 Base 镜像不直接运行项目）
+CMD ["sleep", "infinity"]
+
+# docker 构建底层运行镜像命令
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_v1.5.0 -f Dockerfile_base.optimized ./
+# docker push hamgua/alpha-trading-bot-okx:base_v1.5.0

@@ -1,27 +1,34 @@
-# 官方 Python 3.11 slim 基础镜像
+# 官方 Python 3.11 slim 基础镜像（优化版）
 FROM python:3.11-slim-bullseye
 
 # 设置时区
 ENV TZ=Asia/Shanghai
 
-# 合并RUN指令减少层数
+# 合并RUN指令减少层数，仅安装必要的依赖
 RUN echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye main" > /etc/apt/sources.list && \
     echo "deb https://mirrors.ustc.edu.cn/debian/ bullseye-updates main" >> /etc/apt/sources.list && \
     echo "deb https://mirrors.ustc.edu.cn/debian-security bullseye-security main" >> /etc/apt/sources.list && \
     rm -rf /etc/apt/sources.list.d/* && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
+        # 构建工具（必需：用于编译numpy等包）
         build-essential \
         gcc \
         g++ \
-        curl \
-        vim \
-        procps \
-        ca-certificates \
-        tzdata \
+        # 数学库（必需：numpy依赖）
+        libblas-dev \
+        liblapack-dev \
+        # SSL支持（必需：aiohttp等包需要）
         libssl-dev \
         libffi-dev \
         zlib1g-dev \
+        # 基础工具（必需）
+        ca-certificates \
+        tzdata \
+        curl \
+        # 进程管理工具（必需：健康检查等）
+        procps \
+        # 清理apt缓存
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # Python环境优化
@@ -31,7 +38,7 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_DEFAULT_TIMEOUT=100
 
-# 配置pip源并升级pip
+# 配置pip源（清华大学镜像）并升级pip
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
     pip config set global.trusted-host pypi.tuna.tsinghua.edu.cn && \
     pip install --upgrade pip
@@ -43,5 +50,5 @@ WORKDIR /app
 CMD ["sleep", "infinity"]
 
 # docker 构建底层运行镜像命令
-# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_v1.4.0 -f Dockerfile_base ./
-# docker push hamgua/alpha-trading-bot-okx:base_v1.4.0
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_v1.5.0 -f Dockerfile_base ./
+# docker push hamgua/alpha-trading-bot-okx:base_v1.5.0
