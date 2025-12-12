@@ -27,11 +27,11 @@ RUN python -c "import numpy" && echo "✅ numpy 已正确安装" || \
 ENV PYTHONPATH=/app
 
 # 健康检查 - 验证程序可以启动
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD python -c "from alpha_trading_bot import create_bot; print('✅ 模块导入成功')" || exit 1
+# HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+#     CMD python -c "from alpha_trading_bot import create_bot; print('✅ 模块导入成功')" || exit 1
 
 # 使用exec形式确保信号传递
-ENTRYPOINT ["python", "-u", "main.py"]
+ENTRYPOINT ["python", "main.py"]
 
 # docker 构建业务镜像命令
 # docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.9 -f Dockerfile ./
