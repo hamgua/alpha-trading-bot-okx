@@ -4,8 +4,8 @@ services:
     image: hamgua/alpha-trading-bot-okx:v4.4.16
     container_name: alpha-trading-bot-okx
     restart: unless-stopped
-    ports:
-      - "8501:8501"
+    #ports:
+    #  - "8501:8501"
     volumes:
       - /etc/localtime:/etc/localtime:ro
       - ./.env:/app/.env:ro
@@ -19,12 +19,12 @@ services:
       - 8.8.4.4
     networks:
       - trading-bot-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+    #healthcheck:
+    #  test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+    #  interval: 30s
+    #  timeout: 10s
+    #  retries: 3
+    #  start_period: 60s
     logging:
       driver: "json-file"
       options:
@@ -32,6 +32,6 @@ services:
         max-file: "3"
         compress: "true"
 
-networks:
-  trading-bot-network:
-    driver: bridge
+#networks:
+#  trading-bot-network:
+#    driver: bridge
