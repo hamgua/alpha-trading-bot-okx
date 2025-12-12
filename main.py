@@ -15,7 +15,7 @@ def setup_logging(log_level=logging.INFO):
     """配置日志系统"""
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
             logging.FileHandler('trading_bot.log', encoding='utf-8')
@@ -26,13 +26,38 @@ def setup_logging(log_level=logging.INFO):
 
 async def main_async(config_path=None, strategy_name=None):
     """异步主函数"""
-    from alpha_trading_bot import create_bot, start_bot
+    from alpha_trading_bot import create_bot, start_bot, stop_bot, load_config
 
-    # 创建交易机器人实例
-    bot = create_bot(config_path=config_path)
+    # 获取当前模块的logger
+    logger = logging.getLogger(__name__)
 
-    # 启动交易机器人
-    await start_bot(bot, strategy_name=strategy_name)
+    bot = None
+
+    try:
+        # 加载配置（如果有配置文件路径）
+        if config_path:
+            logger.info(f"使用配置文件: {config_path}")
+            # 这里可以添加从配置文件加载特定配置的逻辑
+
+        # 创建交易机器人实例（使用默认ID和配置）
+        bot = await create_bot("main_bot", name="AlphaTradingBot")
+
+        # 启动交易机器人
+        await start_bot("main_bot")
+
+    except KeyboardInterrupt:
+        logger.info("\n用户中断程序，正在安全退出...")
+        if bot:
+            await stop_bot("main_bot")
+        raise
+    except Exception as e:
+        logger.error(f"启动交易机器人失败: {e}")
+        if bot:
+            try:
+                await stop_bot("main_bot")
+            except:
+                pass
+        raise
 
 
 def main():
@@ -104,6 +129,7 @@ def main():
 
     except KeyboardInterrupt:
         logger.info("\n用户中断程序，正在安全退出...")
+        # 清理已经在 main_async 中处理
         sys.exit(0)
     except Exception as e:
         logger.error(f"程序运行错误: {e}")

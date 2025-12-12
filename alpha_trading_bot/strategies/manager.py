@@ -22,10 +22,14 @@ class StrategyManagerConfig(BaseConfig):
 class StrategyManager(BaseComponent):
     """策略管理器"""
 
-    def __init__(self, config: Optional[StrategyManagerConfig] = None):
-        super().__init__(config or StrategyManagerConfig())
+    def __init__(self, config: Optional[StrategyManagerConfig] = None, ai_manager: Optional[Any] = None):
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = StrategyManagerConfig(name="StrategyManager")
+        super().__init__(config)
         self.active_strategies: Dict[str, Any] = {}
         self.strategy_results: List[Dict[str, Any]] = []
+        self.ai_manager = ai_manager  # AI管理器实例
 
     async def initialize(self) -> bool:
         """初始化策略管理器"""
@@ -56,10 +60,14 @@ class StrategyManager(BaseComponent):
         try:
             signals = []
 
-            # 获取AI信号
-            from ..ai import create_ai_manager
-            ai_manager = await create_ai_manager()
-            ai_signals = await ai_manager.generate_signals(market_data)
+            # 获取AI信号 - 使用提供的AI管理器实例
+            if self.ai_manager:
+                ai_signals = await self.ai_manager.generate_signals(market_data)
+            else:
+                # 如果没有提供AI管理器，使用全局实例
+                from ..ai import get_ai_manager
+                ai_manager = await get_ai_manager()
+                ai_signals = await ai_manager.generate_signals(market_data)
 
             # 转换AI信号为策略信号
             for ai_signal in ai_signals:
@@ -95,6 +103,54 @@ class StrategyManager(BaseComponent):
             low = market_data.get('low', price)
 
             if price > 0 and high > low:
+                # 获取配置
+                from ..config import load_config
+                config = load_config()
+                symbol = config.exchange.symbol
+
+                # 获取多时间框架数据
+                hourly_data = {}
+                four_hour_data = {}
+                daily_data = {}
+
+                # 如果已有15分钟数据，计算其他时间框架的近似值
+                if market_data.get('close_prices') and len(market_data['close_prices']) >= 16:
+                    # 从15分钟数据计算1小时数据（4根15分钟 = 1小时）
+                    closes = market_data['close_prices']
+                    highs = market_data['high_prices']
+                    lows = market_data['low_prices']
+
+                    # 计算1小时数据
+                    hourly_closes = [closes[i*4] for i in range(len(closes)//4)]
+                    hourly_highs = [max(highs[i*4:(i+1)*4]) for i in range(len(highs)//4)]
+                    hourly_lows = [min(lows[i*4:(i+1)*4]) for i in range(len(lows)//4)]
+
+                    if hourly_closes:
+                        hourly_data = {
+                            'close': hourly_closes,
+                            'high': hourly_highs,
+                            'low': hourly_lows
+                        }
+                        # 添加1小时高低价到市场数据
+                        market_data['hourly_high'] = max(hourly_highs[-4:]) if len(hourly_highs) >= 4 else hourly_highs[-1]
+                        market_data['hourly_low'] = min(hourly_lows[-4:]) if len(hourly_lows) >= 4 else hourly_lows[-1]
+
+                if market_data.get('close_prices') and len(market_data['close_prices']) >= 64:
+                    # 从15分钟数据计算4小时数据（16根15分钟 = 4小时）
+                    four_hour_closes = [closes[i*16] for i in range(len(closes)//16)]
+                    four_hour_highs = [max(highs[i*16:(i+1)*16]) for i in range(len(highs)//16)]
+                    four_hour_lows = [min(lows[i*16:(i+1)*16]) for i in range(len(lows)//16)]
+
+                    if four_hour_closes:
+                        four_hour_data = {
+                            'close': four_hour_closes,
+                            'high': four_hour_highs,
+                            'low': four_hour_lows
+                        }
+                        # 添加4小时高低价到市场数据
+                        market_data['4h_high'] = max(four_hour_highs[-6:]) if len(four_hour_highs) >= 6 else four_hour_highs[-1]
+                        market_data['4h_low'] = min(four_hour_lows[-6:]) if len(four_hour_lows) >= 6 else four_hour_lows[-1]
+
                 # 计算技术指标
                 from ..utils.technical import TechnicalIndicators
                 technical_data = TechnicalIndicators.calculate_all_indicators(market_data)
@@ -104,10 +160,7 @@ class StrategyManager(BaseComponent):
                 consolidation_detector = ConsolidationDetector()
 
                 # 获取当前投资类型配置
-                from ..config import load_config
-                config = load_config()
                 investment_type = config.strategies.investment_type
-                symbol = config.exchange.symbol
 
                 # 检测横盘状态
                 is_consolidation, reason, confidence = consolidation_detector.detect_consolidation(

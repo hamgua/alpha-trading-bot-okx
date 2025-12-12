@@ -93,6 +93,10 @@ async def stop_bot(bot_id: str) -> None:
         await bot.stop()
         logger.info(f"机器人 {bot_id} 已停止")
 
+    # 清理资源
+    await bot.cleanup()
+    logger.info(f"机器人 {bot_id} 资源已清理")
+
 async def get_bot_status(bot_id: str) -> Dict[str, Any]:
     """
     获取机器人状态

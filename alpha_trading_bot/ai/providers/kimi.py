@@ -38,22 +38,26 @@ class KimiProvider(BaseAIProvider):
                 'max_tokens': 500
             }
 
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f'{self.base_url}/chat/completions',
-                    headers=headers,
-                    json=data,
-                    timeout=aiohttp.ClientTimeout(total=self.timeout)
-                ) as response:
-                    if response.status == 429:
-                        raise RateLimitError("Kimi API速率限制")
-                    elif response.status != 200:
-                        raise NetworkError(f"Kimi API错误: {response.status}")
+            # 使用AI客户端的共享会话
+            session = self.client.session
+            if not session:
+                raise NetworkError("AI客户端会话未初始化")
 
-                    result = await response.json()
-                    content = result['choices'][0]['message']['content']
+            async with session.post(
+                f'{self.base_url}/chat/completions',
+                headers=headers,
+                json=data,
+                timeout=aiohttp.ClientTimeout(total=self.timeout)
+            ) as response:
+                if response.status == 429:
+                    raise RateLimitError("Kimi API速率限制")
+                elif response.status != 200:
+                    raise NetworkError(f"Kimi API错误: {response.status}")
 
-                    return self._parse_response(content)
+                result = await response.json()
+                content = result['choices'][0]['message']['content']
+
+                return self._parse_response(content)
 
         except Exception as e:
             logger.error(f"Kimi信号生成失败: {e}")

@@ -93,6 +93,35 @@ class ConsolidationDetector:
             confidence = min(final_score, 0.95)
             reason = self._generate_reason(final_score, consolidation_score, technical_score, volatility_score)
 
+            # 增强日志：显示详细评分和阈值对比
+            logger.info(f"横盘检测结果: {is_consolidation}")
+            logger.info(f"📊 综合评分详情:")
+            logger.info(f"   最终评分: {final_score:.3f} (阈值: 0.7)")
+            logger.info(f"   多时间框架评分: {consolidation_score:.3f} (权重: 30%)")
+            logger.info(f"   技术指标评分: {technical_score:.3f} (权重: 25%)")
+            logger.info(f"   波动率评分: {volatility_score:.3f} (权重: 25%)")
+            logger.info(f"   成交量评分: {volume_score:.3f} (权重: 20%)")
+
+            # 如果评分低，显示具体原因
+            if final_score < 0.7:
+                low_score_reasons = []
+                if consolidation_score < 0.5:
+                    low_score_reasons.append(f"价格未处于中间区域 ({consolidation_score:.2f} < 0.5)")
+                if technical_score < 0.5:
+                    low_score_reasons.append(f"技术指标显示有趋势 ({technical_score:.2f} < 0.5)")
+                if volatility_score < 0.5:
+                    low_score_reasons.append(f"波动率较高 ({volatility_score:.2f} < 0.5)")
+                if volume_score < 0.5:
+                    low_score_reasons.append(f"成交量异常 ({volume_score:.2f} < 0.5)")
+
+                if low_score_reasons:
+                    logger.info(f"❌ 低评分原因: {'; '.join(low_score_reasons)}")
+
+                # 显示具体的阈值比较结果
+                logger.info(f"评分 {final_score:.2f} < 0.7 (阈值)，判定为非横盘状态")
+            else:
+                logger.info(f"✅ 评分 {final_score:.2f} ≥ 0.7 (阈值)，判定为横盘状态")
+
             logger.info(f"横盘检测结果: {is_consolidation}, 评分: {final_score:.2f}, 原因: {reason}")
 
             return is_consolidation, reason, confidence
@@ -139,39 +168,57 @@ class ConsolidationDetector:
 
         except Exception as e:
             logger.error(f"多时间框架分析失败: {e}")
-            return 0.0
+            logger.warning("多时间框架分析异常，返回基础分数0.3")
+            return 0.3  # 异常时给基础分数
 
     def _technical_indicators_analysis(self, market_data: Dict[str, Any], params: Dict[str, float]) -> float:
         """技术指标分析"""
         try:
             score = 0.0
+            has_indicators = False
 
             # 1. ADX趋势强度分析
             if 'adx' in market_data:
+                has_indicators = True
                 adx = float(market_data['adx'])
                 if adx < params['adx_threshold']:  # ADX小于阈值视为无趋势
                     score += 0.3
+                    logger.debug(f"ADX评分: +0.3 (ADX={adx} < {params['adx_threshold']})")
                 elif adx < params['adx_threshold'] + 5:
                     score += 0.15
+                    logger.debug(f"ADX评分: +0.15 (ADX={adx} 接近阈值)")
+            else:
+                logger.debug("ADX指标缺失，跳过ADX评分")
 
             # 2. RSI中性区域分析
             if 'rsi' in market_data:
+                has_indicators = True
                 rsi = float(market_data['rsi'])
                 if 40 <= rsi <= 60:  # RSI中性区域
                     score += 0.3
+                    logger.debug(f"RSI评分: +0.3 (RSI={rsi} 在40-60区间)")
                 elif 35 <= rsi <= 65:
                     score += 0.15
+                    logger.debug(f"RSI评分: +0.15 (RSI={rsi} 在35-65区间)")
+            else:
+                logger.debug("RSI指标缺失，跳过RSI评分")
 
             # 3. MACD柱状图分析
             if 'macd_histogram' in market_data:
+                has_indicators = True
                 histogram = float(market_data['macd_histogram'])
                 if abs(histogram) < 0.1:  # MACD柱状图接近0
                     score += 0.2
+                    logger.debug(f"MACD评分: +0.2 (柱状图={histogram} 接近0)")
                 elif abs(histogram) < 0.2:
                     score += 0.1
+                    logger.debug(f"MACD评分: +0.1 (柱状图={histogram} 较小)")
+            else:
+                logger.debug("MACD柱状图缺失，跳过MACD评分")
 
             # 4. 价格与均线关系
             if 'sma_20' in market_data and 'sma_50' in market_data:
+                has_indicators = True
                 sma_20 = float(market_data['sma_20'])
                 sma_50 = float(market_data['sma_50'])
                 price = float(market_data['price'])
@@ -179,58 +226,95 @@ class ConsolidationDetector:
                 # 价格在均线附近徘徊
                 if abs(price - sma_20) / price < 0.01 and abs(sma_20 - sma_50) / sma_20 < 0.005:
                     score += 0.2
+                    logger.debug(f"价格均线评分: +0.2 (价格接近SMA20)")
+            else:
+                logger.debug("SMA20或SMA50缺失，跳过均线评分")
 
+            # 如果没有可用的技术指标，给出基础分数
+            if not has_indicators:
+                logger.warning("没有可用的技术指标，使用基础分数0.3")
+                score = 0.3  # 基础横盘概率
+            else:
+                logger.debug(f"技术指标总分: {score:.2f}")
+
+            # 限制最大分数为0.8（避免完美分数）
             return min(score, 0.8)
 
         except Exception as e:
             logger.error(f"技术指标分析失败: {e}")
-            return 0.0
+            logger.warning("技术指标分析异常，返回基础分数0.2")
+            return 0.2  # 异常时给基础分数
 
     def _volatility_analysis(self, market_data: Dict[str, Any], params: Dict[str, float]) -> float:
         """波动率分析"""
         try:
             score = 0.0
+            has_volatility_data = False
             current_price = float(market_data['price'])
 
             # 1. ATR分析
             if 'atr' in market_data:
+                has_volatility_data = True
                 atr = float(market_data['atr'])
                 atr_ratio = atr / current_price
 
                 if atr_ratio < params['atr_threshold']:
                     score += 0.4
+                    logger.debug(f"ATR评分: +0.4 (ATR比率={atr_ratio:.4f} < {params['atr_threshold']})")
                 elif atr_ratio < params['atr_threshold'] * 1.5:
                     score += 0.2
+                    logger.debug(f"ATR评分: +0.2 (ATR比率={atr_ratio:.4f} 接近阈值)")
+            else:
+                logger.debug("ATR数据缺失，跳过ATR评分")
 
             # 2. 布林带宽度分析
             if 'bb_upper' in market_data and 'bb_lower' in market_data:
+                has_volatility_data = True
                 bb_upper = float(market_data['bb_upper'])
                 bb_lower = float(market_data['bb_lower'])
                 bb_width = (bb_upper - bb_lower) / current_price
 
                 if bb_width < params['bb_width_threshold']:
                     score += 0.4
+                    logger.debug(f"布林带评分: +0.4 (带宽={bb_width:.4f} < {params['bb_width_threshold']})")
                 elif bb_width < params['bb_width_threshold'] * 1.5:
                     score += 0.2
+                    logger.debug(f"布林带评分: +0.2 (带宽={bb_width:.4f} 接近阈值)")
+            else:
+                logger.debug("布林带数据缺失，跳过布林带评分")
 
             # 3. 历史波动率比较
             if 'volatility_30d' in market_data:
+                has_volatility_data = True
                 current_vol = float(market_data['volatility_30d'])
                 if current_vol < 0.3:  # 低于30%视为低波动
                     score += 0.2
+                    logger.debug(f"历史波动率评分: +0.2 (波动率={current_vol:.2f} < 0.3)")
+            else:
+                logger.debug("历史波动率数据缺失，跳过波动率评分")
+
+            # 如果没有波动率数据，给出基础分数
+            if not has_volatility_data:
+                logger.warning("没有可用的波动率数据，使用基础分数0.3")
+                score = 0.3  # 基础横盘概率
+            else:
+                logger.debug(f"波动率分析总分: {score:.2f}")
 
             return min(score, 0.8)
 
         except Exception as e:
             logger.error(f"波动率分析失败: {e}")
-            return 0.0
+            logger.warning("波动率分析异常，返回基础分数0.2")
+            return 0.2  # 异常时给基础分数
 
     def _volume_analysis(self, market_data: Dict[str, Any]) -> float:
         """成交量分析"""
         try:
             score = 0.0
+            has_volume_data = False
 
             if 'volume' in market_data and 'avg_volume_24h' in market_data:
+                has_volume_data = True
                 current_volume = float(market_data['volume'])
                 avg_volume = float(market_data['avg_volume_24h'])
 
@@ -239,16 +323,29 @@ class ConsolidationDetector:
 
                 if 0.5 <= volume_ratio <= 1.5:  # 正常成交量
                     score += 0.3
+                    logger.debug(f"成交量评分: +0.3 (成交量比={volume_ratio:.2f} 正常)")
                 elif volume_ratio < 0.5:  # 成交量萎缩
                     score += 0.4
+                    logger.debug(f"成交量评分: +0.4 (成交量比={volume_ratio:.2f} 萎缩)")
                 elif volume_ratio > 2.0:  # 异常放量但价格不动
                     score += 0.1  # 可能是变盘前兆，降低横盘评分
+                    logger.debug(f"成交量评分: +0.1 (成交量比={volume_ratio:.2f} 异常放量)")
+            else:
+                logger.debug("成交量数据缺失，跳过成交量评分")
+
+            # 如果没有成交量数据，给出基础分数
+            if not has_volume_data:
+                logger.warning("没有可用的成交量数据，使用基础分数0.3")
+                score = 0.3  # 基础横盘概率
+            else:
+                logger.debug(f"成交量分析总分: {score:.2f}")
 
             return score
 
         except Exception as e:
             logger.error(f"成交量分析失败: {e}")
-            return 0.0
+            logger.warning("成交量分析异常，返回基础分数0.2")
+            return 0.2  # 异常时给基础分数
 
     def _generate_reason(self, final_score: float, consolidation_score: float,
                         technical_score: float, volatility_score: float) -> str:

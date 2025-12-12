@@ -25,7 +25,10 @@ class RiskManager(BaseComponent):
     """风险管理器 - 多维度风险评估"""
 
     def __init__(self, config: Optional[RiskManagerConfig] = None):
-        super().__init__(config or RiskManagerConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = RiskManagerConfig(name="RiskManager")
+        super().__init__(config)
         self.daily_loss = 0.0
         self.consecutive_losses = 0
         self.last_loss_time = None
@@ -46,6 +49,74 @@ class RiskManager(BaseComponent):
     async def cleanup(self) -> None:
         """清理资源"""
         pass
+
+    async def assess_risk(self, signals: list) -> Dict[str, Any]:
+        """评估交易风险（兼容策略管理器调用的接口）"""
+        try:
+            # 如果没有信号，返回默认允许交易
+            if not signals:
+                return {
+                    'can_trade': True,
+                    'reason': '无交易信号',
+                    'risk_score': 0.0
+                }
+
+            # 简化实现：基于信号数量和质量评估风险
+            risk_score = 0.0
+            reasons = []
+
+            # 1. 信号数量风险
+            if len(signals) > 3:
+                risk_score += 0.1
+                reasons.append("信号过多，可能过度交易")
+
+            # 2. 信号一致性风险
+            buy_signals = sum(1 for s in signals if s.get('signal') == 'BUY')
+            sell_signals = sum(1 for s in signals if s.get('signal') == 'SELL')
+            hold_signals = sum(1 for s in signals if s.get('signal') == 'HOLD')
+
+            total_signals = len(signals)
+            if total_signals > 0:
+                max_consensus = max(buy_signals, sell_signals, hold_signals) / total_signals
+                if max_consensus < 0.6:
+                    risk_score += 0.2
+                    reasons.append("信号一致性不足")
+
+            # 3. 当日亏损检查
+            if self.daily_loss >= self.config.max_daily_loss:
+                return {
+                    'can_trade': False,
+                    'reason': f"当日亏损已达上限: {self.daily_loss:.2f} USDT",
+                    'risk_score': 1.0
+                }
+
+            # 4. 连续亏损检查
+            if self.consecutive_losses >= self.config.max_consecutive_losses:
+                return {
+                    'can_trade': False,
+                    'reason': f"连续亏损次数过多: {self.consecutive_losses}",
+                    'risk_score': 1.0
+                }
+
+            # 综合评估
+            can_trade = risk_score <= 0.5
+            reason = "; ".join(reasons) if reasons else "风险评估通过"
+
+            return {
+                'can_trade': can_trade,
+                'reason': reason,
+                'risk_score': risk_score,
+                'daily_loss': self.daily_loss,
+                'consecutive_losses': self.consecutive_losses
+            }
+
+        except Exception as e:
+            logger.error(f"风险评估失败: {e}")
+            return {
+                'can_trade': False,
+                'reason': f"风险评估异常: {str(e)}",
+                'risk_score': 1.0
+            }
 
     async def assess_trade_risk(self, trade_request: Dict[str, Any]) -> RiskAssessmentResult:
         """评估交易风险"""

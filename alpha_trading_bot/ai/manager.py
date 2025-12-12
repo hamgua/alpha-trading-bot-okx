@@ -30,7 +30,10 @@ class AIManager(BaseComponent):
     """AI管理器"""
 
     def __init__(self, config: Optional[AIManagerConfig] = None):
-        super().__init__(config or AIManagerConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = AIManagerConfig(name="AIManager")
+        super().__init__(config)
         self.ai_client = AIClient()
         self.ai_fusion = AIFusion()
         self.signal_generator = SignalGenerator()
@@ -45,14 +48,33 @@ class AIManager(BaseComponent):
             # 初始化AI客户端
             await self.ai_client.initialize()
 
-            # 获取可用的AI提供商
+            # 获取配置
             from ..config import load_config
             config = load_config()
-            self.providers = list(config.ai.models.keys())
 
-            if not self.providers:
-                logger.warning("未配置任何AI提供商，将使用回退模式")
-                self.providers = ["fallback"]
+            # 根据AI模式选择提供商
+            if config.ai.use_multi_ai_fusion:
+                # 多AI融合模式 - 只使用配置的融合提供商
+                available_providers = set(config.ai.models.keys())
+                fusion_providers = set(config.ai.ai_fusion_providers)
+
+                # 只保留同时有API密钥且在融合配置中的提供商
+                self.providers = list(available_providers & fusion_providers)
+
+                if not self.providers:
+                    logger.warning(f"配置的融合提供商 {fusion_providers} 没有可用的API密钥，将使用回退模式")
+                    self.providers = ["fallback"]
+                else:
+                    logger.info(f"AI融合模式已启用，使用提供商: {self.providers}")
+            else:
+                # 单一AI模式 - 只使用默认提供商
+                default_provider = config.ai.ai_default_provider
+                if default_provider in config.ai.models:
+                    self.providers = [default_provider]
+                    logger.info(f"单一AI模式，使用提供商: {default_provider}")
+                else:
+                    logger.warning(f"默认提供商 {default_provider} 未配置API密钥，将使用回退模式")
+                    self.providers = ["fallback"]
 
             # 初始化信号生成器
             await self.signal_generator.initialize()
@@ -78,22 +100,47 @@ class AIManager(BaseComponent):
                 cached_result = self.cache[cache_key]
                 if (datetime.now() - cached_result['timestamp']).seconds < self.config.cache_duration:
                     logger.info("使用缓存的AI信号")
-                    return cached_result['signals']
+                    # 如果有缓存的统计信息，直接使用它
+                    if 'success_count' in cached_result:
+                        success_count = cached_result['success_count']
+                        fail_count = cached_result['fail_count']
+                        success_providers = cached_result['success_providers']
+                        total = success_count + fail_count
+                        logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
+                        logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
+                    # 返回信号并标记为缓存结果
+                    signals = cached_result['signals']
+                    for signal in signals:
+                        signal['_from_cache'] = True  # 添加标记表示这是缓存的信号
+                    return signals
+
+            # 记录当前AI决策模式
+            from ..config import load_config
+            config = load_config()
+            ai_mode = "融合模式" if config.ai.use_multi_ai_fusion else "单一模式"
+            logger.info(f"🤖 AI决策模式: {ai_mode} (提供商: {self.providers})")
 
             signals = []
 
             if self.config.use_multi_ai and len(self.providers) > 1:
                 # 多AI模式
+                logger.info(f"🚀 并行获取多AI信号: {self.providers}")
                 signals = await self._generate_multi_ai_signals(market_data)
             else:
                 # 单AI模式
+                provider = self.providers[0] if self.providers else "fallback"
+                logger.info(f"🎯 使用单一AI信号: {provider}")
                 signal = await self._generate_single_ai_signal(market_data)
                 if signal:
                     signals = [signal]
 
-            # 缓存结果
+            # 缓存结果 - 存储个体信号和最终信号
             self.cache[cache_key] = {
-                'signals': signals,
+                'individual_signals': results,  # 保存个体提供商信号
+                'signals': signals,  # 保存最终信号（可能包含融合信号）
+                'success_count': success_count,
+                'fail_count': fail_count,
+                'success_providers': success_providers,
                 'timestamp': datetime.now()
             }
 
@@ -117,9 +164,20 @@ class AIManager(BaseComponent):
 
             # 生成信号
             if provider == "fallback":
+                logger.info(f"🔄 使用回退信号策略")
                 signal = await self._generate_fallback_signal(market_data)
             else:
+                logger.info(f"📡 请求 {provider.upper()} 信号...")
                 signal = await self.ai_client.generate_signal(provider, market_data)
+
+            # 记录信号详情
+            if signal:
+                # AI提供商使用 'signal' 字段，不是 'action'
+                action = signal.get('signal', signal.get('action', 'UNKNOWN'))
+                confidence = signal.get('confidence', 0)
+                logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+            else:
+                logger.error(f"❌ {provider.upper()} 返回空信号")
 
             return signal
 
@@ -141,19 +199,49 @@ class AIManager(BaseComponent):
                     task = asyncio.create_task(self.ai_client.generate_signal(provider, market_data))
                 tasks.append((provider, task))
 
-            # 等待所有任务完成
+            # 等待所有任务完成并记录结果
             results = []
+            success_count = 0
+            fail_count = 0
+            success_providers = []
+
             for provider, task in tasks:
                 try:
                     signal = await task
-                    if signal and signal.get('confidence', 0) >= self.config.min_confidence:
-                        signal['provider'] = provider
-                        results.append(signal)
+                    if signal:
+                        # 检查置信度阈值
+                        confidence = signal.get('confidence', 0)
+                        if confidence >= self.config.min_confidence:
+                            signal['provider'] = provider
+                            results.append(signal)
+                            success_count += 1
+                            success_providers.append(provider)
+
+                            # 记录详细的信号信息
+                            action = signal.get('signal', signal.get('action', 'UNKNOWN'))
+                            logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+                        else:
+                            logger.warning(f"⚠️  {provider.upper()} 置信度不足: {confidence:.2f} < {self.config.min_confidence}")
+                            fail_count += 1
+                    else:
+                        logger.error(f"❌ {provider.upper()} 返回空信号")
+                        fail_count += 1
+
                 except Exception as e:
-                    logger.error(f"提供商 {provider} 信号生成失败: {e}")
+                    logger.error(f"❌ {provider.upper()} 信号生成失败: {e}")
+                    fail_count += 1
+
+            # 记录统计信息 - 这是实际提供商的统计
+            total = success_count + fail_count
+            logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
+            logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
 
             # 如果启用了融合，进行信号融合
-            if self.config.fusion_enabled and len(results) > 1:
+            # 只要有至少1个成功的信号，就进行融合（部分失败不影响融合决策）
+            if self.config.fusion_enabled and len(results) >= 1:
+                # 记录部分失败的情况
+                if fail_count > 0:
+                    logger.info(f"⚠️  部分提供商失败: {fail_count}/{total}，使用{len(results)}个成功信号进行融合")
                 from ..config import load_config
                 config = load_config()
 
@@ -162,6 +250,10 @@ class AIManager(BaseComponent):
                 fusion_threshold = config.ai.ai_fusion_threshold
                 fusion_weights = config.ai.ai_fusion_weights
 
+                logger.info(f"🔧 开始信号融合 - 策略: {fusion_strategy}, 阈值: {fusion_threshold}")
+                if fusion_weights:
+                    logger.info(f"⚖️  融合权重: {fusion_weights}")
+
                 fused_signal = await self.ai_fusion.fuse_signals(
                     results,
                     strategy=fusion_strategy,
@@ -169,7 +261,12 @@ class AIManager(BaseComponent):
                     weights=fusion_weights
                 )
                 if fused_signal:
+                    action = fused_signal.get('signal', fused_signal.get('action', 'UNKNOWN'))
+                    confidence = fused_signal.get('confidence', 0)
+                    logger.info(f"🔮 融合结果: {action} (置信度: {confidence:.2f})")
                     return [fused_signal]
+                else:
+                    logger.warning("⚠️  信号融合失败，返回原始信号")
 
             return results
 
@@ -276,21 +373,44 @@ class AIManager(BaseComponent):
         })
         return base_status
 
+# 全局AI管理器实例
+_ai_manager_instance: Optional[AIManager] = None
+
 # 创建AI管理器的工厂函数
 async def create_ai_manager() -> AIManager:
     """创建AI管理器实例"""
+    global _ai_manager_instance
+
     from ..config import load_config
     config = load_config()
 
     ai_config = AIManagerConfig(
         name="AlphaAIManager",
-        use_multi_ai=config.ai.use_multi_ai,
-        primary_provider=config.ai.ai_provider,
+        use_multi_ai=config.ai.use_multi_ai_fusion,  # 使用新的 fusion 模式判断
+        primary_provider=config.ai.ai_default_provider,  # 使用新的默认提供商参数
         fallback_enabled=config.ai.fallback_enabled,
         cache_duration=config.ai.cache_duration,
-        min_confidence=config.ai.min_confidence_threshold
+        min_confidence=config.ai.min_confidence_threshold,
+        fusion_enabled=config.ai.use_multi_ai_fusion  # 融合模式与多AI模式保持一致
     )
 
-    manager = AIManager(ai_config)
-    await manager.initialize()
-    return manager
+    _ai_manager_instance = AIManager(ai_config)
+    await _ai_manager_instance.initialize()
+    return _ai_manager_instance
+
+async def get_ai_manager() -> AIManager:
+    """获取全局AI管理器实例"""
+    global _ai_manager_instance
+
+    if _ai_manager_instance is None:
+        raise RuntimeError("AI管理器尚未初始化，请先调用 create_ai_manager()")
+
+    return _ai_manager_instance
+
+async def cleanup_ai_manager() -> None:
+    """清理全局AI管理器实例"""
+    global _ai_manager_instance
+
+    if _ai_manager_instance is not None:
+        await _ai_manager_instance.cleanup()
+        _ai_manager_instance = None

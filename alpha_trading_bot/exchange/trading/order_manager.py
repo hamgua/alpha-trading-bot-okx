@@ -24,7 +24,10 @@ class OrderManager(BaseComponent):
     """订单管理器"""
 
     def __init__(self, exchange_client, config: Optional[OrderManagerConfig] = None):
-        super().__init__(config or OrderManagerConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = OrderManagerConfig(name="OrderManager")
+        super().__init__(config)
         self.exchange_client = exchange_client
         self.active_orders: Dict[str, OrderResult] = {}
         self.order_history: List[OrderResult] = []

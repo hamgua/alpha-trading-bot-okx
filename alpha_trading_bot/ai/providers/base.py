@@ -29,22 +29,49 @@ class BaseAIProvider(ABC):
         return bool(self.api_key and self.api_key.strip())
 
     def build_prompt(self, market_data: Dict[str, Any]) -> str:
-        """构建提示词"""
-        price = market_data.get('price', 0)
-        high = market_data.get('high', price)
-        low = market_data.get('low', price)
-        volume = market_data.get('volume', 0)
+        """构建增强的基础提示词 - 与主prompt保持一致性"""
 
-        return f"""基于以下市场数据提供交易建议：
+        # 基础市场数据
+        price = float(market_data.get('price', 0))
+        daily_high = float(market_data.get('high', price))
+        daily_low = float(market_data.get('low', price))
+        volume = float(market_data.get('volume', 0))
 
-当前价格: {price}
-当日最高: {high}
-当日最低: {low}
-成交量: {volume}
+        # 计算价格位置
+        price_position = 50
+        if daily_high > daily_low:
+            price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
 
-请分析并提供：
-1. 交易信号 (BUY/SELL/HOLD)
-2. 信心度 (0-1)
-3. 分析理由
+        # 获取技术指标
+        technical_data = market_data.get('technical_data', {})
+        rsi = float(technical_data.get('rsi', 50))
+        atr_pct = float(technical_data.get('atr_pct', 0))
 
-请以JSON格式回复。"""
+        # 构建基础分析
+        rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"
+
+        return f"""你是专业的加密货币交易员。请基于以下数据给出交易建议：
+
+【市场数据】
+当前价格: ${price:,.2f}
+价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
+价格位置: {price_position:.1f}% (相对区间)
+成交量: {volume:,.0f}
+ATR波动率: {atr_pct:.2f}%
+
+【技术指标】
+RSI: {rsi:.1f} ({rsi_status})
+
+【分析要求】
+1. 结合价格位置和技术指标
+2. 考虑波动率影响
+3. 提供明确交易信号
+
+请以JSON格式回复：
+{{
+    "signal": "BUY/SELL/HOLD",
+    "confidence": 0.8,
+    "reason": "分析理由",
+    "holding_time": "持仓时间",
+    "risk": "风险提示"
+}}"""

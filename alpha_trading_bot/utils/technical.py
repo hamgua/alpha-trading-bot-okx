@@ -398,9 +398,10 @@ class TechnicalIndicators:
             包含所有计算结果的字典
         """
         try:
-            close = market_data.get('close', [])
-            high = market_data.get('high', [])
-            low = market_data.get('low', [])
+            # 使用新的键名获取OHLCV数据
+            close = market_data.get('close_prices', [])
+            high = market_data.get('high_prices', [])
+            low = market_data.get('low_prices', [])
 
             if not close or len(close) < 50:
                 return {}

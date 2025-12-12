@@ -13,22 +13,12 @@ WORKDIR /app
 # 复制项目文件
 COPY  . .
 
-# 验证依赖是否正确安装
-RUN python -c "import dotenv" && echo "✅ python-dotenv 已正确安装" || \
-    (echo "❌ python-dotenv 未安装，正在安装..." && pip install python-dotenv)
-
-RUN python -c "import ccxt" && echo "✅ ccxt 已正确安装" || \
-    (echo "❌ ccxt 未安装，正在安装..." && pip install ccxt)
-
-RUN python -c "import numpy" && echo "✅ numpy 已正确安装" || \
-    (echo "❌ numpy 未安装，正在安装..." && pip install numpy)
-
 # 设置Python路径
 ENV PYTHONPATH=/app
 
 # 健康检查 - 验证程序可以启动
-# HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-#     CMD python -c "from alpha_trading_bot import create_bot; print('✅ 模块导入成功')" || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+     CMD python -c "from alpha_trading_bot import create_bot; print('✅ 模块导入成功')" || exit 1
 
 # 使用exec形式确保信号传递
 ENTRYPOINT ["python", "main.py"]

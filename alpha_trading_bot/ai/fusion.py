@@ -54,6 +54,9 @@ class AIFusion:
             else:  # weighted
                 return await self._fuse_by_weighted(signals, weights, fusion_providers)
 
+        except Exception as e:
+            logger.error(f"融合AI信号失败: {e}")
+            return None
 
     def _calculate_consensus(self, signals: List[Dict[str, Any]]) -> Dict[str, Any]:
         """计算信号一致性"""

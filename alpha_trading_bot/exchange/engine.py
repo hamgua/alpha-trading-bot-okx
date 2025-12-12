@@ -35,8 +35,11 @@ class TradingEngine(BaseComponent):
     """交易引擎主类"""
 
     def __init__(self, config: Optional[TradingEngineConfig] = None):
-        super().__init__(config or TradingEngineConfig())
-        self.config = config or TradingEngineConfig()
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = TradingEngineConfig(name="TradingEngine")
+        super().__init__(config)
+        self.config = config
 
         # 创建组件实例
         self.exchange_client = ExchangeClient()
@@ -59,9 +62,23 @@ class TradingEngine(BaseComponent):
     async def initialize(self) -> bool:
         """初始化交易引擎"""
         try:
-            logger.info("正在初始化交易引擎...")
+            logger.info(f"正在初始化交易引擎... 测试模式: {self.config.test_mode}")
 
-            # 初始化交易所客户端
+            # 检查是否为测试模式
+            if self.config.test_mode:
+                logger.info("测试模式：跳过真实交易所初始化")
+                # 初始化各组件（测试模式）
+                await self.order_manager.initialize()
+                await self.position_manager.initialize()
+                await self.risk_manager.initialize()
+                await self.trade_executor.initialize()
+
+                self._initialized = True
+                logger.info("交易引擎测试模式初始化成功")
+                return True
+
+            # 正常模式：初始化交易所客户端
+            logger.info("正常模式：初始化交易所客户端")
             await self.exchange_client.initialize()
 
             # 初始化各组件
@@ -81,7 +98,9 @@ class TradingEngine(BaseComponent):
 
     async def cleanup(self) -> None:
         """清理资源"""
-        await self.exchange_client.cleanup()
+        if not self.config.test_mode:
+            await self.exchange_client.cleanup()
+        # 测试模式下不需要清理交易所客户端
         await self.order_manager.cleanup()
         await self.position_manager.cleanup()
         await self.risk_manager.cleanup()
@@ -90,22 +109,132 @@ class TradingEngine(BaseComponent):
     async def get_market_data(self, symbol: str = "BTC/USDT:USDT") -> Dict[str, Any]:
         """获取市场数据"""
         try:
+            # 测试模式下使用模拟数据
+            if self.config.test_mode:
+                import random
+                base_price = 50000.0
+                price_variation = random.uniform(-0.01, 0.01)
+                current_price = base_price * (1 + price_variation)
+
+                # 生成模拟订单簿
+                bids = []
+                asks = []
+                for i in range(10):
+                    bid_price = current_price - (i + 1) * 10
+                    ask_price = current_price + (i + 1) * 10
+                    bid_volume = random.uniform(0.1, 1.0)
+                    ask_volume = random.uniform(0.1, 1.0)
+                    bids.append([bid_price, bid_volume])
+                    asks.append([ask_price, ask_volume])
+
+                # 生成模拟OHLCV数据
+                ohlcv_data = []
+                timestamps = []
+                opens = []
+                highs = []
+                lows = []
+                closes = []
+                volumes = []
+
+                # 生成100根15分钟K线数据
+                for i in range(100):
+                    timestamp = int(datetime.now().timestamp() * 1000) - (100 - i) * 15 * 60 * 1000
+                    if i == 0:
+                        open_price = base_price
+                    else:
+                        open_price = closes[-1]
+
+                    # 生成随机波动
+                    high_price = open_price * (1 + random.uniform(0, 0.01))
+                    low_price = open_price * (1 - random.uniform(0, 0.01))
+                    close_price = open_price * (1 + random.uniform(-0.005, 0.005))
+                    volume = random.uniform(100, 1000)
+
+                    ohlcv_data.append([timestamp, open_price, high_price, low_price, close_price, volume])
+                    timestamps.append(timestamp)
+                    opens.append(open_price)
+                    highs.append(high_price)
+                    lows.append(low_price)
+                    closes.append(close_price)
+                    volumes.append(volume)
+
+                return {
+                    'symbol': symbol,
+                    'price': current_price,
+                    'bid': current_price - 10,
+                    'ask': current_price + 10,
+                    'volume': random.uniform(100, 1000),
+                    'high': current_price * 1.02,
+                    'low': current_price * 0.98,
+                    'timestamp': datetime.now(),
+                    'orderbook': {
+                        'bids': bids,  # 前10档买单
+                        'asks': asks   # 前10档卖单
+                    },
+                    # 添加OHLCV数据（使用不同的键名避免冲突）
+                    'ohlcv': ohlcv_data,
+                    'timestamps': timestamps,
+                    'open_prices': opens,
+                    'high_prices': highs,
+                    'low_prices': lows,
+                    'close_prices': closes,
+                    'volumes': volumes,
+                    'period': '15m',
+                    'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
+                    'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else ''
+                }
+
+            # 正常模式：从交易所获取真实数据
             ticker = await self.exchange_client.fetch_ticker(symbol)
             orderbook = await self.exchange_client.fetch_order_book(symbol)
 
+            # 获取OHLCV数据用于技术指标计算
+            ohlcv_data = []
+            timestamps = []
+            opens = []
+            highs = []
+            lows = []
+            closes = []
+            volumes = []
+
+            try:
+                # 获取最近100根15分钟K线
+                ohlcv = await self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100)
+                if ohlcv and len(ohlcv) >= 50:
+                    ohlcv_data = ohlcv
+                    timestamps = [candle[0] for candle in ohlcv]
+                    opens = [candle[1] for candle in ohlcv]
+                    highs = [candle[2] for candle in ohlcv]
+                    lows = [candle[3] for candle in ohlcv]
+                    closes = [candle[4] for candle in ohlcv]
+                    volumes = [candle[5] for candle in ohlcv]
+            except Exception as e:
+                logger.warning(f"获取OHLCV数据失败: {e}，将使用基础数据")
+
             return {
                 'symbol': symbol,
-                'price': ticker['last'],
-                'bid': ticker['bid'],
-                'ask': ticker['ask'],
-                'volume': ticker['volume'],
-                'high': ticker['high'],
-                'low': ticker['low'],
+                'price': ticker.last,
+                'bid': ticker.bid,
+                'ask': ticker.ask,
+                'volume': ticker.volume,
+                'high': ticker.high,
+                'low': ticker.low,
                 'timestamp': datetime.now(),
                 'orderbook': {
-                    'bids': orderbook['bids'][:10],  # 前10档买单
-                    'asks': orderbook['asks'][:10]   # 前10档卖单
-                }
+                    'bids': orderbook.bids[:10],  # 前10档买单
+                    'asks': orderbook.asks[:10]   # 前10档卖单
+                },
+                # 添加OHLCV数据（使用不同的键名避免冲突）
+                'ohlcv': ohlcv_data,
+                'timestamps': timestamps,
+                'open_prices': opens,
+                'high_prices': highs,
+                'low_prices': lows,
+                'close_prices': closes,
+                'volumes': volumes,
+                'period': '15m',
+                'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
+                'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else ''
             }
         except Exception as e:
             logger.error(f"获取市场数据失败: {e}")

@@ -50,6 +50,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+test/
+test*
 
 # Translations
 *.mo
@@ -157,3 +159,6 @@ data/
 temp/
 backups/
 cache/
+
+# claude
+.claude

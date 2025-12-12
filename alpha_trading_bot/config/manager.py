@@ -13,7 +13,8 @@ from .models import (
     StrategyConfig,
     RiskConfig,
     AIConfig,
-    SystemConfig
+    SystemConfig,
+    NetworkConfig
 )
 
 from ..utils import get_logger
@@ -34,6 +35,7 @@ class ConfigManager:
         self._risk = self._load_risk_config()
         self._ai = self._load_ai_config()
         self._system = self._load_system_config()
+        self._network = self._load_network_config()
 
         # 验证配置
         validation_result = self._validate_config()
@@ -107,7 +109,7 @@ class ConfigManager:
     def _load_ai_config(self) -> AIConfig:
         """加载AI配置"""
         # 解析AI融合提供商列表
-        fusion_providers_str = os.getenv('AI_FUSION_PROVIDERS', 'deepseek,kimi,qwen')
+        fusion_providers_str = os.getenv('AI_FUSION_PROVIDERS', 'deepseek,kimi')
         fusion_providers = [p.strip() for p in fusion_providers_str.split(',') if p.strip()]
 
         # 解析AI融合权重
@@ -122,16 +124,38 @@ class ConfigManager:
             except ValueError:
                 logger.warning(f"AI融合权重格式错误: {fusion_weights_str}")
 
+        # 构建AI模型配置
+        models = {
+            'kimi': os.getenv('KIMI_API_KEY', ''),
+            'deepseek': os.getenv('DEEPSEEK_API_KEY', ''),
+            'qwen': os.getenv('QWEN_API_KEY', ''),
+            'openai': os.getenv('OPENAI_API_KEY', '')
+        }
+        # 过滤掉空的API密钥
+        models = {k: v for k, v in models.items() if v}
+
+        # 获取AI模式配置
+        ai_mode = os.getenv('AI_MODE', 'fusion')
+
+        # 根据AI模式设置相应的配置
+        if ai_mode == 'fusion':
+            use_multi_ai = True
+            use_multi_ai_fusion = True
+        else:  # single mode
+            use_multi_ai = False
+            use_multi_ai_fusion = False
+
         return AIConfig(
-            use_multi_ai=os.getenv('USE_MULTI_AI', 'false').lower() == 'true',
+            use_multi_ai=use_multi_ai,
             cache_duration=int(os.getenv('AI_CACHE_DURATION', '900')),
             timeout=int(os.getenv('AI_TIMEOUT', '30')),
             max_retries=int(os.getenv('AI_MAX_RETRIES', '2')),
             min_confidence_threshold=float(os.getenv('AI_MIN_CONFIDENCE', '0.3')),
-            ai_provider=os.getenv('AI_PROVIDER', 'kimi'),
+            ai_provider=os.getenv('AI_DEFAULT_PROVIDER', 'deepseek'),  # 使用新的AI_DEFAULT_PROVIDER
             fallback_enabled=os.getenv('AI_FALLBACK_ENABLED', 'true').lower() == 'true',
+            models=models,
             # AI融合配置
-            use_multi_ai_fusion=os.getenv('USE_MULTI_AI_FUSION', 'true').lower() == 'true',
+            use_multi_ai_fusion=use_multi_ai_fusion,
             ai_default_provider=os.getenv('AI_DEFAULT_PROVIDER', 'deepseek'),
             ai_fusion_providers=fusion_providers,
             ai_fusion_weights=fusion_weights if fusion_weights else None,
@@ -147,6 +171,17 @@ class ConfigManager:
             monitoring_enabled=True,
             web_interface_enabled=os.getenv('WEB_ENABLED', 'false').lower() == 'true',
             web_port=int(os.getenv('WEB_PORT', '8501'))
+        )
+
+    def _load_network_config(self) -> NetworkConfig:
+        """加载网络配置"""
+        return NetworkConfig(
+            proxy_enabled=os.getenv('PROXY_ENABLED', 'false').lower() == 'true',
+            http_proxy=os.getenv('HTTP_PROXY'),
+            https_proxy=os.getenv('HTTPS_PROXY'),
+            timeout=int(os.getenv('NETWORK_TIMEOUT', '30')),
+            max_retries=int(os.getenv('NETWORK_MAX_RETRIES', '3')),
+            retry_delay=int(os.getenv('NETWORK_RETRY_DELAY', '1'))
         )
 
     def _validate_config(self) -> ConfigValidationResult:
@@ -204,6 +239,11 @@ class ConfigManager:
         """获取系统配置"""
         return self._system
 
+    @property
+    def network(self) -> NetworkConfig:
+        """获取网络配置"""
+        return self._network
+
     def get_all(self) -> Dict[str, Any]:
         """获取所有配置"""
         return {
@@ -212,7 +252,8 @@ class ConfigManager:
             'strategies': self._strategies.__dict__,
             'risk': self._risk.__dict__,
             'ai': self._ai.__dict__,
-            'system': self._system.__dict__
+            'system': self._system.__dict__,
+            'network': self._network.__dict__
         }
 
 # 全局配置实例

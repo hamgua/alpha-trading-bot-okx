@@ -24,7 +24,10 @@ class SignalGenerator(BaseComponent):
     """信号生成器"""
 
     def __init__(self, config: Optional[SignalGeneratorConfig] = None):
-        super().__init__(config or SignalGeneratorConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = SignalGeneratorConfig(name="SignalGenerator")
+        super().__init__(config)
         self.signal_history: List[Dict[str, Any]] = []
         self.pattern_cache: Dict[str, Any] = {}
 

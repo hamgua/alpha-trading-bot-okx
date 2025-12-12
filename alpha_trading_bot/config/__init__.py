@@ -11,7 +11,8 @@ from .models import (
     StrategyConfig,
     RiskConfig,
     AIConfig,
-    SystemConfig
+    SystemConfig,
+    NetworkConfig
 )
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     'StrategyConfig',
     'RiskConfig',
     'AIConfig',
-    'SystemConfig'
+    'SystemConfig',
+    'NetworkConfig'
 ]

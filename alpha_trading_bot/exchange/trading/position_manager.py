@@ -22,7 +22,10 @@ class PositionManager(BaseComponent):
     """仓位管理器"""
 
     def __init__(self, config: Optional[PositionManagerConfig] = None):
-        super().__init__(config or PositionManagerConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = PositionManagerConfig(name="PositionManager")
+        super().__init__(config)
         self.positions: Dict[str, PositionInfo] = {}
         self.closed_positions: List[PositionInfo] = []
         self.total_pnl = 0.0

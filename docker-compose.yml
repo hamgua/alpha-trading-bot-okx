@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
 
   alpha-trading-bot-okx:
@@ -32,8 +30,6 @@ services:
         max-size: "10m"
         max-file: "3"
         compress: "true"
-    # 默认显示帮助，可以覆盖
-    command: ["--help"]
 
 
 # 构建和启动命令：

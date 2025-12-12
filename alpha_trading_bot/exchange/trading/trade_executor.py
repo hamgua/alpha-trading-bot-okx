@@ -31,7 +31,10 @@ class TradeExecutor(BaseComponent):
         risk_manager,
         config: Optional[TradeExecutorConfig] = None
     ):
-        super().__init__(config or TradeExecutorConfig())
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = TradeExecutorConfig(name="TradeExecutor")
+        super().__init__(config)
         self.exchange_client = exchange_client
         self.order_manager = order_manager
         self.position_manager = position_manager

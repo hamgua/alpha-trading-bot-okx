@@ -146,9 +146,12 @@ alpha_trading_bot/
 - `MAX_POSITION_RISK`: 最大仓位风险比例
 
 ### AI配置
-- `AI_PROVIDER`: AI提供商（kimi/deepseek/qwen/openai）
+- `AI_MODE`: AI决策模式（single/fusion）
+- `AI_DEFAULT_PROVIDER`: 默认AI提供商（kimi/deepseek/qwen/openai）
 - `AI_MIN_CONFIDENCE`: 最小置信度阈值
-- `USE_MULTI_AI`: 是否使用多AI融合
+- `AI_FUSION_PROVIDERS`: AI融合提供商列表
+- `AI_FUSION_STRATEGY`: AI融合策略（consensus/weighted/majority/confidence）
+- `AI_FUSION_THRESHOLD`: AI融合阈值
 
 ### Web界面
 - `WEB_ENABLED`: 是否启用Web界面

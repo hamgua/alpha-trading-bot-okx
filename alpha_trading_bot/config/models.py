@@ -78,6 +78,8 @@ class AIConfig:
     min_confidence_threshold: float = 0.3
     ai_provider: str = 'kimi'
     fallback_enabled: bool = True
+    # AI模型配置
+    models: Dict[str, str] = None
     # AI融合配置
     use_multi_ai_fusion: bool = True
     ai_default_provider: str = 'deepseek'
@@ -85,6 +87,16 @@ class AIConfig:
     ai_fusion_weights: Dict[str, float] = None
     ai_fusion_strategy: str = 'weighted'  # consensus/weighted/majority/confidence
     ai_fusion_threshold: float = 0.6
+
+@dataclass
+class NetworkConfig:
+    """网络配置"""
+    proxy_enabled: bool = False
+    http_proxy: Optional[str] = None
+    https_proxy: Optional[str] = None
+    timeout: int = 30
+    max_retries: int = 3
+    retry_delay: int = 1
 
 @dataclass
 class SystemConfig:

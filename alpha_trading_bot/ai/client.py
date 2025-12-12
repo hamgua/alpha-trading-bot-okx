@@ -88,7 +88,10 @@ class AIClient:
     async def cleanup(self) -> None:
         """清理资源"""
         if self.session:
+            logger.info(f"正在关闭AI客户端会话...")
             await self.session.close()
+            self.session = None
+            logger.info(f"AI客户端会话已关闭")
 
     async def generate_signal(self, provider: str, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """生成AI信号"""
@@ -100,8 +103,20 @@ class AIClient:
             if not api_key:
                 raise AIProviderError(f"提供商 {provider} 未配置API密钥")
 
-            # 构建提示词
-            prompt = self._build_trading_prompt(market_data)
+            # 调试：检查market_data结构
+            logger.debug(f"生成AI信号 - 提供商: {provider}")
+            logger.debug(f"Market data类型检查 - price: {type(market_data.get('price'))}, "
+                        f"high: {type(market_data.get('high'))}, "
+                        f"low: {type(market_data.get('low'))}, "
+                        f"volume: {type(market_data.get('volume'))}")
+
+            # 构建提示词 - 根据提供商选择不同的prompt策略
+            if provider in ['kimi', 'deepseek']:
+                # 对于高级提供商，使用增强的prompt
+                prompt = self._build_enhanced_prompt(provider, market_data)
+            else:
+                # 其他提供商使用标准prompt
+                prompt = self._build_trading_prompt(market_data)
 
             # 根据提供商调用不同的API
             if provider == 'kimi':
@@ -122,31 +137,236 @@ class AIClient:
             raise AIProviderError(f"生成信号失败: {str(e)}")
 
     def _build_trading_prompt(self, market_data: Dict[str, Any]) -> str:
-        """构建交易提示词"""
-        price = market_data.get('price', 0)
-        high = market_data.get('high', price)
-        low = market_data.get('low', price)
-        volume = market_data.get('volume', 0)
+        """构建增强的交易提示词 - 参考alpha-pilot-bot的先进设计"""
 
-        prompt = f"""你是一个专业的加密货币交易员。请基于以下市场数据给出交易建议：
+        # 基础市场数据
+        price = float(market_data.get('price', 0))
 
-当前价格: {price}
-当日最高: {high}
-当日最低: {low}
-成交量: {volume}
+        # 使用当日最高最低价格（标量值）
+        daily_high = float(market_data.get('high', price))
+        daily_low = float(market_data.get('low', price))
+        volume = float(market_data.get('volume', 0))
 
-请提供：
-1. 交易信号 (BUY/SELL/HOLD)
-2. 信心度 (0-1)
-3. 理由分析
-4. 建议持仓时间
+        # 计算价格位置（相对当日高低位置）
+        price_position = 50  # 默认中位
+        if daily_high > daily_low:
+            price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
+
+        # 计算价格变化
+        price_change_pct = float(market_data.get('price_change_pct', 0))
+
+        # 获取技术指标数据（如果有）
+        technical_data = market_data.get('technical_data', {})
+        rsi = float(technical_data.get('rsi', 50))
+        macd = technical_data.get('macd', 'N/A')
+        ma_status = technical_data.get('ma_status', 'N/A')
+        atr_pct = float(technical_data.get('atr_pct', 0))
+
+        # 获取趋势分析
+        trend_analysis = market_data.get('trend_analysis', {})
+        overall_trend = trend_analysis.get('overall', '震荡')
+        trend_strength = trend_analysis.get('strength', 'normal')
+
+        # 构建技术指标状态
+        rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"
+
+        # 检测市场状态
+        is_high_volatility = atr_pct > 3.0
+        is_consolidation = (
+            atr_pct < 1.5 and
+            abs(price_change_pct) < 4 and
+            price_position > 25 and
+            price_position < 75
+        )
+
+        # 构建市场情绪
+        if rsi < 30:
+            sentiment = "📉 极度恐慌，可能反弹"
+        elif rsi > 70:
+            sentiment = "📈 极度贪婪，可能回调"
+        elif is_consolidation:
+            sentiment = "➡️ 震荡观望，等待方向"
+        else:
+            sentiment = "😐 相对平衡"
+
+        # 构建风控提示
+        if is_consolidation:
+            risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
+        elif is_high_volatility:
+            risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+        else:
+            risk_hint = "✅ 正常波动: 标准止盈止损设置"
+
+        # 构建增强的prompt
+        prompt = f"""你是一个专业的加密货币交易员，擅长波段操作和趋势跟踪。请基于以下市场数据给出精准的交易建议：
+
+【📊 核心市场数据】
+当前价格: ${price:,.2f}
+价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
+价格位置: {price_position:.1f}% (相对当日区间)
+价格变化: {price_change_pct:+.2f}%
+成交量: {volume:,.0f}
+ATR波动率: {atr_pct:.2f}%
+
+【🔧 技术分析】
+RSI: {rsi:.1f} ({rsi_status})
+MACD: {macd}
+均线状态: {ma_status}
+整体趋势: {overall_trend} ({trend_strength})
+市场情绪: {sentiment}
+
+【⚡ 关键分析要求】
+1. 结合价格位置和技术指标综合判断
+2. 考虑波动率对策略的影响
+3. 关注市场情绪和资金流向
+4. 基于博弈思维寻找最优入场点
+
+【⚠️ 风险控制】
+{risk_hint}
+
+【💡 决策框架】
+- 如果价格处于相对低位且技术指标超卖，优先考虑做多
+- 如果价格处于相对高位且技术指标超买，优先考虑做空
+- 在震荡市中，采用区间交易策略，高抛低吸
+- 在趋势明确时，顺势而为，避免逆势操作
 
 请以JSON格式回复，包含以下字段：
 {{
     "signal": "BUY/SELL/HOLD",
     "confidence": 0.8,
-    "reason": "分析理由",
-    "holding_time": "建议持仓时间"
+    "reason": "详细分析理由（不少于50字）",
+    "holding_time": "建议持仓时间",
+    "risk": "风险提示和止损建议"
+}}"""
+
+        return prompt
+
+    def _build_enhanced_prompt(self, provider: str, market_data: Dict[str, Any]) -> str:
+        """构建增强的AI提示词 - 参考alpha-pilot-bot的先进设计"""
+
+        # 基础市场数据
+        price = float(market_data.get('price', 0))
+        daily_high = float(market_data.get('high', price))
+        daily_low = float(market_data.get('low', price))
+        volume = float(market_data.get('volume', 0))
+
+        # 计算价格位置（相对当日高低位置）
+        price_position = 50  # 默认中位
+        if daily_high > daily_low:
+            price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
+
+        # 计算价格变化
+        price_change_pct = float(market_data.get('price_change_pct', 0))
+
+        # 获取技术指标数据（如果有）
+        technical_data = market_data.get('technical_data', {})
+        rsi = float(technical_data.get('rsi', 50))
+        macd = technical_data.get('macd', 'N/A')
+        ma_status = technical_data.get('ma_status', 'N/A')
+        atr_pct = float(technical_data.get('atr_pct', 0))
+
+        # 获取趋势分析
+        trend_analysis = market_data.get('trend_analysis', {})
+        overall_trend = trend_analysis.get('overall', '震荡')
+        trend_strength = trend_analysis.get('strength', 'normal')
+
+        # 构建技术指标状态
+        rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"
+
+        # 检测市场状态
+        is_high_volatility = atr_pct > 3.0
+        is_consolidation = (
+            atr_pct < 1.5 and
+            abs(price_change_pct) < 4 and
+            price_position > 25 and
+            price_position < 75
+        )
+
+        # 构建市场情绪
+        if rsi < 30:
+            sentiment = "📉 极度恐慌，可能反弹"
+        elif rsi > 70:
+            sentiment = "📈 极度贪婪，可能回调"
+        elif is_consolidation:
+            sentiment = "➡️ 震荡观望，等待方向"
+        else:
+            sentiment = "😐 相对平衡"
+
+        # 构建风控提示
+        if is_consolidation:
+            risk_hint = "⚠️ 震荡市: 缩小止盈止损范围，降低仓位"
+        elif is_high_volatility:
+            risk_hint = "⚠️ 高波动: 扩大止损范围，谨慎操作"
+        else:
+            risk_hint = "✅ 正常波动: 标准止盈止损设置"
+
+        # 提供商特定分析框架
+        provider_frameworks = {
+            'deepseek': f"""
+【🎯 DEEPSEEK 核心分析框架】
+1. 价格位置分析: 当前处于{price_position:.1f}%位置
+2. 技术形态识别: 寻找突破/反转信号
+3. 博弈策略: 考虑对手盘行为
+4. 趋势跟踪: {overall_trend}趋势中的机会
+
+交易风格: 波段操作，精准入场
+""",
+            'kimi': f"""
+【📈 KIMI 短线分析框架】
+1. 15分钟周期分析
+2. RSI指标: {rsi:.1f} ({rsi_status})
+3. 价格动能: {price_change_pct:+.2f}%
+4. 支撑阻力: 基于价格位置判断
+
+交易风格: 短线快进快出，严格止损
+"""
+        }
+
+        # 获取提供商特定框架
+        framework = provider_frameworks.get(provider, "")
+
+        # 构建增强的prompt
+        prompt = f"""你是{provider.upper()} AI交易助手，{provider}以精准的市场分析和独特的交易视角著称。请基于以下市场数据给出专业的交易建议：
+
+【📊 核心市场数据】
+当前价格: ${price:,.2f}
+价格区间: ${daily_low:,.2f} - ${daily_high:,.2f}
+价格位置: {price_position:.1f}% (相对当日区间)
+价格变化: {price_change_pct:+.2f}%
+成交量: {volume:,.0f}
+ATR波动率: {atr_pct:.2f}%
+
+【🔧 技术分析】
+RSI: {rsi:.1f} ({rsi_status})
+MACD: {macd}
+均线状态: {ma_status}
+整体趋势: {overall_trend} ({trend_strength})
+市场情绪: {sentiment}
+
+{framework}
+
+【⚡ 关键分析要求】
+1. 结合价格位置和技术指标综合判断
+2. 考虑波动率对策略的影响
+3. 关注市场情绪和资金流向
+4. 基于博弈思维寻找最优入场点
+
+【⚠️ 风险控制】
+{risk_hint}
+
+【💡 决策要点】
+- 价格相对位置: {price_position:.1f}% (0%=底部, 100%=顶部)
+- 技术指标状态: RSI {rsi_status}
+- 波动率水平: {'高' if is_high_volatility else '低' if is_consolidation else '正常'}
+- 建议操作: 基于以上分析给出明确信号
+
+请以JSON格式回复，包含以下字段：
+{{
+    "signal": "BUY/SELL/HOLD",
+    "confidence": 0.8,
+    "reason": "详细分析理由（不少于50字）",
+    "holding_time": "建议持仓时间",
+    "risk": "风险提示和止损建议"
 }}"""
 
         return prompt
