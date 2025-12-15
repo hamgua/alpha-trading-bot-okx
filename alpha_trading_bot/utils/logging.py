@@ -137,6 +137,18 @@ class EnhancedLogger:
         self.logger.info(f"📊 {provider} 超时统计更新: 成功率={success_rate:.2f}, "
                         f"平均响应={avg_response_time:.1f}s, 总请求={total_requests}")
 
+    def info_cycle_complete(self, cycle: int, execution_time: float,
+                           total_signals: int, executed_trades: int,
+                           next_execution_time: str, wait_time: str):
+        """记录交易周期完成"""
+        self.logger.info("=" * 60)
+        self.logger.info(f"✅ 第 {cycle} 轮交易周期完成")
+        self.logger.info(f"⏱️  执行耗时: {execution_time:.2f}秒")
+        self.logger.info(f"📊 信号统计: 生成 {total_signals} 个信号，执行 {executed_trades} 笔交易")
+        self.logger.info(f"⏰ 下次执行时间: {next_execution_time}")
+        self.logger.info(f"⏰ 等待 {wait_time} 到下一个15分钟整点执行...")
+        self.logger.info("=" * 60)
+
     def info_ai_signal_success(self, provider: str, signal: str, confidence: float):
         """记录AI信号成功"""
         self.logger.info(f"✅ {provider.upper()} 成功: {signal} (信心: {confidence:.1f})")
@@ -235,9 +247,23 @@ class LoggerMixin:
     @property
     def logger(self) -> logging.Logger:
         """获取logger"""
-        return get_logger(self.__class__.__name__)
+        # 使用完整的模块路径和类名，确保日志记录器名称一致性
+        module_path = self.__class__.__module__
+        class_name = self.__class__.__name__
+        if module_path and module_path != '__main__':
+            logger_name = f"{module_path}.{class_name}"
+        else:
+            logger_name = class_name
+        return get_logger(logger_name)
 
     @property
     def enhanced_logger(self) -> EnhancedLogger:
         """获取增强型logger"""
-        return EnhancedLogger(self.__class__.__name__)
+        # 使用完整的模块路径和类名，确保日志记录器名称一致性
+        module_path = self.__class__.__module__
+        class_name = self.__class__.__name__
+        if module_path and module_path != '__main__':
+            logger_name = f"{module_path}.{class_name}"
+        else:
+            logger_name = class_name
+        return EnhancedLogger(logger_name)

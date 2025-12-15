@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -34,12 +34,19 @@ class TradingBot(BaseComponent):
     def enhanced_logger(self):
         """获取增强型日志记录器"""
         from ..utils.logging import EnhancedLogger
-        return EnhancedLogger(self.__class__.__name__)
+        # 使用完整的模块路径和类名，确保日志记录器名称一致性
+        module_path = self.__class__.__module__
+        class_name = self.__class__.__name__
+        if module_path and module_path != '__main__':
+            logger_name = f"{module_path}.{class_name}"
+        else:
+            logger_name = class_name
+        return EnhancedLogger(logger_name)
 
     async def initialize(self) -> bool:
         """初始化机器人"""
         try:
-            self.logger.info("正在初始化交易机器人...")
+            self.enhanced_logger.logger.info("正在初始化交易机器人...")
 
             # 初始化交易引擎
             from ..exchange import TradingEngine, TradingEngineConfig
@@ -76,11 +83,11 @@ class TradingBot(BaseComponent):
             await self.risk_manager.initialize()
 
             self._initialized = True
-            self.logger.info("交易机器人初始化成功")
+            self.enhanced_logger.logger.info("交易机器人初始化成功")
             return True
 
         except Exception as e:
-            self.logger.error(f"初始化失败: {e}")
+            self.enhanced_logger.logger.error(f"初始化失败: {e}")
             return False
 
     async def cleanup(self) -> None:
@@ -101,7 +108,7 @@ class TradingBot(BaseComponent):
 
         self._running = True
         self._start_time = datetime.now()
-        self.logger.info("交易机器人已启动")
+        self.enhanced_logger.logger.info("交易机器人已启动")
 
         try:
             cycle_count = 0
@@ -113,25 +120,30 @@ class TradingBot(BaseComponent):
                 self.enhanced_logger.info_cycle_start(cycle_count, current_time)
 
                 # 执行一次交易循环
-                await self._trading_cycle()
+                await self._trading_cycle(cycle_count)
 
                 # 等待下一个周期
                 await asyncio.sleep(self.config.cycle_interval * 60)
 
         except Exception as e:
-            self.logger.error(f"交易循环异常: {e}")
+            self.enhanced_logger.logger.error(f"交易循环异常: {e}")
             raise
 
     async def stop(self) -> None:
         """停止机器人"""
         self._running = False
-        self.logger.info("交易机器人已停止")
+        self.enhanced_logger.logger.info("交易机器人已停止")
 
-    async def _trading_cycle(self) -> None:
+    async def _trading_cycle(self, cycle_num: int) -> None:
         """执行一次交易循环"""
+        import time
+        start_time = time.time()
+        total_signals = 0
+        executed_trades = 0
+
         try:
             # 1. 获取市场数据
-            self.logger.info("📊 获取市场数据...")
+            self.enhanced_logger.logger.info("📊 获取市场数据...")
             market_data = await self.trading_engine.get_market_data()
 
             # 记录市场数据详情
@@ -147,12 +159,12 @@ class TradingBot(BaseComponent):
 
                 # 记录OHLCV数据获取状态
                 if market_data.get('ohlcv'):
-                    self.logger.info(f"✅ 成功获取 {len(market_data['ohlcv'])} 根K线数据用于技术指标计算")
+                    self.enhanced_logger.logger.info(f"✅ 成功获取 {len(market_data['ohlcv'])} 根K线数据用于技术指标计算")
                 else:
-                    self.logger.warning("⚠️ 未能获取OHLCV数据，技术指标将使用基础分数")
+                    self.enhanced_logger.logger.warning("⚠️ 未能获取OHLCV数据，技术指标将使用基础分数")
 
             # 2. 生成交易信号
-            self.logger.info("🔍 分析市场状态...")
+            self.enhanced_logger.logger.info("🔍 分析市场状态...")
 
             # 获取AI提供商信息
             providers = self.ai_manager.providers if hasattr(self.ai_manager, 'providers') else []
@@ -171,7 +183,7 @@ class TradingBot(BaseComponent):
 
                 if is_cached:
                     # 如果是缓存信号，跳过详细分析（已经在AI manager中记录过）
-                    self.logger.info("ℹ️ 使用缓存的AI信号，跳过重复分析")
+                    self.enhanced_logger.logger.info("ℹ️ 使用缓存的AI信号，跳过重复分析")
                 else:
                     self.enhanced_logger.info_ai_parallel_request(providers)
 
@@ -238,28 +250,64 @@ class TradingBot(BaseComponent):
                 # 单AI模式，显示基本信息
                 if ai_signals:
                     signal = ai_signals[0]
-                    self.logger.info(f"✅ AI信号生成成功: {signal.get('signal', 'HOLD')} (信心: {signal.get('confidence', 0):.2f}, 提供商: {signal.get('provider', config_providers)})")
+                    self.enhanced_logger.logger.info(f"✅ AI信号生成成功: {signal.get('signal', 'HOLD')} (信心: {signal.get('confidence', 0):.2f}, 提供商: {signal.get('provider', config_providers)})")
                 else:
-                    self.logger.info("⚠️ 未生成AI信号，使用回退模式")
+                    self.enhanced_logger.logger.info("⚠️ 未生成AI信号，使用回退模式")
 
             # 生成所有信号（包括策略信号）
-            signals = await self.strategy_manager.generate_signals(market_data)
-            self.logger.info(f"生成了 {len(signals)} 个交易信号")
+            all_signals = await self.strategy_manager.generate_signals(market_data, ai_signals)
+            total_signals = len(all_signals)  # 更新信号总数
+
+            # 记录信号摘要
+            if all_signals:
+                self.enhanced_logger.logger.info(f"📊 交易信号摘要:")
+                signal_summary = {}
+                for signal in all_signals:
+                    signal_type = signal.get('type', 'unknown').upper()
+                    signal_summary[signal_type] = signal_summary.get(signal_type, 0) + 1
+
+                for signal_type, count in signal_summary.items():
+                    self.enhanced_logger.logger.info(f"  {signal_type}: {count} 个")
+            else:
+                self.enhanced_logger.logger.info("⚠️ 未生成任何交易信号")
+
+            # 选择最终信号
+            signals = await self._select_final_signals(all_signals)
 
             # 3. 风险评估
-            self.logger.info("⚠️ 进行风险评估...")
+            self.enhanced_logger.logger.info("⚠️ 进行风险评估...")
             risk_assessment = await self.risk_manager.assess_risk(signals)
             risk_level = risk_assessment.get('risk_level', 'unknown')
             risk_score = risk_assessment.get('risk_score', 0)
+            trades = risk_assessment.get('trades', [])  # 确保trades变量被定义
 
-            self.logger.info(f"风险评估结果: 等级={risk_level}, 分数={risk_score:.2f}")
+            self.enhanced_logger.logger.info(f"风险评估结果: 等级={risk_level}, 分数={risk_score:.2f}")
+
+            # 记录风险评估详情
+            if risk_assessment:
+                self.enhanced_logger.logger.info(f"📋 风险评估详情:")
+                self.enhanced_logger.logger.info(f"  当日亏损: ${risk_assessment.get('daily_loss', 0):.2f} USDT")
+                self.enhanced_logger.logger.info(f"  连续亏损次数: {risk_assessment.get('consecutive_losses', 0)}")
+                self.enhanced_logger.logger.info(f"  评估原因: {risk_assessment.get('reason', '无')}")
+
+            # 记录交易执行情况
+            if trades:
+                self.enhanced_logger.logger.info(f"✅ 通过风险评估的交易 ({len(trades)} 个):")
+                for i, trade in enumerate(trades, 1):
+                    self.enhanced_logger.logger.info(f"  交易 {i}:")
+                    self.enhanced_logger.logger.info(f"    操作: {trade.get('action', 'unknown').upper()}")
+                    self.enhanced_logger.logger.info(f"    价格: ${trade.get('price', 0):,.2f}")
+                    self.enhanced_logger.logger.info(f"    数量: {trade.get('size', 0)}")
+                    self.enhanced_logger.logger.info(f"    原因: {trade.get('reason', '无')}")
+                    self.enhanced_logger.logger.info(f"    信心度: {trade.get('confidence', 0):.2f}")
+                    self.enhanced_logger.logger.info("    " + "-" * 30)
 
             # 4. 执行交易
             if risk_assessment.get('can_trade', False):
                 # 获取交易列表（如果有的话）
                 trades = risk_assessment.get('trades', [])
                 if trades:
-                    self.logger.info(f"💰 准备执行 {len(trades)} 笔交易")
+                    self.enhanced_logger.logger.info(f"💰 准备执行 {len(trades)} 笔交易")
                     for trade in trades:
                         action = trade.get('action', 'unknown')
                         price = trade.get('price', 0)
@@ -272,19 +320,107 @@ class TradingBot(BaseComponent):
                         )
 
                     await self.trading_engine.execute_trades(trades)
-                    self.logger.info("✅ 交易执行完成")
+                    self.enhanced_logger.logger.info("✅ 交易执行完成")
+                    executed_trades = len(trades)  # 更新执行交易数量
                 else:
-                    self.logger.info("ℹ️ 无交易信号通过风险评估")
+                    self.enhanced_logger.logger.info("ℹ️ 无交易信号通过风险评估")
             else:
-                self.logger.info("⚠️ 风险评估不通过，跳过交易")
+                self.enhanced_logger.logger.info("⚠️ 风险评估不通过，跳过交易")
 
             # 5. 更新状态
             await self._update_status()
 
+            # 记录周期完成信息
+            execution_time = time.time() - start_time
+
+            # 计算下次执行时间（下一个15分钟整点）
+            from datetime import datetime, timedelta
+            now = datetime.now()
+            next_minute = ((now.minute // 15) + 1) * 15
+            if next_minute >= 60:
+                next_minute = 0
+                next_hour = now.hour + 1
+                if next_hour >= 24:
+                    next_hour = 0
+            else:
+                next_hour = now.hour
+
+            next_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+
+            # 计算等待时间
+            wait_seconds = (next_execution_time - now).total_seconds()
+            if wait_seconds < 0:
+                wait_seconds += 86400  # 如果跨越午夜，加24小时
+
+            wait_minutes = int(wait_seconds // 60)
+            wait_seconds_remainder = int(wait_seconds % 60)
+            wait_time = f"{wait_minutes}分{wait_seconds_remainder}秒"
+
+            # 记录周期完成
+            self.enhanced_logger.info_cycle_complete(
+                cycle_num, execution_time, total_signals, executed_trades,
+                next_execution_time.strftime("%Y-%m-%d %H:%M:%S"), wait_time
+            )
+
         except Exception as e:
-            self.logger.error(f"交易循环执行失败: {e}")
+            self.enhanced_logger.logger.error(f"交易循环执行失败: {e}")
             import traceback
-            self.logger.error(f"详细错误: {traceback.format_exc()}")
+            self.enhanced_logger.logger.error(f"详细错误: {traceback.format_exc()}")
+
+    async def _select_final_signals(self, all_signals: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """从所有信号中选择最终要执行的信号"""
+        try:
+            if not all_signals:
+                return []
+
+            # 按信号来源分组
+            ai_signals = [s for s in all_signals if s.get('source') == 'ai']
+            strategy_signals = [s for s in all_signals if s.get('source') in ['conservative_strategy', 'moderate_strategy', 'aggressive_strategy']]
+
+            self.enhanced_logger.logger.info("🔍 选择最终交易信号:")
+
+            # 优先选择AI信号（如果有）
+            if ai_signals:
+                # 如果有多个AI信号，选择置信度最高的
+                if len(ai_signals) > 1:
+                    best_ai_signal = max(ai_signals, key=lambda x: x.get('confidence', 0))
+                    self.enhanced_logger.logger.info(f"  选择AI信号（置信度最高: {best_ai_signal.get('confidence', 0):.2f}）")
+                    return [best_ai_signal]
+                else:
+                    self.enhanced_logger.logger.info(f"  选择AI信号: {ai_signals[0].get('type', 'UNKNOWN').upper()}")
+                    return ai_signals
+
+            # 如果没有AI信号，选择策略信号
+            elif strategy_signals:
+                # 按投资类型优先级选择
+                from ..config import load_config
+                config = load_config()
+                investment_type = config.strategies.investment_type
+
+                # 根据投资类型选择对应的策略信号
+                priority_signals = [s for s in strategy_signals if investment_type in s.get('source', '')]
+
+                if priority_signals:
+                    # 选择置信度最高的优先策略信号
+                    best_strategy_signal = max(priority_signals, key=lambda x: x.get('confidence', 0))
+                    self.enhanced_logger.logger.info(f"  选择{investment_type}策略信号（置信度: {best_strategy_signal.get('confidence', 0):.2f}）")
+                    return [best_strategy_signal]
+                else:
+                    # 如果没有匹配的策略信号，选择置信度最高的策略信号
+                    best_strategy_signal = max(strategy_signals, key=lambda x: x.get('confidence', 0))
+                    self.enhanced_logger.logger.info(f"  选择置信度最高的策略信号: {best_strategy_signal.get('confidence', 0):.2f}")
+                    return [best_strategy_signal]
+
+            # 如果都没有，返回空列表
+            self.enhanced_logger.logger.info("  没有合适的信号，返回空")
+            return []
+
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"选择最终信号失败: {e}")
+            # 出错时返回置信度最高的信号
+            if all_signals:
+                return [max(all_signals, key=lambda x: x.get('confidence', 0))]
+            return []
 
     async def _update_status(self) -> None:
         """更新机器人状态"""

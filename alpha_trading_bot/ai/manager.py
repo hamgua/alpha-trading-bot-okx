@@ -121,6 +121,10 @@ class AIManager(BaseComponent):
             logger.info(f"🤖 AI决策模式: {ai_mode} (提供商: {self.providers})")
 
             signals = []
+            results = []
+            success_count = 0
+            fail_count = 0
+            success_providers = []
 
             if self.config.use_multi_ai and len(self.providers) > 1:
                 # 多AI模式
@@ -133,6 +137,9 @@ class AIManager(BaseComponent):
                 signal = await self._generate_single_ai_signal(market_data)
                 if signal:
                     signals = [signal]
+                    results = [signal]
+                    success_count = 1
+                    success_providers = [provider]
 
             # 缓存结果 - 存储个体信号和最终信号
             self.cache[cache_key] = {

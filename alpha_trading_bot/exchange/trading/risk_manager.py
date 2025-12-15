@@ -102,10 +102,21 @@ class RiskManager(BaseComponent):
             can_trade = risk_score <= 0.5
             reason = "; ".join(reasons) if reasons else "风险评估通过"
 
+            # 计算风险等级
+            if risk_score <= 0.2:
+                risk_level = "low"
+            elif risk_score <= 0.4:
+                risk_level = "moderate"
+            elif risk_score <= 0.7:
+                risk_level = "high"
+            else:
+                risk_level = "critical"
+
             return {
                 'can_trade': can_trade,
                 'reason': reason,
                 'risk_score': risk_score,
+                'risk_level': risk_level,
                 'daily_loss': self.daily_loss,
                 'consecutive_losses': self.consecutive_losses
             }
@@ -115,7 +126,8 @@ class RiskManager(BaseComponent):
             return {
                 'can_trade': False,
                 'reason': f"风险评估异常: {str(e)}",
-                'risk_score': 1.0
+                'risk_score': 1.0,
+                'risk_level': 'critical'
             }
 
     async def assess_trade_risk(self, trade_request: Dict[str, Any]) -> RiskAssessmentResult:

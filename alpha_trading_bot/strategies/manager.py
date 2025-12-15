@@ -55,19 +55,23 @@ class StrategyManager(BaseComponent):
             'aggressive': {'enabled': True, 'priority': 3}
         }
 
-    async def generate_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def generate_signals(self, market_data: Dict[str, Any], ai_signals: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """生成交易信号"""
         try:
             signals = []
 
-            # 获取AI信号 - 使用提供的AI管理器实例
-            if self.ai_manager:
-                ai_signals = await self.ai_manager.generate_signals(market_data)
+            # 如果已经提供了AI信号，直接使用它们
+            if ai_signals:
+                logger.info(f"使用提供的 {len(ai_signals)} 个AI信号")
             else:
-                # 如果没有提供AI管理器，使用全局实例
-                from ..ai import get_ai_manager
-                ai_manager = await get_ai_manager()
-                ai_signals = await ai_manager.generate_signals(market_data)
+                # 获取AI信号 - 使用提供的AI管理器实例
+                if self.ai_manager:
+                    ai_signals = await self.ai_manager.generate_signals(market_data)
+                else:
+                    # 如果没有提供AI管理器，使用全局实例
+                    from ..ai import get_ai_manager
+                    ai_manager = await get_ai_manager()
+                    ai_signals = await ai_manager.generate_signals(market_data)
 
             # 转换AI信号为策略信号
             for ai_signal in ai_signals:
@@ -85,7 +89,29 @@ class StrategyManager(BaseComponent):
             strategy_signals = await self._generate_strategy_signals(market_data)
             signals.extend(strategy_signals)
 
-            logger.info(f"生成了 {len(signals)} 个交易信号")
+            # 记录详细的交易信号信息
+            logger.info(f"生成了 {len(signals)} 个交易信号:")
+            for i, signal in enumerate(signals, 1):
+                logger.info(f"  信号 {i}:")
+                logger.info(f"    类型: {signal.get('type', 'UNKNOWN').upper()}")
+                logger.info(f"    信心度: {signal.get('confidence', 0):.2f}")
+                logger.info(f"    原因: {signal.get('reason', '无')}")
+                logger.info(f"    来源: {signal.get('source', 'unknown')}")
+                logger.info(f"    提供商: {signal.get('provider', 'unknown')}")
+                logger.info(f"    时间戳: {signal.get('timestamp', 'unknown')}")
+
+                # 记录额外信息（如果有）
+                if 'holding_time' in signal:
+                    logger.info(f"    建议持仓时间: {signal['holding_time']}")
+                if 'risk' in signal:
+                    logger.info(f"    风险提示: {signal['risk']}")
+                if 'price' in signal:
+                    logger.info(f"    目标价格: ${signal['price']:,.2f}")
+                if 'stop_loss' in signal:
+                    logger.info(f"    止损价格: ${signal['stop_loss']:,.2f}")
+                if 'take_profit' in signal:
+                    logger.info(f"    止盈价格: ${signal['take_profit']:,.2f}")
+                logger.info("    " + "-" * 40)
             return signals
 
         except Exception as e:
