@@ -13,12 +13,24 @@ from pathlib import Path
 # 设置日志配置
 def setup_logging(log_level=logging.INFO):
     """配置日志系统"""
+    from datetime import datetime
+    import os
+
+    # 创建logs目录（如果不存在）
+    logs_dir = Path('logs')
+    logs_dir.mkdir(exist_ok=True)
+
+    # 生成按日期命名的日志文件名
+    today = datetime.now().strftime('%Y%m%d')
+    log_filename = f'alpha-trading-bot-okx-{today}.log'
+    log_path = logs_dir / log_filename
+
     logging.basicConfig(
         level=log_level,
         format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
         handlers=[
             logging.StreamHandler(sys.stdout),
-            logging.FileHandler('trading_bot.log', encoding='utf-8')
+            logging.FileHandler(log_path, encoding='utf-8')
         ]
     )
     return logging.getLogger(__name__)
@@ -109,6 +121,11 @@ def main():
     # 设置日志级别
     log_level = logging.DEBUG if args.debug else logging.INFO
     logger = setup_logging(log_level)
+
+    # 获取当前日志文件路径
+    import datetime
+    today = datetime.datetime.now().strftime('%Y%m%d')
+    log_file = Path(f'logs/alpha-trading-bot-okx-{today}.log')
 
     try:
         logger.info("=" * 50)

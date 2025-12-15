@@ -85,6 +85,22 @@ class StrategyManager(BaseComponent):
                 }
                 signals.append(signal)
 
+                # 保存AI信号到数据管理器
+                try:
+                    from ..data import get_data_manager
+                    data_manager = await get_data_manager()
+                    ai_signal_data = {
+                        'provider': ai_signal.get('provider', 'unknown'),
+                        'signal': ai_signal.get('signal', 'HOLD'),
+                        'confidence': ai_signal.get('confidence', 0.5),
+                        'reason': ai_signal.get('reason', 'AI分析'),
+                        'market_price': market_data.get('price', 0),
+                        'market_data': market_data
+                    }
+                    await data_manager.save_ai_signal(ai_signal_data)
+                except Exception as e:
+                    logger.warning(f"保存AI信号失败: {e}")
+
             # 添加策略特定的信号
             strategy_signals = await self._generate_strategy_signals(market_data)
             signals.extend(strategy_signals)

@@ -64,6 +64,15 @@ class TradingEngine(BaseComponent):
         try:
             logger.info(f"正在初始化交易引擎... 测试模式: {self.config.test_mode}")
 
+            # 初始化数据管理器
+            try:
+                from ..data import create_data_manager
+                self.data_manager = await create_data_manager()
+                logger.info("数据管理器初始化成功")
+            except Exception as e:
+                logger.warning(f"数据管理器初始化失败: {e}，将继续运行但不保存历史数据")
+                self.data_manager = None
+
             # 检查是否为测试模式
             if self.config.test_mode:
                 logger.info("测试模式：跳过真实交易所初始化")
@@ -158,7 +167,7 @@ class TradingEngine(BaseComponent):
                     closes.append(close_price)
                     volumes.append(volume)
 
-                return {
+                market_data = {
                     'symbol': symbol,
                     'price': current_price,
                     'bid': current_price - 10,
@@ -183,6 +192,28 @@ class TradingEngine(BaseComponent):
                     'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
                     'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else ''
                 }
+
+                # 保存市场数据快照
+                if self.data_manager:
+                    try:
+                        market_snapshot = {
+                            'symbol': symbol,
+                            'price': current_price,
+                            'bid': current_price - 10,
+                            'ask': current_price + 10,
+                            'volume': random.uniform(100, 1000),
+                            'high': current_price * 1.02,
+                            'low': current_price * 0.98,
+                            'open': opens[-1] if opens else current_price,
+                            'close': closes[-1] if closes else current_price,
+                            'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
+                            'market_state': 'normal'
+                        }
+                        await self.data_manager.save_market_data(market_snapshot)
+                    except Exception as e:
+                        logger.warning(f"保存市场数据失败: {e}")
+
+                return market_data
 
             # 正常模式：从交易所获取真实数据
             ticker = await self.exchange_client.fetch_ticker(symbol)
@@ -260,6 +291,26 @@ class TradingEngine(BaseComponent):
                 self.last_trade_time = datetime.now()
                 self.engine_stats['total_trades'] = self.engine_stats.get('total_trades', 0) + 1
                 self.engine_stats['total_volume'] = self.engine_stats.get('total_volume', 0) + trade_request.get('amount', 0)
+
+                # 保存交易记录到数据管理器
+                if self.data_manager:
+                    try:
+                        trade_data = {
+                            'symbol': trade_request.get('symbol', ''),
+                            'side': trade_request.get('side', ''),
+                            'price': result.price or trade_request.get('price', 0),
+                            'amount': trade_request.get('amount', 0),
+                            'cost': result.cost or trade_request.get('amount', 0) * (result.price or trade_request.get('price', 0)),
+                            'fee': result.fee or 0,
+                            'status': 'executed',
+                            'order_id': result.order_id or '',
+                            'signal_source': trade_request.get('signal_source', ''),
+                            'signal_confidence': trade_request.get('confidence', 0),
+                            'notes': f"交易执行成功 - {result.message or ''}"
+                        }
+                        await self.data_manager.save_trade(trade_data)
+                    except Exception as e:
+                        logger.warning(f"保存交易记录失败: {e}")
 
             return result
 

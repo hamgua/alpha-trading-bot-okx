@@ -82,6 +82,15 @@ class TradingBot(BaseComponent):
             self.risk_manager = RiskManager()
             await self.risk_manager.initialize()
 
+            # 初始化数据管理器
+            try:
+                from ..data import create_data_manager
+                self.data_manager = await create_data_manager()
+                self.enhanced_logger.logger.info("数据管理器初始化成功")
+            except Exception as e:
+                self.enhanced_logger.logger.warning(f"数据管理器初始化失败: {e}，将继续运行但不保存历史数据")
+                self.data_manager = None
+
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
             return True
@@ -100,6 +109,8 @@ class TradingBot(BaseComponent):
             await self.risk_manager.cleanup()
         if hasattr(self, 'ai_manager'):
             await self.ai_manager.cleanup()
+        if hasattr(self, 'data_manager'):
+            await self.data_manager.cleanup()
 
     async def start(self) -> None:
         """启动机器人"""
