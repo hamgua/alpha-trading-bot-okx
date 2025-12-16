@@ -13,27 +13,49 @@ from pathlib import Path
 # 设置日志配置
 def setup_logging(log_level=logging.INFO):
     """配置日志系统"""
-    from datetime import datetime
-    import os
-
     # 创建logs目录（如果不存在）
     logs_dir = Path('logs')
     logs_dir.mkdir(exist_ok=True)
 
-    # 生成按日期命名的日志文件名
-    today = datetime.now().strftime('%Y%m%d')
-    log_filename = f'alpha-trading-bot-okx-{today}.log'
-    log_path = logs_dir / log_filename
+    # 获取logger
+    logger = logging.getLogger()
+    logger.setLevel(log_level)
 
-    logging.basicConfig(
-        level=log_level,
-        format='[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(log_path, encoding='utf-8')
-        ]
-    )
-    return logging.getLogger(__name__)
+    # 清除现有处理器
+    logger.handlers.clear()
+
+    # 控制台处理器
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(log_level)
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # 使用智能日志管理器
+    try:
+        from alpha_trading_bot.utils.smart_logger import setup_smart_logging
+        # 使用智能日志管理器
+        smart_logger = setup_smart_logging(log_level)
+        return smart_logger
+    except ImportError:
+        # 如果智能日志管理器不可用，使用基本配置
+        from datetime import datetime
+
+        # 生成当前日期的日志文件名
+        today = datetime.now().strftime('%Y%m%d')
+        log_filename = logs_dir / f'alpha-trading-bot-okx-{today}.log'
+
+        # 创建文件处理器
+        file_handler = logging.FileHandler(
+            filename=log_filename,
+            encoding='utf-8',
+            mode='a'  # 追加模式
+        )
+        file_handler.setLevel(log_level)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+        return logging.getLogger(__name__)
 
 
 async def main_async(config_path=None, strategy_name=None):
@@ -121,11 +143,6 @@ def main():
     # 设置日志级别
     log_level = logging.DEBUG if args.debug else logging.INFO
     logger = setup_logging(log_level)
-
-    # 获取当前日志文件路径
-    import datetime
-    today = datetime.datetime.now().strftime('%Y%m%d')
-    log_file = Path(f'logs/alpha-trading-bot-okx-{today}.log')
 
     try:
         logger.info("=" * 50)
