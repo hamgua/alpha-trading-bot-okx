@@ -365,8 +365,18 @@ class ExchangeClient:
     async def fetch_positions(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取仓位信息"""
         try:
+            logger.info(f"正在获取仓位信息，符号: {symbol}")
             positions = await self.exchange.fetch_positions([symbol] if symbol else None)
-            return positions
+            logger.info(f"获取到的原始仓位数据: {positions}")
+
+            # 如果没有指定符号，返回所有仓位
+            if not symbol:
+                return positions
+
+            # 如果指定了符号，过滤出指定符号的仓位
+            filtered_positions = [pos for pos in positions if pos.get('symbol') == symbol]
+            logger.info(f"过滤后的仓位数据: {filtered_positions}")
+            return filtered_positions
         except Exception as e:
             logger.error(f"获取仓位信息失败: {e}")
             raise ExchangeError(f"获取仓位信息失败: {e}")

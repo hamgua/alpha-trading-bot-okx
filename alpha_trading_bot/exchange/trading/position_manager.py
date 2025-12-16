@@ -44,10 +44,13 @@ class PositionManager(BaseComponent):
         """更新仓位信息"""
         try:
             # 从交易所获取仓位信息
+            logger.info(f"开始更新仓位信息: {symbol}")
             positions = await exchange_client.fetch_positions(symbol)
+            logger.info(f"获取到的仓位数据: {positions}")
 
             if positions and len(positions) > 0:
                 pos_data = positions[0]  # 取第一个仓位
+                logger.info(f"找到仓位数据: {pos_data}")
 
                 position = PositionInfo(
                     symbol=symbol,
@@ -63,7 +66,7 @@ class PositionManager(BaseComponent):
                 )
 
                 self.positions[symbol] = position
-                logger.debug(f"仓位更新: {symbol} {position.side.value} {position.amount}")
+                logger.info(f"仓位更新成功: {symbol} {position.side.value} {position.amount}")
                 return position
             else:
                 # 没有仓位

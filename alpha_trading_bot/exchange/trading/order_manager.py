@@ -136,6 +136,118 @@ class OrderManager(BaseComponent):
             logger.error(f"更新订单状态失败 {order_id}: {e}")
             return None
 
+    async def create_stop_order(self, symbol: str, side: TradeSide, amount: float, stop_price: float,
+                                reduce_only: bool = True, client_order_id: Optional[str] = None) -> OrderResult:
+        """创建止损订单（使用交易所的算法订单功能）"""
+        try:
+            logger.info(f"创建止损订单: {symbol} {side.value} {amount} @ {stop_price}")
+
+            # 构建算法订单参数
+            params = {
+                'reduceOnly': reduce_only,
+                'triggerPx': str(stop_price),  # 触发价格
+                'orderPx': '-1',  # -1 表示市价执行
+                'triggerPxType': 'last',  # 基于最新价格触发
+                'tdMode': 'cross',  # 全仓模式
+                'ordType': 'trigger'  # 触发订单类型
+            }
+
+            if client_order_id:
+                params['clientOrderId'] = client_order_id
+
+            # 使用 CCXT 的 create_order 创建触发订单
+            order = await self.exchange_client.exchange.create_order(
+                symbol=symbol,
+                type='trigger',
+                side=side.value.lower(),
+                amount=amount,
+                price=None,
+                params=params
+            )
+
+            order_result = OrderResult(
+                success=True,
+                order_id=order['id'],
+                client_order_id=order.get('clientOrderId'),
+                symbol=order['symbol'],
+                side=side,
+                amount=order['amount'],
+                price=float(order.get('price', 0)),
+                filled_amount=float(order.get('filled', 0)),
+                average_price=float(order.get('average', 0)),
+                status=OrderStatus(order['status'])
+            )
+
+            # 添加到活动订单列表
+            self.active_orders[order_result.order_id] = order_result
+            self.order_history.append(order_result)
+
+            logger.info(f"止损订单创建成功: {order_result.order_id}")
+            return order_result
+
+        except Exception as e:
+            logger.error(f"创建止损订单失败: {e}")
+            return OrderResult(
+                success=False,
+                error_message=f"创建止损订单失败: {str(e)}"
+            )
+
+    async def create_take_profit_order(self, symbol: str, side: TradeSide, amount: float, take_profit_price: float,
+                                     reduce_only: bool = True, client_order_id: Optional[str] = None) -> OrderResult:
+        """创建止盈订单（使用交易所的算法订单功能）"""
+        try:
+            logger.info(f"创建止盈订单: {symbol} {side.value} {amount} @ {take_profit_price}")
+
+            # 构建算法订单参数
+            params = {
+                'reduceOnly': reduce_only,
+                'triggerPx': str(take_profit_price),  # 触发价格
+                'orderPx': '-1',  # -1 表示市价执行
+                'triggerPxType': 'last',  # 基于最新价格触发
+                'tdMode': 'cross',  # 全仓模式
+                'ordType': 'trigger'  # 触发订单类型
+            }
+
+            if client_order_id:
+                params['clientOrderId'] = client_order_id
+
+            # 使用 CCXT 的 create_order 创建触发订单
+            order = await self.exchange_client.exchange.create_order(
+                symbol=symbol,
+                type='trigger',
+                side=side.value.lower(),
+                amount=amount,
+                price=None,
+                params=params
+            )
+
+            order_result = OrderResult(
+                success=True,
+                order_id=order['id'],
+                client_order_id=order.get('clientOrderId'),
+                symbol=order['symbol'],
+                side=side,
+                amount=order['amount'],
+                price=float(order.get('price', 0)),
+                filled_amount=float(order.get('filled', 0)),
+                average_price=float(order.get('average', 0)),
+                status=OrderStatus(order['status'])
+            )
+
+            # 添加到活动订单列表
+            self.active_orders[order_result.order_id] = order_result
+            self.order_history.append(order_result)
+
+            logger.info(f"止盈订单创建成功: {order_result.order_id}")
+            return order_result
+
+        except Exception as e:
+            logger.error(f"创建止盈订单失败: {e}")
+            return OrderResult(
+                success=False,
+                error_message=f"创建止盈订单失败: {str(e)}"
+            )
+
     async def update_all_orders(self) -> None:
         """更新所有活动订单状态"""
         orders_to_update = list(self.active_orders.items())
@@ -156,6 +268,47 @@ class OrderManager(BaseComponent):
         if symbol:
             orders = [order for order in orders if order.symbol == symbol]
         return orders[-limit:]  # 返回最近的订单
+
+    async def fetch_algo_orders(self, symbol: str) -> List[OrderResult]:
+        """获取算法订单（止盈止损订单）"""
+        try:
+            # 使用CCXT获取未触发的算法订单
+            algo_orders = await self.exchange_client.exchange.private_get_trade_orders_algo_pending({
+                'instId': symbol,
+                'ordType': 'trigger'
+            })
+
+            # 转换格式
+            orders = []
+            for order in algo_orders.get('data', []):
+                orders.append(OrderResult(
+                    success=True,
+                    order_id=order['algoId'],
+                    symbol=order['instId'],
+                    side=TradeSide(order['side'].lower()),
+                    amount=float(order['sz']),
+                    price=float(order.get('triggerPx', 0)),
+                    filled_amount=0,
+                    average_price=0,
+                    status=OrderStatus.OPEN
+                ))
+            return orders
+        except Exception as e:
+            logger.error(f"获取算法订单失败: {e}")
+            return []
+
+    async def cancel_algo_order(self, algo_order_id: str, symbol: str) -> bool:
+        """取消算法订单"""
+        try:
+            await self.exchange_client.exchange.private_post_trade_cancel_algo_order({
+                'algoId': algo_order_id,
+                'instId': symbol
+            })
+            logger.info(f"算法订单取消成功: {algo_order_id}")
+            return True
+        except Exception as e:
+            logger.error(f"取消算法订单失败 {algo_order_id}: {e}")
+            return False
 
     def get_status(self) -> Dict[str, Any]:
         """获取状态"""

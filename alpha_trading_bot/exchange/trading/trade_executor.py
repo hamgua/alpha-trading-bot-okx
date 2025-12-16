@@ -158,12 +158,24 @@ class TradeExecutor(BaseComponent):
                     error_message="订单成交超时"
                 )
 
-            # 4. 设置止盈止损（仅在新开仓时）
-            if self.config.enable_tp_sl and not current_position:
-                await self._set_tp_sl(symbol, side, filled_order)
-            elif self.config.enable_tp_sl and current_position:
-                # 如果是加仓，检查并更新止盈止损
-                await self._check_and_update_tp_sl(symbol, side, current_position)
+            # 4. 设置止盈止损
+            if self.config.enable_tp_sl:
+                if not current_position:
+                    # 新仓位，创建止盈止损
+                    logger.info(f"新仓位创建止盈止损: {symbol}")
+                    await self._set_tp_sl(symbol, side, filled_order)
+                else:
+                    # 已有仓位，检查是否需要更新止盈止损
+                    logger.info(f"检查现有仓位止盈止损: {symbol}")
+                    # 如果是加仓，更新止盈止损
+                    if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
+                       (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
+                        logger.info(f"加仓操作，更新止盈止损: {symbol}")
+                        await self._check_and_update_tp_sl(symbol, side, current_position)
+                    else:
+                        # 方向相反，说明是平仓后反向开仓，创建新的止盈止损
+                        logger.info(f"反向开仓，创建新止盈止损: {symbol}")
+                        await self._set_tp_sl(symbol, side, filled_order)
 
             # 5. 更新仓位信息
             await self.position_manager.update_position(self.exchange_client, symbol)
@@ -277,25 +289,70 @@ class TradeExecutor(BaseComponent):
             )
 
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo) -> None:
-        """检查并更新止盈止损"""
+        """检查并更新止盈止损 - 智能版本"""
         try:
             # 获取当前价格
             current_price = await self._get_current_price(symbol)
             entry_price = current_position.average_price
 
-            # 计算新的止盈止损价格
+            # 计算新的止盈止损价格（基于加仓后的平均价格）
             if current_position.side == TradeSide.LONG:
                 # 多头：止盈在上方，止损在下方
                 new_take_profit = entry_price * 1.06  # 6% 止盈
                 new_stop_loss = entry_price * 0.98    # 2% 止损
+                # 加仓时的止盈止损方向
+                tp_side = TradeSide.SELL
+                sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
                 new_take_profit = entry_price * 0.94  # 6% 止盈
                 new_stop_loss = entry_price * 1.02    # 2% 止损
+                # 加仓时的止盈止损方向
+                tp_side = TradeSide.BUY
+                sl_side = TradeSide.BUY
 
-            # 这里应该实现更新现有止盈止损订单的逻辑
-            # 简化实现：记录日志
-            logger.info(f"更新止盈止损: {symbol} 新TP={new_take_profit:.2f} 新SL={new_stop_loss:.2f}")
+            # 获取现有的算法订单（止盈止损）
+            existing_algo_orders = await self.order_manager.fetch_algo_orders(symbol)
+
+            # 取消旧的止盈止损订单
+            for order in existing_algo_orders:
+                if order.side == tp_side or order.side == sl_side:  # 是止盈或止损订单
+                    cancel_result = await self.order_manager.cancel_algo_order(order.order_id, symbol)
+                    if cancel_result:
+                        logger.info(f"取消旧算法订单成功: {order.order_id}")
+                    else:
+                        logger.warning(f"取消旧算法订单失败: {order.order_id}")
+
+            # 创建新的止盈止损订单
+            logger.info(f"创建加仓后的新止盈止损订单: {symbol}")
+
+            # 创建止盈订单
+            tp_result = await self.order_manager.create_take_profit_order(
+                symbol=symbol,
+                side=tp_side,
+                amount=current_position.amount,  # 对整个仓位设置止盈
+                take_profit_price=new_take_profit,
+                reduce_only=True
+            )
+
+            if tp_result.success:
+                logger.info(f"加仓后新止盈订单创建成功: {tp_result.order_id}")
+            else:
+                logger.error(f"加仓后新止盈订单创建失败: {tp_result.error_message}")
+
+            # 创建止损订单
+            sl_result = await self.order_manager.create_stop_order(
+                symbol=symbol,
+                side=sl_side,
+                amount=current_position.amount,  # 对整个仓位设置止损
+                stop_price=new_stop_loss,
+                reduce_only=True
+            )
+
+            if sl_result.success:
+                logger.info(f"加仓后新止损订单创建成功: {sl_result.order_id}")
+            else:
+                logger.error(f"加仓后新止损订单创建失败: {sl_result.error_message}")
 
         except Exception as e:
             logger.error(f"更新止盈止损失败: {e}")
@@ -312,21 +369,47 @@ class TradeExecutor(BaseComponent):
                 # 多头：止盈在上方，止损在下方
                 take_profit = entry_price * 1.06  # 6% 止盈
                 stop_loss = entry_price * 0.98    # 2% 止损
+                # 止盈止损订单方向
+                tp_side = TradeSide.SELL
+                sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
                 take_profit = entry_price * 0.94  # 6% 止盈
                 stop_loss = entry_price * 1.02    # 2% 止损
+                # 止盈止损订单方向
+                tp_side = TradeSide.BUY
+                sl_side = TradeSide.BUY
 
-            # 创建止盈止损订单
-            tp_sl_request = {
-                'symbol': symbol,
-                'take_profit': take_profit,
-                'stop_loss': stop_loss
-            }
+            # 实际创建止盈止损订单
+            logger.info(f"创建新仓位的止盈止损订单: {symbol}")
 
-            # 这里应该实现具体的TP/SL逻辑
-            # 简化实现：记录日志
-            logger.info(f"设置止盈止损: {symbol} TP={take_profit:.2f} SL={stop_loss:.2f}")
+            # 创建止盈订单
+            tp_result = await self.order_manager.create_take_profit_order(
+                symbol=symbol,
+                side=tp_side,
+                amount=order_result.filled_amount,  # 对新仓位设置止盈
+                take_profit_price=take_profit,
+                reduce_only=True
+            )
+
+            if tp_result.success:
+                logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+            else:
+                logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
+
+            # 创建止损订单
+            sl_result = await self.order_manager.create_stop_order(
+                symbol=symbol,
+                side=sl_side,
+                amount=order_result.filled_amount,  # 对新仓位设置止损
+                stop_price=stop_loss,
+                reduce_only=True
+            )
+
+            if sl_result.success:
+                logger.info(f"新仓位止损订单创建成功: {sl_result.order_id}")
+            else:
+                logger.error(f"新仓位止损订单创建失败: {sl_result.error_message}")
 
         except Exception as e:
             logger.error(f"设置止盈止损失败: {e}")
