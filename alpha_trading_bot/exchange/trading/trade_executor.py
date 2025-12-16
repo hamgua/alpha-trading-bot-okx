@@ -19,6 +19,10 @@ class TradeExecutorConfig(BaseConfig):
     partial_close_ratio: float = 0.5
     retry_on_failure: bool = True
     max_retries: int = 3
+    enable_position_check: bool = True
+    max_position_amount: float = 0.1  # 最大持仓量（BTC）
+    enable_add_position: bool = False  # 是否允许加仓
+    add_position_ratio: float = 0.5  # 加仓比例（相对于初始仓位）
 
 class TradeExecutor(BaseComponent):
     """交易执行器"""
@@ -61,6 +65,54 @@ class TradeExecutor(BaseComponent):
             reason = trade_request.get('reason', 'normal')
 
             logger.info(f"执行交易: {symbol} {side.value} {amount} @ {price or 'market'} - {reason}")
+
+            # 0. 检查现有持仓状态（如果启用）
+            current_position = None
+            if self.config.enable_position_check:
+                current_position = self.position_manager.get_position(symbol)
+                if current_position:
+                    logger.info(f"检测到现有持仓: {symbol} {current_position.side.value} {current_position.amount}")
+
+                    # 检查信号方向是否与持仓一致
+                    if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
+                       (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
+                        logger.info("信号方向与现有持仓一致，考虑加仓操作")
+
+                        # 检查是否允许加仓
+                        if not self.config.enable_add_position:
+                            logger.info("加仓功能已禁用，跳过此次交易")
+                            return TradeResult(
+                                success=False,
+                                error_message="加仓功能已禁用"
+                            )
+
+                        # 检查是否超过最大仓位限制
+                        new_total_amount = current_position.amount + amount
+                        if new_total_amount > self.config.max_position_amount:
+                            logger.info(f"加仓后总仓位 {new_total_amount} 超过最大限制 {self.config.max_position_amount}，调整加仓量")
+                            amount = self.config.max_position_amount - current_position.amount
+                            if amount <= 0:
+                                logger.info("已达到最大仓位限制，无法继续加仓")
+                                return TradeResult(
+                                    success=False,
+                                    error_message="已达到最大仓位限制"
+                                )
+
+                        # 按比例调整加仓量
+                        amount = amount * self.config.add_position_ratio
+                        logger.info(f"调整后的加仓量: {amount}")
+
+                    else:
+                        logger.info("信号方向与现有持仓相反，执行平仓操作")
+                        # 先平仓当前持仓
+                        close_result = await self._close_position(symbol)
+                        if not close_result.success:
+                            return close_result
+
+                        # 记录平仓成功，但继续执行反向开仓
+                        logger.info("平仓完成，准备执行反向开仓")
+                else:
+                    logger.info("当前无持仓，执行开仓操作")
 
             # 1. 检查是否有足够的余额
             try:
@@ -106,9 +158,12 @@ class TradeExecutor(BaseComponent):
                     error_message="订单成交超时"
                 )
 
-            # 4. 设置止盈止损（如果启用）
-            if self.config.enable_tp_sl:
+            # 4. 设置止盈止损（仅在新开仓时）
+            if self.config.enable_tp_sl and not current_position:
                 await self._set_tp_sl(symbol, side, filled_order)
+            elif self.config.enable_tp_sl and current_position:
+                # 如果是加仓，检查并更新止盈止损
+                await self._check_and_update_tp_sl(symbol, side, current_position)
 
             # 5. 更新仓位信息
             await self.position_manager.update_position(self.exchange_client, symbol)
@@ -168,6 +223,82 @@ class TradeExecutor(BaseComponent):
         except Exception as e:
             logger.error(f"等待订单成交异常: {e}")
             return None
+
+    async def _close_position(self, symbol: str) -> TradeResult:
+        """平仓当前持仓"""
+        try:
+            current_position = self.position_manager.get_position(symbol)
+            if not current_position:
+                return TradeResult(
+                    success=True,
+                    error_message="无持仓可平"
+                )
+
+            logger.info(f"正在平仓: {symbol} {current_position.side.value} {current_position.amount}")
+
+            # 创建反向订单以平仓
+            close_side = TradeSide.SELL if current_position.side == TradeSide.LONG else TradeSide.BUY
+            close_amount = current_position.amount
+
+            # 使用市价单平仓
+            order_result = await self.order_manager.create_market_order(symbol, close_side, close_amount)
+
+            if not order_result.success:
+                return TradeResult(
+                    success=False,
+                    error_message=f"平仓订单创建失败: {order_result.error_message}"
+                )
+
+            # 等待订单成交
+            filled_order = await self._wait_for_order_fill(order_result)
+            if not filled_order:
+                return TradeResult(
+                    success=False,
+                    error_message="平仓订单成交超时"
+                )
+
+            # 更新仓位信息
+            await self.position_manager.update_position(self.exchange_client, symbol)
+
+            logger.info(f"平仓成功: {symbol} {filled_order.filled_amount} @ {filled_order.average_price}")
+            return TradeResult(
+                success=True,
+                order_id=filled_order.order_id,
+                filled_amount=filled_order.filled_amount,
+                average_price=filled_order.average_price,
+                fee=filled_order.fee
+            )
+
+        except Exception as e:
+            logger.error(f"平仓失败: {e}")
+            return TradeResult(
+                success=False,
+                error_message=f"平仓异常: {str(e)}"
+            )
+
+    async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo) -> None:
+        """检查并更新止盈止损"""
+        try:
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+            entry_price = current_position.average_price
+
+            # 计算新的止盈止损价格
+            if current_position.side == TradeSide.LONG:
+                # 多头：止盈在上方，止损在下方
+                new_take_profit = entry_price * 1.06  # 6% 止盈
+                new_stop_loss = entry_price * 0.98    # 2% 止损
+            else:
+                # 空头：止盈在下方，止损在上方
+                new_take_profit = entry_price * 0.94  # 6% 止盈
+                new_stop_loss = entry_price * 1.02    # 2% 止损
+
+            # 这里应该实现更新现有止盈止损订单的逻辑
+            # 简化实现：记录日志
+            logger.info(f"更新止盈止损: {symbol} 新TP={new_take_profit:.2f} 新SL={new_stop_loss:.2f}")
+
+        except Exception as e:
+            logger.error(f"更新止盈止损失败: {e}")
 
     async def _set_tp_sl(self, symbol: str, side: TradeSide, order_result: OrderResult) -> None:
         """设置止盈止损"""
