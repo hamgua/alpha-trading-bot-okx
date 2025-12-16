@@ -47,13 +47,42 @@ class StrategyManager(BaseComponent):
 
     async def _load_default_strategies(self) -> None:
         """加载默认策略"""
-        # 这里应该加载实际的策略实现
-        # 简化实现：创建策略占位符
-        self.active_strategies = {
-            'conservative': {'enabled': True, 'priority': 1},
-            'moderate': {'enabled': True, 'priority': 2},
-            'aggressive': {'enabled': True, 'priority': 3}
+        # 定义投资策略详细参数
+        STRATEGY_DEFINITIONS = {
+            'conservative': {
+                'name': '稳健型',
+                'description': '低风险偏好，追求稳定收益',
+                'price_range': {'min': 30, 'max': 70},  # 30%-70%区间
+                'frequency': '低频次',
+                'characteristics': '提前锁定利润，避免大幅回撤',
+                'risk_level': 'low',
+                'enabled': True,
+                'priority': 1
+            },
+            'moderate': {
+                'name': '中等型',
+                'description': '平衡风险与收益，趋势跟踪',
+                'price_range': {'min': 25, 'max': 75},  # 25%-75%区间
+                'frequency': '中等频次',
+                'characteristics': '趋势跟踪，平衡策略',
+                'risk_level': 'medium',
+                'enabled': True,
+                'priority': 2
+            },
+            'aggressive': {
+                'name': '激进型',
+                'description': '高风险偏好，追求极致买卖点',
+                'price_range': {'min': 15, 'max': 85},  # 15%-85%区间
+                'frequency': '高频次',
+                'characteristics': '追求极致买卖点，快速反应',
+                'risk_level': 'high',
+                'enabled': True,
+                'priority': 3
+            }
         }
+
+        # 加载策略定义
+        self.active_strategies = STRATEGY_DEFINITIONS
 
     async def generate_signals(self, market_data: Dict[str, Any], ai_signals: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """生成交易信号"""
@@ -115,6 +144,18 @@ class StrategyManager(BaseComponent):
                 logger.info(f"    来源: {signal.get('source', 'unknown')}")
                 logger.info(f"    提供商: {signal.get('provider', 'unknown')}")
                 logger.info(f"    时间戳: {signal.get('timestamp', 'unknown')}")
+
+                # 如果是策略信号，显示策略详情
+                if signal.get('source') in ['conservative_strategy', 'moderate_strategy', 'aggressive_strategy']:
+                    strategy_type = signal.get('source', '').replace('_strategy', '')
+                    if strategy_type in self.active_strategies:
+                        strategy_info = self.active_strategies[strategy_type]
+                        logger.info(f"    策略类型: {strategy_info['name']}")
+                        logger.info(f"    策略描述: {strategy_info['description']}")
+                        logger.info(f"    价格区间: {strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%")
+                        logger.info(f"    交易频率: {strategy_info['frequency']}")
+                        logger.info(f"    策略特点: {strategy_info['characteristics']}")
+                        logger.info(f"    风险等级: {strategy_info['risk_level']}")
 
                 # 记录额外信息（如果有）
                 if 'holding_time' in signal:
@@ -234,58 +275,73 @@ class StrategyManager(BaseComponent):
                 # 根据投资类型生成对应的策略信号
                 if investment_type == 'conservative':
                     # 稳健型策略：宽区间，低频次交易，提前锁定利润
+                    strategy_info = self.active_strategies['conservative']
                     if price_position < 0.3:  # 较早买入，降低踏空风险
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.7,
-                            'reason': '稳健策略：价格回调到合理区间，适合建仓',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格回调到合理区间({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，适合建仓",
                             'source': 'conservative_strategy',
+                            'strategy_type': 'conservative',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.7:  # 较早卖出，锁定利润
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.7,
-                            'reason': '稳健策略：价格反弹到合理高位，考虑减仓锁定利润',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格反弹到合理高位({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，考虑减仓锁定利润",
                             'source': 'conservative_strategy',
+                            'strategy_type': 'conservative',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
 
                 elif investment_type == 'moderate':
                     # 中等型策略：中等区间，趋势跟踪，平衡风险收益
+                    strategy_info = self.active_strategies['moderate']
                     if price_position < 0.25:  # 中等买入门槛
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.75,
-                            'reason': '中等策略：价格回调明显，趋势跟踪买入',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格回调明显({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，趋势跟踪买入",
                             'source': 'moderate_strategy',
+                            'strategy_type': 'moderate',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.75:  # 中等卖出门槛
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.75,
-                            'reason': '中等策略：价格反弹明显，趋势跟踪卖出',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格反弹明显({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，趋势跟踪卖出",
                             'source': 'moderate_strategy',
+                            'strategy_type': 'moderate',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
 
                 elif investment_type == 'aggressive':
                     # 激进型策略：窄区间，高频次交易，追求极致买卖点
+                    strategy_info = self.active_strategies['aggressive']
                     if price_position < 0.15:  # 极低点买入，追求最大化收益
                         signals.append({
                             'type': 'buy',
                             'confidence': 0.8,
-                            'reason': '激进策略：价格极度低估，超跌反弹机会',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格极度低估({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，超跌反弹机会",
                             'source': 'aggressive_strategy',
+                            'strategy_type': 'aggressive',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
                     elif price_position > 0.85:  # 极高点卖出，追求最大化利润
                         signals.append({
                             'type': 'sell',
                             'confidence': 0.8,
-                            'reason': '激进策略：价格极度高估，回调风险较大',
+                            'reason': f"{strategy_info['name']}：{strategy_info['description']} - 价格极度高估({strategy_info['price_range']['min']}%-{strategy_info['price_range']['max']}%)，回调风险较大",
                             'source': 'aggressive_strategy',
+                            'strategy_type': 'aggressive',
+                            'strategy_details': strategy_info,
                             'timestamp': datetime.now()
                         })
 
