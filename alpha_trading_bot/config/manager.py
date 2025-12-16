@@ -75,7 +75,7 @@ class ConfigManager:
         )
 
     def _load_strategy_config(self) -> StrategyConfig:
-        """加载策略配置"""
+        """加载策略配置 - 根据投资类型自动设置止盈止损"""
         investment_type = os.getenv('INVESTMENT_TYPE', 'conservative')
 
         # 验证投资类型
@@ -84,15 +84,34 @@ class ConfigManager:
             logger.warning(f"无效的投资类型 '{investment_type}'，使用默认值 'conservative'")
             investment_type = 'conservative'
 
+        # 根据投资类型设置止盈止损百分比（预设配置）
+        if investment_type == 'conservative':
+            take_profit_percent = 0.06  # 6% 止盈
+            stop_loss_percent = 0.02    # 2% 止损
+            description = "稳健型策略 - 低波动，追求稳健收益"
+        elif investment_type == 'moderate':
+            take_profit_percent = 0.08  # 8% 止盈
+            stop_loss_percent = 0.03    # 3% 止损
+            description = "中等型策略 - 平衡风险与收益"
+        elif investment_type == 'aggressive':
+            take_profit_percent = 0.12  # 12% 止盈
+            stop_loss_percent = 0.05    # 5% 止损
+            description = "激进型策略 - 高风险高收益"
+
+        logger.info(f"策略配置: 投资类型={investment_type} - {description}")
+        logger.info(f"自动设置止盈止损: 止盈={take_profit_percent*100:.0f}%, 止损={stop_loss_percent*100:.0f}%")
+
         return StrategyConfig(
             investment_type=investment_type,
             profit_lock_enabled=True,
             sell_signal_enabled=True,
             buy_signal_enabled=True,
             consolidation_protection_enabled=True,
-            smart_tp_sl_enabled=True,
+            smart_tp_sl_enabled=os.getenv('SMART_TP_SL_ENABLED', 'true').lower() == 'true',
             limit_order_enabled=os.getenv('LIMIT_ORDER_ENABLED', 'true').lower() == 'true',
-            price_crash_protection_enabled=True
+            price_crash_protection_enabled=True,
+            take_profit_percent=take_profit_percent,
+            stop_loss_percent=stop_loss_percent
         )
 
     def _load_risk_config(self) -> RiskConfig:

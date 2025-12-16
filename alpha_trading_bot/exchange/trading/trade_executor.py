@@ -297,6 +297,19 @@ class TradeExecutor(BaseComponent):
                 error_message=f"平仓异常: {str(e)}"
             )
 
+    def _get_tp_sl_percentages(self) -> tuple[float, float]:
+        """获取止盈止损百分比配置"""
+        # 从配置管理器获取策略配置
+        from ...config import load_config
+        config = load_config()
+
+        take_profit_pct = config.strategies.take_profit_percent
+        stop_loss_pct = config.strategies.stop_loss_percent
+
+        logger.info(f"使用止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={stop_loss_pct*100:.1f}%")
+
+        return take_profit_pct, stop_loss_pct
+
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo) -> None:
         """检查并更新止盈止损 - 智能版本"""
         try:
@@ -304,18 +317,21 @@ class TradeExecutor(BaseComponent):
             current_price = await self._get_current_price(symbol)
             entry_price = current_position.entry_price
 
+            # 获取止盈止损百分比配置
+            take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
+
             # 计算新的止盈止损价格（基于当前市场价格）
             if current_position.side == TradeSide.LONG:
                 # 多头：止盈在上方，止损在下方
-                new_take_profit = current_price * 1.06  # 6% 止盈
-                new_stop_loss = current_price * 0.98    # 2% 止损
+                new_take_profit = current_price * (1 + take_profit_pct)  # 止盈
+                new_stop_loss = current_price * (1 - stop_loss_pct)    # 止损
                 # 加仓时的止盈止损方向
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
-                new_take_profit = current_price * 0.94  # 6% 止盈
-                new_stop_loss = current_price * 1.02    # 2% 止损
+                new_take_profit = current_price * (1 - take_profit_pct)  # 止盈
+                new_stop_loss = current_price * (1 + stop_loss_pct)    # 止损
                 # 加仓时的止盈止损方向
                 tp_side = TradeSide.BUY
                 sl_side = TradeSide.BUY
@@ -398,18 +414,21 @@ class TradeExecutor(BaseComponent):
             current_price = await self._get_current_price(symbol)
             entry_price = order_result.average_price
 
+            # 获取止盈止损百分比配置
+            take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
+
             # 计算止盈止损价格（基于当前市场价格）
             if side == TradeSide.BUY:
                 # 多头：止盈在上方，止损在下方
-                take_profit = current_price * 1.06  # 6% 止盈
-                stop_loss = current_price * 0.98    # 2% 止损
+                take_profit = current_price * (1 + take_profit_pct)  # 止盈
+                stop_loss = current_price * (1 - stop_loss_pct)    # 止损
                 # 止盈止损订单方向
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
             else:
                 # 空头：止盈在下方，止损在上方
-                take_profit = current_price * 0.94  # 6% 止盈
-                stop_loss = current_price * 1.02    # 2% 止损
+                take_profit = current_price * (1 - take_profit_pct)  # 止盈
+                stop_loss = current_price * (1 + stop_loss_pct)    # 止损
                 # 止盈止损订单方向
                 tp_side = TradeSide.BUY
                 sl_side = TradeSide.BUY
