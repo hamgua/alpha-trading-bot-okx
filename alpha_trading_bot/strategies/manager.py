@@ -117,13 +117,17 @@ class StrategyManager(BaseComponent):
                 # 保存AI信号到数据管理器
                 try:
                     # 使用相对导入从数据模块获取管理器
+                    logger.debug("正在导入数据管理器...")
                     from ..data import get_data_manager
+                    logger.debug("数据管理器导入成功")
 
                     try:
                         data_manager = await get_data_manager()
+                        logger.debug(f"获取数据管理器成功: {type(data_manager)}")
                     except RuntimeError as e:
                         # 如果数据管理器未初始化，记录警告但不影响主流程
                         logger.warning(f"数据管理器未初始化，跳过AI信号保存: {e}")
+                        logger.debug(f"数据管理器状态: 全局实例可能为None")
                     else:
                         # 清理market_data中的datetime对象，避免JSON序列化错误
                         clean_market_data = {}
@@ -156,10 +160,18 @@ class StrategyManager(BaseComponent):
                             'market_data': clean_market_data
                         }
                         await data_manager.save_ai_signal(ai_signal_data)
+                        logger.debug(f"AI信号保存成功: {ai_signal_data['signal']}")
                 except ImportError as e:
                     logger.warning(f"数据模块导入失败，跳过AI信号保存: {e}")
+                    logger.warning(f"错误类型: {type(e).__name__}")
+                    logger.warning(f"错误模块: {e.__class__.__module__ if hasattr(e, '__class__') else 'unknown'}")
+                    import traceback
+                    logger.warning(f"详细错误信息: {traceback.format_exc()}")
                 except Exception as e:
                     logger.warning(f"保存AI信号失败: {e}")
+                    logger.warning(f"错误类型: {type(e).__name__}")
+                    import traceback
+                    logger.warning(f"详细错误信息: {traceback.format_exc()}")
 
             # 添加策略特定的信号
             strategy_signals = await self._generate_strategy_signals(market_data)

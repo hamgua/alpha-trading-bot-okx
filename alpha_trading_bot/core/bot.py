@@ -72,6 +72,15 @@ class TradingBot(BaseComponent):
                 from ..ai import create_ai_manager
                 self.ai_manager = await create_ai_manager()
 
+            # 初始化数据管理器（移到策略管理器之前）
+            try:
+                from ..data import create_data_manager
+                self.data_manager = await create_data_manager()
+                self.enhanced_logger.logger.info("数据管理器初始化成功")
+            except Exception as e:
+                self.enhanced_logger.logger.warning(f"数据管理器初始化失败: {e}，将继续运行但不保存历史数据")
+                self.data_manager = None
+
             # 初始化策略管理器
             from ..strategies import StrategyManager
             self.strategy_manager = StrategyManager(ai_manager=self.ai_manager)
@@ -81,15 +90,6 @@ class TradingBot(BaseComponent):
             from ..exchange.trading import RiskManager
             self.risk_manager = RiskManager()
             await self.risk_manager.initialize()
-
-            # 初始化数据管理器
-            try:
-                from ..data import create_data_manager
-                self.data_manager = await create_data_manager()
-                self.enhanced_logger.logger.info("数据管理器初始化成功")
-            except Exception as e:
-                self.enhanced_logger.logger.warning(f"数据管理器初始化失败: {e}，将继续运行但不保存历史数据")
-                self.data_manager = None
 
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
