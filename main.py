@@ -17,28 +17,28 @@ def setup_logging(log_level=logging.INFO):
     logs_dir = Path('logs')
     logs_dir.mkdir(exist_ok=True)
 
-    # 获取logger
-    logger = logging.getLogger()
-    logger.setLevel(log_level)
-
-    # 清除现有处理器
-    logger.handlers.clear()
-
-    # 控制台处理器
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
     # 使用智能日志管理器
     try:
         from alpha_trading_bot.utils.smart_logger import setup_smart_logging
-        # 使用智能日志管理器
-        smart_logger = setup_smart_logging(log_level)
+        # 使用智能日志管理器，使用 __name__ 作为 logger 名称
+        smart_logger = setup_smart_logging(log_level, logger_name=__name__)
         return smart_logger
     except ImportError:
         # 如果智能日志管理器不可用，使用基本配置
+        # 获取logger
+        logger = logging.getLogger(__name__)
+        logger.setLevel(log_level)
+
+        # 清除现有处理器
+        logger.handlers.clear()
+
+        # 控制台处理器
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setLevel(log_level)
+        formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+
         from datetime import datetime
 
         # 生成当前日期的日志文件名
@@ -55,7 +55,7 @@ def setup_logging(log_level=logging.INFO):
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-        return logging.getLogger(__name__)
+        return logger
 
 
 async def main_async(config_path=None, strategy_name=None):
@@ -64,6 +64,7 @@ async def main_async(config_path=None, strategy_name=None):
 
     # 获取当前模块的logger
     logger = logging.getLogger(__name__)
+    logger.debug("进入main_async函数")
 
     bot = None
 
@@ -73,11 +74,15 @@ async def main_async(config_path=None, strategy_name=None):
             logger.info(f"使用配置文件: {config_path}")
             # 这里可以添加从配置文件加载特定配置的逻辑
 
+        logger.debug("开始创建交易机器人实例...")
         # 创建交易机器人实例（使用默认ID和配置）
         bot = await create_bot("main_bot", name="AlphaTradingBot")
+        logger.debug("交易机器人实例创建完成")
 
+        logger.debug("开始启动交易机器人...")
         # 启动交易机器人
         await start_bot("main_bot")
+        logger.debug("交易机器人启动完成")
 
     except KeyboardInterrupt:
         logger.info("\n用户中断程序，正在安全退出...")
@@ -156,10 +161,12 @@ def main():
             sys.exit(1)
 
         # 运行异步主函数
+        logger.debug("开始运行异步主函数...")
         asyncio.run(main_async(
             config_path=args.config,
             strategy_name=args.strategy
         ))
+        logger.debug("异步主函数执行完成")
 
     except KeyboardInterrupt:
         logger.info("\n用户中断程序，正在安全退出...")

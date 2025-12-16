@@ -12,6 +12,7 @@ from ..core.exceptions import AIProviderError
 from .client import AIClient
 from .fusion import AIFusion
 from .signals import SignalGenerator
+from .model_selector import model_selector, ModelSelector
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -25,6 +26,9 @@ class AIManagerConfig(BaseConfig):
     cache_duration: int = 900
     min_confidence: float = 0.3
     fusion_enabled: bool = True
+    enable_dynamic_model_selection: bool = True
+    default_deepseek_model: str = "deepseek-chat"
+    default_kimi_model: str = "moonshot-v1-32k"
 
 class AIManager(BaseComponent):
     """AI管理器"""
@@ -119,6 +123,20 @@ class AIManager(BaseComponent):
             config = load_config()
             ai_mode = "融合模式" if config.ai.use_multi_ai_fusion else "单一模式"
             logger.info(f"🤖 AI决策模式: {ai_mode} (提供商: {self.providers})")
+
+            # 动态模型选择
+            if self.config.enable_dynamic_model_selection:
+                logger.info("🔍 正在基于市场条件选择最优模型...")
+                optimal_models = model_selector.select_models(market_data)
+
+                # 记录选择的模型（但不更新配置，因为模型名称是硬编码在客户端的）
+                for provider, model in optimal_models.items():
+                    if provider != 'reason' and provider in self.providers:
+                        logger.info(f"  {provider.upper()} 使用模型: {model}")
+
+                # 显示成本估算
+                estimated_cost = model_selector.get_cost_estimate(optimal_models)
+                logger.info(f"  预估API成本: ${estimated_cost:.4f}/次")
 
             signals = []
             results = []
@@ -382,11 +400,31 @@ class AIManager(BaseComponent):
     def get_status(self) -> Dict[str, Any]:
         """获取状态"""
         base_status = super().get_status()
+
+        # 获取当前模型配置
+        current_models = {}
+        # 预定义的模型映射
+        provider_models = {
+            'kimi': 'moonshot-v1-32k',
+            'deepseek': 'deepseek-chat',
+            'qwen': 'qwen-turbo',
+            'openai': 'gpt-3.5-turbo'
+        }
+
+        for provider in self.providers:
+            if provider in provider_models:
+                current_models[provider] = provider_models[provider]
+            else:
+                current_models[provider] = 'unknown'
+
         base_status.update({
             'providers': self.providers,
             'use_multi_ai': self.config.use_multi_ai,
             'cache_size': len(self.cache),
-            'provider_status': self.get_provider_status()
+            'provider_status': self.get_provider_status(),
+            'dynamic_model_selection': self.config.enable_dynamic_model_selection,
+            'current_models': current_models,
+            'model_selection_stats': model_selector.get_selection_stats()
         })
         return base_status
 

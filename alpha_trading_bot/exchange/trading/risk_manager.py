@@ -71,26 +71,36 @@ class RiskManager(BaseComponent):
                 reasons.append("信号过多，可能过度交易")
 
             # 2. 信号一致性风险
-            buy_signals = sum(1 for s in signals if s.get('signal') == 'BUY')
-            sell_signals = sum(1 for s in signals if s.get('signal') == 'SELL')
-            hold_signals = sum(1 for s in signals if s.get('signal') == 'HOLD')
+            # 支持大小写不敏感的信号类型检查
+            buy_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'BUY')
+            sell_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'SELL')
+            hold_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'HOLD')
 
             # 也检查'type'字段，因为信号可能使用'type'而不是'signal'
             if buy_signals == 0 and sell_signals == 0 and hold_signals == 0:
-                buy_signals = sum(1 for s in signals if s.get('type') == 'BUY')
-                sell_signals = sum(1 for s in signals if s.get('type') == 'SELL')
-                hold_signals = sum(1 for s in signals if s.get('type') == 'HOLD')
+                buy_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'BUY')
+                sell_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'SELL')
+                hold_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'HOLD')
 
             total_signals = len(signals)
+
+            # 添加调试日志 - 查看信号实际内容
+            logger.debug(f"[风险评估调试] 信号详情: {signals}")
+            logger.debug(f"[风险评估调试] 信号统计 - BUY: {buy_signals}, SELL: {sell_signals}, HOLD: {hold_signals}, 总计: {total_signals}")
+
             if total_signals > 0:
                 max_consensus = max(buy_signals, sell_signals, hold_signals) / total_signals
+                logger.debug(f"[风险评估调试] 最大一致性比例: {max_consensus}")
+
                 # 调整阈值：对于100%一致的信号，不应视为"一致性不足"
                 if max_consensus < 0.6:
                     risk_score += 0.2
                     reasons.append("信号一致性不足")
+                    logger.debug(f"[风险评估调试] 触发信号一致性不足，风险分数增加0.2")
                 elif max_consensus == 1.0 and hold_signals == total_signals:
                     # 全HOLD信号是正常的市场观望状态，不应惩罚
                     risk_score += 0.0  # 不增加风险分数
+                    logger.debug(f"[风险评估调试] 全HOLD信号，不增加风险分数")
 
             # 3. 当日亏损检查
             if self.daily_loss >= self.config.max_daily_loss:

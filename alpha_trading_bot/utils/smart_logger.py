@@ -91,8 +91,9 @@ class SmartFileHandler(logging.Handler):
 
             # 写入文件
             with self._lock:
-                self.current_file.write(msg + '\n')
-                self.current_file.flush()
+                if self.current_file and not self.current_file.closed:
+                    self.current_file.write(msg + '\n')
+                    self.current_file.flush()
 
         except Exception:
             self.handleError(record)
@@ -113,14 +114,14 @@ class SmartFileHandler(logging.Handler):
         super().close()
 
 
-def setup_smart_logging(log_level=logging.INFO, log_dir: str = 'logs', base_filename: str = 'alpha-trading-bot-okx'):
+def setup_smart_logging(log_level=logging.INFO, log_dir: str = 'logs', base_filename: str = 'alpha-trading-bot-okx', logger_name: str = '__main__'):
     """设置智能日志系统"""
     # 创建日志目录
     log_path = Path(log_dir)
     log_path.mkdir(exist_ok=True)
 
-    # 获取logger
-    logger = logging.getLogger()
+    # 获取指定的logger
+    logger = logging.getLogger(logger_name)
     logger.setLevel(log_level)
 
     # 清除现有处理器
@@ -139,5 +140,23 @@ def setup_smart_logging(log_level=logging.INFO, log_dir: str = 'logs', base_file
     smart_handler.setLevel(log_level)
     smart_handler.setFormatter(formatter)
     logger.addHandler(smart_handler)
+
+    # 同时配置根logger，确保所有模块都能使用
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # 清除根logger的现有处理器，避免重复
+    root_logger.handlers.clear()
+
+    # 为根logger添加相同的处理器
+    root_console = logging.StreamHandler()
+    root_console.setLevel(log_level)
+    root_console.setFormatter(formatter)
+    root_logger.addHandler(root_console)
+
+    root_smart = SmartFileHandler(base_path)
+    root_smart.setLevel(log_level)
+    root_smart.setFormatter(formatter)
+    root_logger.addHandler(root_smart)
 
     return logger

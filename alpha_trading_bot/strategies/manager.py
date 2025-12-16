@@ -118,13 +118,36 @@ class StrategyManager(BaseComponent):
                 try:
                     from ..data import get_data_manager
                     data_manager = await get_data_manager()
+
+                    # 清理market_data中的datetime对象，避免JSON序列化错误
+                    clean_market_data = {}
+                    for key, value in market_data.items():
+                        if key == 'timestamp' and isinstance(value, datetime):
+                            # 将datetime转换为ISO格式字符串
+                            clean_market_data[key] = value.isoformat()
+                        elif key == 'orderbook' and isinstance(value, dict):
+                            # 清理orderbook中的datetime对象
+                            clean_orderbook = {}
+                            for ob_key, ob_value in value.items():
+                                if isinstance(ob_value, list):
+                                    clean_orderbook[ob_key] = [
+                                        {k: (v.isoformat() if isinstance(v, datetime) else v) for k, v in item.items()}
+                                        if isinstance(item, dict) else item
+                                        for item in ob_value
+                                    ]
+                                else:
+                                    clean_orderbook[ob_key] = ob_value
+                            clean_market_data[key] = clean_orderbook
+                        else:
+                            clean_market_data[key] = value
+
                     ai_signal_data = {
                         'provider': ai_signal.get('provider', 'unknown'),
                         'signal': ai_signal.get('signal', 'HOLD'),
                         'confidence': ai_signal.get('confidence', 0.5),
                         'reason': ai_signal.get('reason', 'AI分析'),
                         'market_price': market_data.get('price', 0),
-                        'market_data': market_data
+                        'market_data': clean_market_data
                     }
                     await data_manager.save_ai_signal(ai_signal_data)
                 except Exception as e:

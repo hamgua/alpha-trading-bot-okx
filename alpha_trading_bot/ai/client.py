@@ -383,12 +383,12 @@ MACD: {macd}
         }
 
         data = {
-            'model': 'moonshot-v1-8k',
+            'model': 'moonshot-v1-32k',
             'messages': [
                 {'role': 'user', 'content': prompt}
             ],
-            'temperature': 0.3,
-            'max_tokens': 500
+            'temperature': 0.2,  # 降低随机性，提高交易决策的一致性
+            'max_tokens': 800  # 增加输出空间，支持更详细的市场分析
         }
 
         try:
@@ -428,8 +428,11 @@ MACD: {macd}
             'messages': [
                 {'role': 'user', 'content': prompt}
             ],
-            'temperature': 0.3,
-            'max_tokens': 500
+            'temperature': 0.2,  # 降低随机性，保持一致性
+            'max_tokens': 600,   # 适度增加，支持更详细分析
+            'top_p': 0.95,       # 限制采样范围
+            'frequency_penalty': 0.1,  # 减少重复
+            'presence_penalty': 0.1    # 鼓励新观点
         }
 
         try:

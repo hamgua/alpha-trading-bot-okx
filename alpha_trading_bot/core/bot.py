@@ -121,6 +121,9 @@ class TradingBot(BaseComponent):
         self._start_time = datetime.now()
         self.enhanced_logger.logger.info("交易机器人已启动")
 
+        # 添加调试信息
+        self.enhanced_logger.logger.debug("进入交易循环，等待下一个15分钟整点...")
+
         try:
             cycle_count = 0
             while self._running:
@@ -305,6 +308,11 @@ class TradingBot(BaseComponent):
 
             # 选择最终信号
             signals = await self._select_final_signals(all_signals)
+
+            # 添加调试日志
+            self.enhanced_logger.logger.info(f"🔍 调试：选择后的信号数量: {len(signals)}")
+            for i, signal in enumerate(signals):
+                self.enhanced_logger.logger.info(f"  信号 {i+1}: {signal.get('type', signal.get('signal', 'UNKNOWN'))}, 来源: {signal.get('source', 'unknown')}, 信心: {signal.get('confidence', 0):.2f}")
 
             # 3. 风险评估
             self.enhanced_logger.logger.info("⚠️ 进行风险评估...")
