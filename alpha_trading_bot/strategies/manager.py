@@ -98,7 +98,7 @@ class StrategyManager(BaseComponent):
                     ai_signals = await self.ai_manager.generate_signals(market_data)
                 else:
                     # 如果没有提供AI管理器，使用全局实例
-                    from ..ai import get_ai_manager
+                    from alpha_trading_bot.ai import get_ai_manager
                     ai_manager = await get_ai_manager()
                     ai_signals = await ai_manager.generate_signals(market_data)
 
@@ -118,7 +118,28 @@ class StrategyManager(BaseComponent):
                 try:
                     # 使用相对导入从数据模块获取管理器
                     logger.debug("正在导入数据管理器...")
-                    from ..data import get_data_manager
+
+                    # 调试信息：检查Python路径和模块状态
+                    import sys
+                    import os
+                    logger.debug(f"Python路径: {sys.path[:3]}...")  # 只显示前3个路径
+                    logger.debug(f"当前工作目录: {os.getcwd()}")
+                    logger.debug(f"当前文件目录: {os.path.dirname(os.path.abspath(__file__))}")
+
+                    # 检查alpha_trading_bot.data模块是否存在
+                    try:
+                        import alpha_trading_bot.data
+                        logger.debug(f"alpha_trading_bot.data模块存在: {alpha_trading_bot.data.__file__}")
+                    except ImportError as e:
+                        logger.error(f"alpha_trading_bot.data模块不存在: {e}")
+                        # 尝试列出alpha_trading_bot目录内容
+                        import alpha_trading_bot
+                        bot_dir = os.path.dirname(alpha_trading_bot.__file__)
+                        logger.error(f"alpha_trading_bot目录内容: {os.listdir(bot_dir)}")
+                        raise
+
+                    # 使用绝对导入替代相对导入
+                    from alpha_trading_bot.data import get_data_manager
                     logger.debug("数据管理器导入成功")
 
                     try:
