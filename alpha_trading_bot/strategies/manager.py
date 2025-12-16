@@ -133,9 +133,16 @@ class StrategyManager(BaseComponent):
                     except ImportError as e:
                         logger.error(f"alpha_trading_bot.data模块不存在: {e}")
                         # 尝试列出alpha_trading_bot目录内容
-                        import alpha_trading_bot
-                        bot_dir = os.path.dirname(alpha_trading_bot.__file__)
-                        logger.error(f"alpha_trading_bot目录内容: {os.listdir(bot_dir)}")
+                        try:
+                            import alpha_trading_bot
+                            bot_dir = os.path.dirname(alpha_trading_bot.__file__)
+                            logger.error(f"alpha_trading_bot目录内容: {os.listdir(bot_dir)}")
+                            # 检查是否有data目录
+                            if 'data' in os.listdir(bot_dir):
+                                data_dir = os.path.join(bot_dir, 'data')
+                                logger.error(f"data目录内容: {os.listdir(data_dir)}")
+                        except Exception as list_err:
+                            logger.error(f"无法列出目录内容: {list_err}")
                         raise
 
                     # 使用绝对导入替代相对导入

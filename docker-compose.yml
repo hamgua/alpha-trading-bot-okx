@@ -9,6 +9,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - ./alpha-trading-bot-okx/.env:/app/.env:ro
       - ./alpha-trading-bot-okx/logs:/app/logs
+      - ./alpha-trading-bot-okx/data:/app/data
       - ./alpha-trading-bot-okx/data_json:/app/data_json
     environment:
       TZ: Asia/Shanghai

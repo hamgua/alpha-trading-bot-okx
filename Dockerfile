@@ -5,7 +5,7 @@ FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1
 ENV TZ=Asia/Shanghai
 
 # 创建非root用户提高安全性
-RUN mkdir -p /app/logs /app/data_json
+RUN mkdir -p /app/logs /app/data_json /app/data
 
 # 设置工作目录
 WORKDIR /app
