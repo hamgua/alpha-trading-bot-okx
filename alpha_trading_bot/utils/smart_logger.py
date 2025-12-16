@@ -120,43 +120,28 @@ def setup_smart_logging(log_level=logging.INFO, log_dir: str = 'logs', base_file
     log_path = Path(log_dir)
     log_path.mkdir(exist_ok=True)
 
-    # 获取指定的logger
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-
-    # 清除现有处理器
-    logger.handlers.clear()
-
-    # 控制台处理器
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(log_level)
-    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    # 智能文件处理器
-    base_path = str(log_path / base_filename)
-    smart_handler = SmartFileHandler(base_path)
-    smart_handler.setLevel(log_level)
-    smart_handler.setFormatter(formatter)
-    logger.addHandler(smart_handler)
-
-    # 同时配置根logger，确保所有模块都能使用
+    # 获取根logger并配置它
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level)
 
     # 清除根logger的现有处理器，避免重复
     root_logger.handlers.clear()
 
-    # 为根logger添加相同的处理器
-    root_console = logging.StreamHandler()
-    root_console.setLevel(log_level)
-    root_console.setFormatter(formatter)
-    root_logger.addHandler(root_console)
+    # 创建格式化器
+    formatter = logging.Formatter('[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s')
 
-    root_smart = SmartFileHandler(base_path)
-    root_smart.setLevel(log_level)
-    root_smart.setFormatter(formatter)
-    root_logger.addHandler(root_smart)
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(log_level)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
 
-    return logger
+    # 智能文件处理器
+    base_path = str(log_path / base_filename)
+    smart_handler = SmartFileHandler(base_path)
+    smart_handler.setLevel(log_level)
+    smart_handler.setFormatter(formatter)
+    root_logger.addHandler(smart_handler)
+
+    # 返回指定名称的logger（它将继承根logger的配置）
+    return logging.getLogger(logger_name)

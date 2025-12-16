@@ -146,6 +146,7 @@ Thumbs.db
 .env.production
 logs/
 data/
+data_json/
 .trading_history
 *.db
 *.sqlite
