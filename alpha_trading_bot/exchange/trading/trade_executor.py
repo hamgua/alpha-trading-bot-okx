@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from ...core.base import BaseComponent, BaseConfig
-from ..models import TradeResult, OrderResult, TradeSide, TPSLRequest
+from ..models import TradeResult, OrderResult, TradeSide, TPSLRequest, PositionInfo
 
 logger = logging.getLogger(__name__)
 
