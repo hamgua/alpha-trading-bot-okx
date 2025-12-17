@@ -620,33 +620,97 @@ class TradeExecutor(BaseComponent):
             logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
             logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
-            # 创建止盈订单
-            tp_result = await self.order_manager.create_take_profit_order(
-                symbol=symbol,
-                side=tp_side,
-                amount=order_result.filled_amount,  # 对新仓位设置止盈
-                take_profit_price=take_profit,
-                reduce_only=True
-            )
+            # 获取现有的算法订单（避免重复创建）
+            existing_orders = await self.order_manager.fetch_algo_orders(symbol)
+            logger.info(f"找到 {len(existing_orders)} 个现有算法订单")
 
-            if tp_result.success:
-                logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+            # 清理重复的订单（保留最新的一个）
+            tp_orders = []
+            sl_orders = []
+            for order in existing_orders:
+                # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
+                if side == TradeSide.BUY:  # 多头
+                    if order.price > current_price:
+                        tp_orders.append(order)
+                    elif order.price < current_price:
+                        sl_orders.append(order)
+                else:  # 空头
+                    if order.price < current_price:
+                        tp_orders.append(order)
+                    elif order.price > current_price:
+                        sl_orders.append(order)
+
+            # 清理重复的止盈订单（保留最新的一个）
+            if len(tp_orders) > 1:
+                logger.warning(f"检测到 {len(tp_orders)} 个止盈订单，将清理重复订单")
+                # 按订单ID排序，保留最新的，取消其余的
+                tp_orders.sort(key=lambda x: x.order_id, reverse=True)
+                for order in tp_orders[1:]:  # 跳过第一个（最新的）
+                    logger.info(f"取消重复的止盈订单: {order.order_id}")
+                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
+                    # 从现有订单列表中移除
+                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
+
+            # 清理重复的止损订单（保留最新的一个）
+            if len(sl_orders) > 1:
+                logger.warning(f"检测到 {len(sl_orders)} 个止损订单，将清理重复订单")
+                # 按订单ID排序，保留最新的，取消其余的
+                sl_orders.sort(key=lambda x: x.order_id, reverse=True)
+                for order in sl_orders[1:]:  # 跳过第一个（最新的）
+                    logger.info(f"取消重复的止损订单: {order.order_id}")
+                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
+                    # 从现有订单列表中移除
+                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
+
+            # 检查是否已存在止盈和止损订单
+            existing_tp = None
+            existing_sl = None
+            for order in existing_orders:
+                # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
+                if side == TradeSide.BUY:  # 多头
+                    if order.price > current_price:
+                        existing_tp = order
+                    elif order.price < current_price:
+                        existing_sl = order
+                else:  # 空头
+                    if order.price < current_price:
+                        existing_tp = order
+                    elif order.price > current_price:
+                        existing_sl = order
+
+            # 创建止盈订单（如果不存在）
+            if not existing_tp:
+                tp_result = await self.order_manager.create_take_profit_order(
+                    symbol=symbol,
+                    side=tp_side,
+                    amount=order_result.filled_amount,  # 对新仓位设置止盈
+                    take_profit_price=take_profit,
+                    reduce_only=True
+                )
+
+                if tp_result.success:
+                    logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+                else:
+                    logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
             else:
-                logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
+                logger.info(f"已存在止盈订单，跳过创建: {existing_tp.order_id} @ ${existing_tp.price:.2f}")
 
-            # 创建止损订单
-            sl_result = await self.order_manager.create_stop_order(
-                symbol=symbol,
-                side=sl_side,
-                amount=order_result.filled_amount,  # 对新仓位设置止损
-                stop_price=stop_loss,
-                reduce_only=True
-            )
+            # 创建止损订单（如果不存在）
+            if not existing_sl:
+                sl_result = await self.order_manager.create_stop_order(
+                    symbol=symbol,
+                    side=sl_side,
+                    amount=order_result.filled_amount,  # 对新仓位设置止损
+                    stop_price=stop_loss,
+                    reduce_only=True
+                )
 
-            if sl_result.success:
-                logger.info(f"新仓位止损订单创建成功: {sl_result.order_id}")
+                if sl_result.success:
+                    logger.info(f"新仓位止损订单创建成功: {sl_result.order_id}")
+                else:
+                    logger.error(f"新仓位止损订单创建失败: {sl_result.error_message}")
             else:
-                logger.error(f"新仓位止损订单创建失败: {sl_result.error_message}")
+                logger.info(f"已存在止损订单，跳过创建: {existing_sl.order_id} @ ${existing_sl.price:.2f}")
 
         except Exception as e:
             logger.error(f"设置止盈止损失败: {e}")
