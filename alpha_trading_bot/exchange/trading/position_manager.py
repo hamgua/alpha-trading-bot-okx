@@ -49,8 +49,15 @@ class PositionManager(BaseComponent):
 
             if positions and len(positions) > 0:
                 pos_data = positions[0]  # 取第一个仓位
-                # 简化日志 - 只显示关键信息
-                logger.info(f"检测到仓位: {symbol} {pos_data['side']} {pos_data['contracts']} 张, 均价: ${pos_data['entryPrice']:.2f}, 浮盈: ${pos_data['unrealizedPnl']:.4f} ({pos_data['percentage']:.2f}%)")
+                # 简化日志 - 只显示关键信息，处理None值
+                entry_price = pos_data.get('entryPrice', 0) or 0
+                unrealized_pnl = pos_data.get('unrealizedPnl', 0) or 0
+                percentage = pos_data.get('percentage', 0) or 0
+                contracts = pos_data.get('contracts', 0) or 0
+                side = pos_data.get('side', 'unknown')
+
+                logger.info(f"检测到仓位: {symbol} {side} {contracts} 张, "
+                           f"均价: ${entry_price:.2f}, 浮盈: ${unrealized_pnl:.4f} ({percentage:.2f}%)")
 
                 position = PositionInfo(
                     symbol=symbol,
