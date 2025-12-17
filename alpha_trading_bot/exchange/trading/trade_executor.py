@@ -49,14 +49,6 @@ class TradeExecutor(BaseComponent):
         # 记录每个币种的最后一次止盈更新时间
         self._last_tp_update_time: Dict[str, datetime] = {}
 
-        # 添加15分钟周期控制
-        self._force_tp_update_on_next_cycle: Dict[str, bool] = {}  # 强制在下一个15分钟周期更新
-        self._tp_update_due_to_signals: Dict[str, bool] = {}  # 标记是否有信号触发的更新需求
-
-        # 添加并发锁，防止重复更新
-        self._update_locks: Dict[str, asyncio.Lock] = {}
-        self._global_update_lock = asyncio.Lock()  # 全局更新锁
-
     async def initialize(self) -> bool:
         """初始化交易执行器"""
         logger.info("正在初始化交易执行器...")
@@ -66,73 +58,6 @@ class TradeExecutor(BaseComponent):
     async def cleanup(self) -> None:
         """清理资源"""
         pass
-
-    def _should_update_tp_sl_on_signal(self, symbol: str) -> bool:
-        """判断是否应该基于信号更新TP/SL
-
-        只在以下情况返回True:
-        1. 强制在下一个15分钟周期更新
-        2. 距离上次更新已经超过15分钟
-        3. 有特殊标记需要更新
-        """
-        # 检查是否强制更新
-        if self._force_tp_update_on_next_cycle.get(symbol, False):
-            return True
-
-        # 检查是否已有信号触发的更新需求
-        if self._tp_update_due_to_signals.get(symbol, False):
-            return True
-
-        # 检查是否超过15分钟
-        last_update = self._last_tp_update_time.get(symbol)
-        if last_update:
-            time_since_update = (datetime.now() - last_update).total_seconds()
-            if time_since_update >= 900:  # 15分钟 = 900秒
-                return True
-        else:
-            # 从未更新过，允许更新
-            return True
-
-        return False
-
-    def mark_tp_update_needed(self, symbol: str) -> None:
-        """标记某个币种需要在下一个15分钟周期更新TP/SL"""
-        self._tp_update_due_to_signals[symbol] = True
-        logger.info(f"已标记 {symbol} 需要在下一个15分钟周期更新止盈止损")
-
-    def clear_tp_update_flags(self, symbol: str) -> None:
-        """清除TP/SL更新标记"""
-        self._force_tp_update_on_next_cycle[symbol] = False
-        self._tp_update_due_to_signals[symbol] = False
-
-    async def update_tp_sl_on_cycle(self, symbol: str, current_position: PositionInfo) -> None:
-        """在15分钟周期内执行标记的TP/SL更新"""
-        if not current_position or current_position.amount == 0:
-            logger.info(f"{symbol} 没有持仓，跳过TP/SL更新")
-            return
-
-        if not self.config.enable_tp_sl:
-            logger.info(f"{symbol} 止盈止损功能已禁用")
-            return
-
-        try:
-            logger.info(f"=== 执行15分钟周期内TP/SL更新: {symbol} ===")
-
-            # 获取当前持仓方向
-            side = TradeSide.BUY if current_position.side == TradeSide.LONG else TradeSide.SELL
-
-            # 执行TP/SL更新
-            await self._check_and_update_tp_sl(symbol, side, current_position)
-
-            # 清除标记
-            self.clear_tp_update_flags(symbol)
-
-            logger.info(f"=== 完成15分钟周期内TP/SL更新: {symbol} ===")
-
-        except Exception as e:
-            logger.error(f"15分钟周期内TP/SL更新失败: {symbol} - {e}")
-            import traceback
-            logger.error(f"详细错误: {traceback.format_exc()}")
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> TradeResult:
         """执行交易"""
@@ -178,9 +103,9 @@ class TradeExecutor(BaseComponent):
 
                         # 有持仓时更新止盈止损（与加仓功能无关）
                         if self.config.enable_tp_sl:
-                            # 标记需要在15分钟周期内更新TP/SL
-                            self.mark_tp_update_needed(symbol)
-                            logger.info(f"已标记 {symbol} 需要在15分钟周期内更新止盈止损")
+                            logger.info(f"检测到同向信号，更新现有持仓止盈止损: {symbol}")
+                            await self._check_and_update_tp_sl(symbol, side, current_position)
+                            logger.info(f"止盈止损更新完成")
                         else:
                             logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
 
@@ -274,9 +199,8 @@ class TradeExecutor(BaseComponent):
                     # 已有仓位，更新止盈止损（与加仓功能无关）
                     if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
                        (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                        # 标记需要在15分钟周期内更新TP/SL
-                        self.mark_tp_update_needed(symbol)
-                        logger.info(f"已标记 {symbol} 需要在15分钟周期内更新止盈止损")
+                        logger.info(f"同向信号，更新现有持仓止盈止损: {symbol}")
+                        await self._check_and_update_tp_sl(symbol, side, current_position)
                     else:
                         # 方向相反，说明是平仓后反向开仓，创建新的止盈止损
                         logger.info(f"反向开仓，创建新止盈止损: {symbol}")
@@ -418,24 +342,19 @@ class TradeExecutor(BaseComponent):
 
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo, min_price_change_pct: float = 0.01) -> None:
         """检查并更新止盈 - 只更新止盈不更新止损"""
-        # 获取或创建币种特定的锁
-        if symbol not in self._update_locks:
-            self._update_locks[symbol] = asyncio.Lock()
+        try:
+            # 检查更新间隔
+            now = datetime.now()
+            last_update = self._last_tp_update_time.get(symbol)
+            if last_update:
+                time_since_last_update = (now - last_update).total_seconds()
+                if time_since_last_update < self.config.tp_update_min_interval:
+                    logger.info(f"距离上次止盈更新仅 {time_since_last_update:.0f} 秒，小于最小间隔 {self.config.tp_update_min_interval} 秒，跳过更新")
+                    return
 
-        async with self._update_locks[symbol]:
-            try:
-                # 检查更新间隔
-                now = datetime.now()
-                last_update = self._last_tp_update_time.get(symbol)
-                if last_update:
-                    time_since_last_update = (now - last_update).total_seconds()
-                    if time_since_last_update < self.config.tp_update_min_interval:
-                        logger.info(f"距离上次止盈更新仅 {time_since_last_update:.0f} 秒，小于最小间隔 {self.config.tp_update_min_interval} 秒，跳过更新")
-                        return
-
-                # 获取当前价格
-                current_price = await self._get_current_price(symbol)
-                entry_price = current_position.entry_price
+            # 获取当前价格
+            current_price = await self._get_current_price(symbol)
+            entry_price = current_position.entry_price
 
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
@@ -491,18 +410,13 @@ class TradeExecutor(BaseComponent):
 
             # 清理重复的止盈订单（保留最新的一个）
             tp_orders = []
-            sl_orders = []
             for order in existing_orders:
                 if current_position.side == TradeSide.LONG:
                     if order.price > current_price:
                         tp_orders.append(order)
-                    elif order.price < current_price:
-                        sl_orders.append(order)
                 else:  # SHORT
                     if order.price < current_price:
                         tp_orders.append(order)
-                    elif order.price > current_price:
-                        sl_orders.append(order)
 
             # 如果有多个止盈订单，保留最新的一个，取消其他的
             if len(tp_orders) > 1:
@@ -515,22 +429,6 @@ class TradeExecutor(BaseComponent):
                     await self.order_manager.cancel_algo_order(order.order_id, symbol)
                     # 从现有订单列表中移除
                     existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
-
-            # 如果有多个止损订单，保留最新的一个，取消其他的
-            if len(sl_orders) > 1:
-                logger.warning(f"检测到 {len(sl_orders)} 个止损订单，将清理重复订单")
-                # 按订单ID排序（假设ID越大越新）
-                sl_orders.sort(key=lambda x: x.order_id, reverse=True)
-                # 保留第一个（最新的），取消其余的
-                for order in sl_orders[1:]:
-                    logger.info(f"取消重复的止损订单: {order.order_id}")
-                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
-                    # 从现有订单列表中移除
-                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
-
-            # 初始化变量
-            current_tp = None
-            current_sl = None
 
             for order in existing_orders:
                 # OrderResult 对象的处理方式
@@ -558,15 +456,7 @@ class TradeExecutor(BaseComponent):
                 if tp_needs_update:
                     logger.info(f"止盈需要更新: 当前=${current_tp['triggerPx']:.2f} → 新=${new_take_profit:.2f}")
                 else:
-                    # 详细打印无需更新的原因
-                    logger.info("📝 止盈无需更新详细原因:")
-                    logger.info(f"   当前价格: ${current_price:.2f}")
-                    logger.info(f"   现有止盈价格: ${current_tp['triggerPx']:.2f}")
-                    logger.info(f"   新的止盈价格: ${new_take_profit:.2f}")
-                    logger.info(f"   价格差异: ${tp_price_diff:.2f}")
-                    logger.info(f"   更新阈值: ${current_price * 0.001:.2f} (当前价格的0.1%)")
-                    logger.info(f"   判断: ${tp_price_diff:.2f} < ${current_price * 0.001:.2f}，差异过小")
-                    logger.info(f"   结果: 保持现有止盈订单，避免频繁调整")
+                    logger.info(f"止盈无需更新: 当前价格接近目标")
             else:
                 tp_needs_update = True  # 没有现有止盈订单，需要创建
                 logger.info("没有找到现有止盈订单，需要创建")
@@ -604,37 +494,6 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"止盈更新完成: {created_count} 个新止盈订单已创建")
             logger.info(f"止损订单保持不变: 固定止损 @ ${fixed_stop_loss:.2f}")
-
-            # 最终验证：确保订单数量不超过2个（1个止盈 + 1个止损）
-            final_orders = await self.order_manager.fetch_algo_orders(symbol)
-            if len(final_orders) > 2:
-                logger.error(f"❌ 订单数量异常！当前有 {len(final_orders)} 个订单，超过最大限制2个")
-                logger.error("开始紧急清理...")
-
-                # 重新分类并清理
-                final_tp = []
-                final_sl = []
-                for order in final_orders:
-                    if current_position.side == TradeSide.LONG:
-                        if order.price > current_price:
-                            final_tp.append(order)
-                        elif order.price < current_price:
-                            final_sl.append(order)
-
-                # 清理多余订单
-                if len(final_tp) > 1:
-                    final_tp.sort(key=lambda x: x.order_id, reverse=True)
-                    for order in final_tp[1:]:
-                        logger.warning(f"紧急清理多余止盈订单: {order.order_id}")
-                        await self.order_manager.cancel_algo_order(order.order_id, symbol)
-
-                if len(final_sl) > 1:
-                    final_sl.sort(key=lambda x: x.order_id, reverse=True)
-                    for order in final_sl[1:]:
-                        logger.warning(f"紧急清理多余止损订单: {order.order_id}")
-                        await self.order_manager.cancel_algo_order(order.order_id, symbol)
-            else:
-                logger.info(f"✅ 订单数量验证通过: {len(final_orders)} 个订单")
 
             # 记录更新时间
             if created_count > 0:
@@ -681,97 +540,33 @@ class TradeExecutor(BaseComponent):
             logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
             logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
-            # 获取现有的算法订单（避免重复创建）
-            existing_orders = await self.order_manager.fetch_algo_orders(symbol)
-            logger.info(f"找到 {len(existing_orders)} 个现有算法订单")
+            # 创建止盈订单
+            tp_result = await self.order_manager.create_take_profit_order(
+                symbol=symbol,
+                side=tp_side,
+                amount=order_result.filled_amount,  # 对新仓位设置止盈
+                take_profit_price=take_profit,
+                reduce_only=True
+            )
 
-            # 清理重复的订单（保留最新的一个）
-            tp_orders = []
-            sl_orders = []
-            for order in existing_orders:
-                # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
-                if side == TradeSide.BUY:  # 多头
-                    if order.price > current_price:
-                        tp_orders.append(order)
-                    elif order.price < current_price:
-                        sl_orders.append(order)
-                else:  # 空头
-                    if order.price < current_price:
-                        tp_orders.append(order)
-                    elif order.price > current_price:
-                        sl_orders.append(order)
-
-            # 清理重复的止盈订单（保留最新的一个）
-            if len(tp_orders) > 1:
-                logger.warning(f"检测到 {len(tp_orders)} 个止盈订单，将清理重复订单")
-                # 按订单ID排序，保留最新的，取消其余的
-                tp_orders.sort(key=lambda x: x.order_id, reverse=True)
-                for order in tp_orders[1:]:  # 跳过第一个（最新的）
-                    logger.info(f"取消重复的止盈订单: {order.order_id}")
-                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
-                    # 从现有订单列表中移除
-                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
-
-            # 清理重复的止损订单（保留最新的一个）
-            if len(sl_orders) > 1:
-                logger.warning(f"检测到 {len(sl_orders)} 个止损订单，将清理重复订单")
-                # 按订单ID排序，保留最新的，取消其余的
-                sl_orders.sort(key=lambda x: x.order_id, reverse=True)
-                for order in sl_orders[1:]:  # 跳过第一个（最新的）
-                    logger.info(f"取消重复的止损订单: {order.order_id}")
-                    await self.order_manager.cancel_algo_order(order.order_id, symbol)
-                    # 从现有订单列表中移除
-                    existing_orders = [o for o in existing_orders if o.order_id != order.order_id]
-
-            # 检查是否已存在止盈和止损订单
-            existing_tp = None
-            existing_sl = None
-            for order in existing_orders:
-                # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
-                if side == TradeSide.BUY:  # 多头
-                    if order.price > current_price:
-                        existing_tp = order
-                    elif order.price < current_price:
-                        existing_sl = order
-                else:  # 空头
-                    if order.price < current_price:
-                        existing_tp = order
-                    elif order.price > current_price:
-                        existing_sl = order
-
-            # 创建止盈订单（如果不存在）
-            if not existing_tp:
-                tp_result = await self.order_manager.create_take_profit_order(
-                    symbol=symbol,
-                    side=tp_side,
-                    amount=order_result.filled_amount,  # 对新仓位设置止盈
-                    take_profit_price=take_profit,
-                    reduce_only=True
-                )
-
-                if tp_result.success:
-                    logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
-                else:
-                    logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
+            if tp_result.success:
+                logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
             else:
-                logger.info(f"已存在止盈订单，跳过创建: {existing_tp.order_id} @ ${existing_tp.price:.2f}")
+                logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
 
-            # 创建止损订单（如果不存在）
-            if not existing_sl:
-                sl_result = await self.order_manager.create_stop_order(
-                    symbol=symbol,
-                    side=sl_side,
-                    amount=order_result.filled_amount,  # 对新仓位设置止损
-                    stop_price=stop_loss,
-                    reduce_only=True
-                )
+            # 创建止损订单
+            sl_result = await self.order_manager.create_stop_order(
+                symbol=symbol,
+                side=sl_side,
+                amount=order_result.filled_amount,  # 对新仓位设置止损
+                stop_price=stop_loss,
+                reduce_only=True
+            )
 
-                if sl_result.success:
-                    logger.info(f"新仓位止损订单创建成功: {sl_result.order_id}")
-                else:
-                    logger.error(f"新仓位止损订单创建失败: {sl_result.error_message}")
+            if sl_result.success:
+                logger.info(f"新仓位止损订单创建成功: {sl_result.order_id}")
             else:
-                logger.info(f"已存在止损订单，跳过创建: {existing_sl.order_id} @ ${existing_sl.price:.2f}")
+                logger.error(f"新仓位止损订单创建失败: {sl_result.error_message}")
 
         except Exception as e:
             logger.error(f"设置止盈止损失败: {e}")
