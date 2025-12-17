@@ -751,16 +751,22 @@ class StrategyManager(BaseComponent):
                     symbol
                 )
 
-                # 如果处于高度确认的横盘状态，生成HOLD信号
+                # 如果处于高度确认的横盘状态，生成清仓信号
                 if is_consolidation and confidence > 0.8:
+                    logger.warning(f"检测到高度确认的横盘状态(置信度:{confidence:.2f}): {reason}")
+                    logger.warning("将生成清仓信号并清理所有委托单")
+
+                    # 生成清仓信号
                     signals.append({
-                        'type': 'hold',
+                        'type': 'close_all',  # 新的信号类型：清仓
                         'confidence': confidence,
-                        'reason': f'横盘检测: {reason}',
+                        'reason': f'横盘清仓: {reason}',
                         'source': 'consolidation_detector',
-                        'timestamp': datetime.now()
+                        'timestamp': datetime.now(),
+                        'is_consolidation': True,  # 标记为横盘触发的信号
+                        'clear_orders': True  # 标记需要清理委托单
                     })
-                    return signals  # 横盘期间减少交易信号
+                    return signals  # 横盘期间生成清仓信号，不再生成其他信号
 
                 # 计算价格位置（结合技术指标）
                 if 'bb_upper' in technical_data and 'bb_lower' in technical_data:

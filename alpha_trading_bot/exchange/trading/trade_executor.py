@@ -336,7 +336,7 @@ class TradeExecutor(BaseComponent):
         return take_profit_pct, stop_loss_pct
 
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo) -> None:
-        """检查并更新止盈止损 - 智能版本"""
+        """检查并更新止盈 - 只更新止盈不更新止损"""
         try:
             # 获取当前价格
             current_price = await self._get_current_price(symbol)
@@ -345,90 +345,101 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
-            # 混合策略：止盈基于当前价格（动态），止损基于持仓均价（固定）
+            # 新策略：只更新止盈，止损保持固定（基于入场价）
             if current_position.side == TradeSide.LONG:
-                # 多头：止盈在上方，止损在下方
+                # 多头：止盈在上方
                 new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
-                new_stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于持仓均价（固定）
-                # 加仓时的止盈止损方向
+                # 止损：基于持仓均价（固定），不更新
+                fixed_stop_loss = entry_price * (1 - stop_loss_pct)
                 tp_side = TradeSide.SELL
-                sl_side = TradeSide.SELL
             else:
-                # 空头：止盈在下方，止损在上方
+                # 空头：止盈在下方
                 new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
-                new_stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于持仓均价（固定）
-                # 加仓时的止盈止损方向
+                # 止损：基于持仓均价（固定），不更新
+                fixed_stop_loss = entry_price * (1 + stop_loss_pct)
                 tp_side = TradeSide.BUY
-                sl_side = TradeSide.BUY
 
             logger.info(f"当前持仓: {symbol} {current_position.side.value} {current_position.amount} 张")
-            logger.info(f"混合策略设置 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
-            logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
-            logger.info(f"- 止损: ${new_stop_loss:.2f} (基于持仓均价 -{stop_loss_pct*100:.0f}%)")
+            logger.info(f"新策略设置 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
+            logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
+            logger.info(f"- 止损: ${fixed_stop_loss:.2f} (基于持仓均价 -{stop_loss_pct*100:.0f}%) - 固定不变")
 
             # 获取现有的算法订单
-            logger.info(f"获取现有止盈止损订单...")
-            existing_algo_orders = await self.order_manager.fetch_algo_orders(symbol)
-            logger.info(f"找到 {len(existing_algo_orders)} 个现有算法订单")
+            existing_orders = await self.order_manager.fetch_algo_orders(symbol)
+            logger.info(f"找到 {len(existing_orders)} 个现有算法订单")
 
-            # 取消旧的止盈止损订单 - 只取消与当前持仓方向匹配的订单
-            if existing_algo_orders:
-                logger.info(f"取消旧的止盈止损订单...")
-                cancelled_count = 0
-                for order in existing_algo_orders:
-                    # 只取消与当前持仓方向匹配的止盈止损订单
-                    if order.side == tp_side or order.side == sl_side:
-                        logger.info(f"取消订单: {order.order_id} (方向: {order.side.value}, 触发价: {order.price})")
-                        cancel_result = await self.order_manager.cancel_algo_order(order.order_id, symbol)
-                        if cancel_result:
-                            logger.info(f"✓ 取消成功: {order.order_id}")
-                            cancelled_count += 1
-                        else:
-                            logger.warning(f"✗ 取消失败: {order.order_id}")
-                logger.info(f"取消完成: {cancelled_count}/{len(existing_algo_orders)} 个订单已取消")
+            # 分离止盈和止损订单
+            current_tp = None
+            current_sl = None
+
+            for order in existing_orders:
+                order_type = order.get('ordType', '').lower()
+                algo_id = order.get('algoId', '')
+                trigger_price = float(order.get('triggerPx', 0))
+
+                if order_type == 'trigger':
+                    # 判断是止盈还是止损订单
+                    if current_position.side == TradeSide.LONG:
+                        if trigger_price > current_price:
+                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        elif trigger_price < current_price:
+                            current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
+                    else:  # SHORT
+                        if trigger_price < current_price:
+                            current_tp = {'algoId': algo_id, 'triggerPx': trigger_price}
+                        elif trigger_price > current_price:
+                            current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
+
+            # 只检查和处理止盈订单
+            tp_needs_update = False
+
+            if current_tp:
+                tp_price_diff = abs(current_tp['triggerPx'] - new_take_profit)
+                tp_needs_update = tp_price_diff > (current_price * 0.001)  # 价格差异超过0.1%才更新
+                if tp_needs_update:
+                    logger.info(f"止盈需要更新: 当前=${current_tp['triggerPx']:.2f} → 新=${new_take_profit:.2f}")
+                else:
+                    logger.info(f"止盈无需更新: 当前价格接近目标")
             else:
-                logger.info("没有需要取消的现有订单")
+                tp_needs_update = True  # 没有现有止盈订单，需要创建
+                logger.info("没有找到现有止盈订单，需要创建")
 
-            # 创建新的止盈止损订单
-            logger.info(f"创建新的止盈止损订单...")
+            # 检查现有止损订单（只检查，不更新）
+            if current_sl:
+                logger.info(f"检测到现有止损订单: {current_sl['algoId']} @ ${current_sl['triggerPx']:.2f} - 保持固定，不更新")
+            else:
+                logger.warning(f"未检测到止损订单 - 建议检查仓位安全")
+
+            # 只更新止盈订单
             created_count = 0
 
-            # 创建止盈订单
-            logger.info(f"创建止盈订单: {symbol} {tp_side.value} {current_position.amount} @ ${new_take_profit:.2f}")
-            tp_result = await self.order_manager.create_take_profit_order(
-                symbol=symbol,
-                side=tp_side,
-                amount=current_position.amount,
-                take_profit_price=new_take_profit,
-                reduce_only=True
-            )
+            if tp_needs_update:
+                if current_tp:
+                    # 取消现有止盈订单
+                    logger.info(f"取消现有止盈订单: {current_tp['algoId']}")
+                    await self.order_manager.cancel_algo_order(current_tp['algoId'], symbol)
 
-            if tp_result.success:
-                logger.info(f"✓ 止盈订单创建成功: ID={tp_result.order_id}")
-                created_count += 1
-            else:
-                logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
+                # 创建新的止盈订单
+                logger.info(f"创建新止盈订单: {symbol} {tp_side.value} {current_position.amount} @ ${new_take_profit:.2f}")
+                tp_result = await self.order_manager.create_take_profit_order(
+                    symbol=symbol,
+                    side=tp_side,
+                    amount=current_position.amount,
+                    take_profit_price=new_take_profit,
+                    reduce_only=True
+                )
 
-            # 创建止损订单
-            logger.info(f"创建止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
-            sl_result = await self.order_manager.create_stop_order(
-                symbol=symbol,
-                side=sl_side,
-                amount=current_position.amount,
-                stop_price=new_stop_loss,
-                reduce_only=True
-            )
+                if tp_result.success:
+                    logger.info(f"✓ 止盈订单创建成功: ID={tp_result.order_id}")
+                    created_count += 1
+                else:
+                    logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
 
-            if sl_result.success:
-                logger.info(f"✓ 止损订单创建成功: ID={sl_result.order_id}")
-                created_count += 1
-            else:
-                logger.error(f"✗ 止损订单创建失败: {sl_result.error_message}")
-
-            logger.info(f"止盈止损设置完成: {created_count}/2 个新订单已创建")
+            logger.info(f"止盈更新完成: {created_count} 个新止盈订单已创建")
+            logger.info(f"止损订单保持不变: 固定止损 @ ${fixed_stop_loss:.2f}")
 
         except Exception as e:
-            logger.error(f"更新止盈止损失败: {e}")
+            logger.error(f"更新止盈失败: {e}")
             import traceback
             logger.error(f"详细错误: {traceback.format_exc()}")
 

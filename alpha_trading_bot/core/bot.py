@@ -99,6 +99,91 @@ class TradingBot(BaseComponent):
 
         except Exception as e:
             self.enhanced_logger.logger.error(f"初始化失败: {e}")
+            import traceback
+            self.enhanced_logger.logger.error(f"详细错误: {traceback.format_exc()}")
+            return False
+
+    async def _execute_close_all_positions(self, reason: str) -> bool:
+        """执行清仓操作并清理所有委托单"""
+        try:
+            self.enhanced_logger.logger.warning(f"🚨 开始执行清仓操作: {reason}")
+
+            # 获取当前所有持仓
+            positions = await self.trading_engine.get_positions()
+            if not positions:
+                self.enhanced_logger.logger.info("当前没有持仓，无需清仓")
+                return True
+
+            closed_count = 0
+            failed_count = 0
+
+            # 遍历所有持仓进行平仓
+            for position in positions:
+                if position and position.amount != 0:  # 有实际持仓
+                    symbol = position.symbol
+                    amount = abs(position.amount)
+                    side = TradeSide.SELL if position.side == 'long' else TradeSide.BUY
+
+                    self.enhanced_logger.logger.info(f"正在平仓: {symbol} {position.side} {amount}")
+
+                    # 创建平仓订单
+                    close_trade = {
+                        'symbol': symbol,
+                        'side': side.value,
+                        'amount': amount,
+                        'type': 'market',
+                        'reason': f'横盘清仓 - {reason}',
+                        'confidence': 1.0,  # 清仓信号具有高置信度
+                        'is_close_all': True,
+                        'reduce_only': True
+                    }
+
+                    try:
+                        result = await self.trading_engine.execute_trade(close_trade)
+                        if result.success:
+                            closed_count += 1
+                            self.enhanced_logger.logger.info(f"✓ 平仓成功: {symbol}")
+                        else:
+                            failed_count += 1
+                            self.enhanced_logger.logger.error(f"✗ 平仓失败: {symbol} - {result.error_message}")
+                    except Exception as e:
+                        failed_count += 1
+                        self.enhanced_logger.logger.error(f"✗ 平仓异常: {symbol} - {e}")
+
+            # 清理所有委托单（包括止盈止损等算法订单）
+            self.enhanced_logger.logger.warning("正在清理所有委托单...")
+            try:
+                # 获取所有算法订单
+                for position in positions:
+                    if position and position.symbol:
+                        symbol = position.symbol
+                        algo_orders = await self.order_manager.fetch_algo_orders(symbol)
+
+                        if algo_orders:
+                            self.enhanced_logger.logger.info(f"取消 {symbol} 的 {len(algo_orders)} 个算法订单")
+                            for order in algo_orders:
+                                try:
+                                    await self.order_manager.cancel_algo_order(order['algoId'], symbol)
+                                    self.enhanced_logger.logger.info(f"✓ 取消算法订单: {order['algoId']}")
+                                except Exception as e:
+                                    self.enhanced_logger.logger.error(f"✗ 取消算法订单失败: {order['algoId']} - {e}")
+            except Exception as e:
+                self.enhanced_logger.logger.error(f"清理委托单时出错: {e}")
+
+            # 总结结果
+            self.enhanced_logger.logger.warning(f"清仓操作完成: 成功 {closed_count} 个, 失败 {failed_count} 个")
+
+            if closed_count > 0:
+                self.enhanced_logger.logger.warning("✅ 清仓操作执行成功")
+                return True
+            else:
+                self.enhanced_logger.logger.error("❌ 清仓操作执行失败")
+                return False
+
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"清仓操作异常: {e}")
+            import traceback
+            self.enhanced_logger.logger.error(f"详细错误: {traceback.format_exc()}")
             return False
 
     async def cleanup(self) -> None:
@@ -467,6 +552,18 @@ class TradingBot(BaseComponent):
                         reason = trade.get('reason', '')
                         confidence = trade.get('confidence', 0)
 
+                        # 检查是否是横盘清仓信号
+                        if trade.get('type') == 'close_all' or trade.get('is_consolidation'):
+                            self.enhanced_logger.logger.warning(f"⚠️ 检测到横盘清仓信号！")
+                            self.enhanced_logger.logger.warning(f"  原因: {reason}")
+                            self.enhanced_logger.logger.warning(f"  置信度: {confidence:.2f}")
+
+                            # 执行清仓操作
+                            close_result = await self._execute_close_all_positions(reason)
+                            if close_result:
+                                executed_trades += 1
+                            continue  # 跳过普通交易执行
+
                         # 计算止盈止损价格（基于6%止盈，2%止损）
                         tp_price = None
                         sl_price = None
@@ -488,6 +585,10 @@ class TradingBot(BaseComponent):
 
                     # 逐笔执行交易
                     for trade in trades:
+                        # 跳过已经处理的清仓信号
+                        if trade.get('type') == 'close_all' or trade.get('is_consolidation'):
+                            continue
+
                         result = await self.trading_engine.execute_trade(trade)
                         if result.success:
                             executed_trades += 1
