@@ -49,6 +49,10 @@ class TradeExecutor(BaseComponent):
         # 记录每个币种的最后一次止盈更新时间
         self._last_tp_update_time: Dict[str, datetime] = {}
 
+        # 添加15分钟周期控制
+        self._force_tp_update_on_next_cycle: Dict[str, bool] = {}  # 强制在下一个15分钟周期更新
+        self._tp_update_due_to_signals: Dict[str, bool] = {}  # 标记是否有信号触发的更新需求
+
     async def initialize(self) -> bool:
         """初始化交易执行器"""
         logger.info("正在初始化交易执行器...")
@@ -58,6 +62,73 @@ class TradeExecutor(BaseComponent):
     async def cleanup(self) -> None:
         """清理资源"""
         pass
+
+    def _should_update_tp_sl_on_signal(self, symbol: str) -> bool:
+        """判断是否应该基于信号更新TP/SL
+
+        只在以下情况返回True:
+        1. 强制在下一个15分钟周期更新
+        2. 距离上次更新已经超过15分钟
+        3. 有特殊标记需要更新
+        """
+        # 检查是否强制更新
+        if self._force_tp_update_on_next_cycle.get(symbol, False):
+            return True
+
+        # 检查是否已有信号触发的更新需求
+        if self._tp_update_due_to_signals.get(symbol, False):
+            return True
+
+        # 检查是否超过15分钟
+        last_update = self._last_tp_update_time.get(symbol)
+        if last_update:
+            time_since_update = (datetime.now() - last_update).total_seconds()
+            if time_since_update >= 900:  # 15分钟 = 900秒
+                return True
+        else:
+            # 从未更新过，允许更新
+            return True
+
+        return False
+
+    def mark_tp_update_needed(self, symbol: str) -> None:
+        """标记某个币种需要在下一个15分钟周期更新TP/SL"""
+        self._tp_update_due_to_signals[symbol] = True
+        logger.info(f"已标记 {symbol} 需要在下一个15分钟周期更新止盈止损")
+
+    def clear_tp_update_flags(self, symbol: str) -> None:
+        """清除TP/SL更新标记"""
+        self._force_tp_update_on_next_cycle[symbol] = False
+        self._tp_update_due_to_signals[symbol] = False
+
+    async def update_tp_sl_on_cycle(self, symbol: str, current_position: PositionInfo) -> None:
+        """在15分钟周期内执行标记的TP/SL更新"""
+        if not current_position or current_position.amount == 0:
+            logger.info(f"{symbol} 没有持仓，跳过TP/SL更新")
+            return
+
+        if not self.config.enable_tp_sl:
+            logger.info(f"{symbol} 止盈止损功能已禁用")
+            return
+
+        try:
+            logger.info(f"=== 执行15分钟周期内TP/SL更新: {symbol} ===")
+
+            # 获取当前持仓方向
+            side = TradeSide.BUY if current_position.side == TradeSide.LONG else TradeSide.SELL
+
+            # 执行TP/SL更新
+            await self._check_and_update_tp_sl(symbol, side, current_position)
+
+            # 清除标记
+            self.clear_tp_update_flags(symbol)
+
+            logger.info(f"=== 完成15分钟周期内TP/SL更新: {symbol} ===")
+
+        except Exception as e:
+            logger.error(f"15分钟周期内TP/SL更新失败: {symbol} - {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
 
     async def execute_trade(self, trade_request: Dict[str, Any]) -> TradeResult:
         """执行交易"""
@@ -103,9 +174,9 @@ class TradeExecutor(BaseComponent):
 
                         # 有持仓时更新止盈止损（与加仓功能无关）
                         if self.config.enable_tp_sl:
-                            logger.info(f"检测到同向信号，更新现有持仓止盈止损: {symbol}")
-                            await self._check_and_update_tp_sl(symbol, side, current_position)
-                            logger.info(f"止盈止损更新完成")
+                            # 标记需要在15分钟周期内更新TP/SL
+                            self.mark_tp_update_needed(symbol)
+                            logger.info(f"已标记 {symbol} 需要在15分钟周期内更新止盈止损")
                         else:
                             logger.info(f"止盈止损功能已禁用，跳过更新: {symbol}")
 
@@ -199,8 +270,9 @@ class TradeExecutor(BaseComponent):
                     # 已有仓位，更新止盈止损（与加仓功能无关）
                     if (side == TradeSide.BUY and current_position.side == TradeSide.LONG) or \
                        (side == TradeSide.SELL and current_position.side == TradeSide.SHORT):
-                        logger.info(f"同向信号，更新现有持仓止盈止损: {symbol}")
-                        await self._check_and_update_tp_sl(symbol, side, current_position)
+                        # 标记需要在15分钟周期内更新TP/SL
+                        self.mark_tp_update_needed(symbol)
+                        logger.info(f"已标记 {symbol} 需要在15分钟周期内更新止盈止损")
                     else:
                         # 方向相反，说明是平仓后反向开仓，创建新的止盈止损
                         logger.info(f"反向开仓，创建新止盈止损: {symbol}")

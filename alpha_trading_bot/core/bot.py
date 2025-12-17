@@ -593,6 +593,23 @@ class TradingBot(BaseComponent):
                         if result.success:
                             executed_trades += 1
                     self.enhanced_logger.logger.info(f"✅ 交易执行完成，成功执行 {executed_trades}/{len(trades)} 笔交易")
+
+                    # 在15分钟周期内执行标记的TP/SL更新
+                    # 获取所有需要更新的持仓
+                    positions = self.trading_engine.position_manager.get_all_positions()
+                    if positions:
+                        for position in positions:
+                            if position and position.amount != 0:
+                                symbol = position.symbol
+                                # 检查是否标记了需要更新TP/SL
+                                if hasattr(self.trading_engine.trade_executor, '_tp_update_due_to_signals') and \
+                                   self.trading_engine.trade_executor._tp_update_due_to_signals.get(symbol, False):
+                                    self.enhanced_logger.logger.info(f"15分钟周期内更新 {symbol} 的止盈止损")
+                                    await self.trading_engine.trade_executor.update_tp_sl_on_cycle(symbol, position)
+                                    # 清除标记
+                                    self.trading_engine.trade_executor.clear_tp_update_flags(symbol)
+                    else:
+                        self.enhanced_logger.logger.info("当前没有持仓，跳过15分钟周期内TP/SL更新")
                 else:
                     self.enhanced_logger.logger.info("ℹ️ 无交易信号通过风险评估")
             else:
