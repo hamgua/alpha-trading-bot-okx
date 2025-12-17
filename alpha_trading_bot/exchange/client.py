@@ -188,6 +188,18 @@ class ExchangeClient:
 
             ticker = await self.exchange.fetch_ticker(symbol)
 
+            # 添加调试日志，查看实际获取的ticker数据
+            logger.info(f"从交易所获取的ticker数据: symbol={symbol}, last={ticker.get('last')}, volume={ticker.get('volume')}, baseVolume={ticker.get('baseVolume')}")
+
+            # OKX交易所的特殊处理：24小时成交量在baseVolume字段而不是volume字段
+            volume = ticker.get('volume')
+            if volume is None or volume == 0:
+                volume = ticker.get('baseVolume', 0)
+                if volume > 0:
+                    logger.info(f"使用baseVolume作为成交量: {volume}")
+                else:
+                    logger.warning(f"交易所返回的成交量为0，symbol={symbol}")
+
             # Handle missing fields gracefully
             return TickerData(
                 symbol=symbol,
@@ -196,7 +208,7 @@ class ExchangeClient:
                 last=ticker.get('last', 0),
                 high=ticker.get('high', 0),
                 low=ticker.get('low', 0),
-                volume=ticker.get('volume', 0)
+                volume=volume
             )
         except Exception as e:
             logger.error(f"获取行情数据失败: {e}")
@@ -505,10 +517,51 @@ class ExchangeClient:
             logger.error(f"恢复算法订单过程失败: {e}")
 
     async def fetch_ohlcv(self, symbol: str, timeframe: str = '5m', limit: int = 100) -> List[List[float]]:
-        """获取K线数据"""
+        """获取K线数据 - 增强版"""
         try:
+            # 添加参数验证
+            if not symbol or not timeframe:
+                raise ValueError("symbol和timeframe不能为空")
+
+            # 限制请求数量，避免交易所限流
+            limit = min(limit, 200)
+
+            # 尝试获取数据
             ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-            return ohlcv
+
+            # 验证返回数据
+            if not ohlcv or not isinstance(ohlcv, list):
+                logger.warning(f"获取到空的K线数据: {symbol}, {timeframe}")
+                return []
+
+            # 验证数据格式
+            valid_candles = []
+            for candle in ohlcv:
+                if isinstance(candle, list) and len(candle) >= 6:
+                    # 验证时间戳和价格数据
+                    if all(isinstance(x, (int, float)) for x in candle[:6]):
+                        valid_candles.append(candle)
+                    else:
+                        logger.warning(f"无效的K线数据格式: {candle}")
+                else:
+                    logger.warning(f"跳过无效的K线数据: {candle}")
+
+            logger.info(f"成功获取 {len(valid_candles)}/{len(ohlcv)} 根K线数据: {symbol}, {timeframe}")
+            return valid_candles
+
+        except ccxt.NetworkError as e:
+            logger.error(f"网络错误导致K线数据获取失败: {e}")
+            # 网络错误时返回空数据而不是抛出异常
+            return []
+        except ccxt.ExchangeError as e:
+            logger.error(f"交易所错误导致K线数据获取失败: {e}")
+            # 交易所错误时返回空数据
+            return []
+        except ccxt.RateLimitExceeded as e:
+            logger.error(f"触发交易所限流: {e}")
+            # 限流时返回空数据
+            return []
         except Exception as e:
-            logger.error(f"获取K线数据失败: {e}")
-            raise ExchangeError(f"获取K线数据失败: {e}")
+            logger.error(f"获取K线数据失败: {type(e).__name__}: {e}")
+            # 其他异常返回空数据
+            return []

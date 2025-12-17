@@ -220,6 +220,16 @@ class TradeExecutor(BaseComponent):
             })
 
             logger.info(f"交易执行成功: {symbol} {filled_order.filled_amount} @ {filled_order.average_price}")
+
+            # 记录交易到策略管理器（如果可用）
+            try:
+                from alpha_trading_bot.strategies import get_strategy_manager
+                strategy_manager = await get_strategy_manager()
+                strategy_manager.record_trade()
+                logger.debug("已记录交易到策略管理器")
+            except Exception as e:
+                logger.debug(f"记录交易失败（非关键）: {e}")
+
             return trade_result
 
         except Exception as e:

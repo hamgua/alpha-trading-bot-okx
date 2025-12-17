@@ -74,5 +74,5 @@ WORKDIR /app
 CMD ["sleep", "infinity"]
 
 # docker 构建底层运行镜像命令
-# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1 -f Dockerfile_base.alpine ./
-# docker push hamgua/alpha-trading-bot-okx:base_alpine-v1.5.1
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:base_alpine-v1.5.2 -f Dockerfile_base.alpine ./
+# docker push hamgua/alpha-trading-bot-okx:base_alpine-v1.5.2

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from .base import BaseComponent, BaseConfig
 from .exceptions import TradingBotException
 from ..utils.logging import LoggerMixin
+from .health_check import get_health_check
+from .monitor import get_system_monitor, collect_metrics_periodically, monitor_performance
 
 @dataclass
 class BotConfig(BaseConfig):
@@ -121,6 +123,16 @@ class TradingBot(BaseComponent):
         self._start_time = datetime.now()
         self.enhanced_logger.logger.info("交易机器人已启动")
 
+        # 启动监控任务
+        try:
+            # 启动系统指标收集
+            asyncio.create_task(collect_metrics_periodically(interval=60))
+            # 启动性能监控
+            asyncio.create_task(monitor_performance())
+            self.enhanced_logger.logger.info("监控任务已启动")
+        except Exception as e:
+            self.enhanced_logger.logger.warning(f"启动监控任务失败: {e}，继续运行主程序")
+
         # 添加调试信息
         self.enhanced_logger.logger.debug("进入交易循环，等待下一个15分钟整点...")
 
@@ -169,6 +181,13 @@ class TradingBot(BaseComponent):
         self._running = False
         self.enhanced_logger.logger.info("交易机器人已停止")
 
+        # 清理资源
+        try:
+            await self.cleanup()
+            self.enhanced_logger.logger.info("交易机器人资源已清理")
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"清理机器人资源失败: {e}")
+
     async def _trading_cycle(self, cycle_num: int) -> None:
         """执行一次交易循环"""
         import time
@@ -192,6 +211,19 @@ class TradingBot(BaseComponent):
                     current_price, period, change_percent, last_kline_time
                 )
 
+                # 输出详细的成交量信息
+                volume_24h = market_data.get('volume', 0)
+                avg_volume_24h = market_data.get('avg_volume_24h', 0)
+
+                self.enhanced_logger.logger.info("📈 市场成交量详情:")
+                self.enhanced_logger.logger.info(f"  📊 交易所24h成交量: {volume_24h}")
+                if avg_volume_24h > 0:
+                    self.enhanced_logger.logger.info(f"  📊 计算的平均成交量: {avg_volume_24h:.2f}")
+
+                # 如果交易所24h成交量为0但有平均成交量，说明使用了备用数据
+                if volume_24h == 0 and avg_volume_24h > 0:
+                    self.enhanced_logger.logger.info("  ⚠️  注意：交易所24h成交量为0，系统将使用计算的平均成交量进行评估")
+
                 # 记录OHLCV数据获取状态
                 if market_data.get('ohlcv'):
                     self.enhanced_logger.logger.info(f"✅ 成功获取 {len(market_data['ohlcv'])} 根K线数据用于技术指标计算")
@@ -207,6 +239,84 @@ class TradingBot(BaseComponent):
 
             # 记录AI提供商信息
             self.enhanced_logger.info_ai_providers(providers, config_providers)
+
+            # 执行健康检查
+            try:
+                from alpha_trading_bot.core.health_check import get_health_check
+                health_check = await get_health_check()
+
+                # 计算执行时间（从开始到现在）
+                execution_time = time.time() - start_time
+
+                # 执行健康检查
+                health_report = await health_check.perform_health_check(
+                    market_data=market_data,
+                    execution_time=execution_time,
+                    api_response_time=0,  # TODO: 可以从exchange_client获取实际API响应时间
+                    api_errors=0  # TODO: 可以从exchange_client获取实际API错误数
+                )
+
+                # 记录健康状态
+                self.enhanced_logger.logger.info(f"🏥 健康检查: {health_report['overall_status'].upper()}")
+
+                # 输出详细健康检查信息
+                self.enhanced_logger.logger.info("📊 详细健康检查结果:")
+
+                # 流动性详情
+                liquidity = health_report.get('liquidity', {})
+                if liquidity:
+                    self.enhanced_logger.logger.info(f"  💧 流动性状态: {liquidity.get('status', 'unknown')}")
+                    self.enhanced_logger.logger.info(f"  📈 流动性评分: {liquidity.get('score', 0)}")
+                    if liquidity.get('issues'):
+                        self.enhanced_logger.logger.info(f"  ⚠️  流动性问题: {', '.join(liquidity['issues'])}")
+
+                    # 详细ATR信息
+                    atr_info = liquidity.get('atr_info', {})
+                    if atr_info:
+                        self.enhanced_logger.logger.info(f"  📊 ATR详细分析:")
+                        self.enhanced_logger.logger.info(f"    📈 ATR值: {atr_info.get('atr_value', 0):.2f} USDT")
+                        self.enhanced_logger.logger.info(f"    📊 ATR百分比: {atr_info.get('atr_percentage', 0):.2f}%")
+                        self.enhanced_logger.logger.info(f"    🎯 评估: {atr_info.get('assessment', '未知')}")
+
+                        # 添加ATR解释
+                        atr_pct = atr_info.get('atr_percentage', 0)
+                        if atr_pct < 0.2:
+                            self.enhanced_logger.logger.info(f"    💡 解释: ATR百分比低于0.2%，市场波动极小，价格可能处于横盘状态")
+                        elif atr_pct < 0.5:
+                            self.enhanced_logger.logger.info(f"    💡 解释: ATR百分比在0.2%-0.5%之间，市场波动较低")
+                        else:
+                            self.enhanced_logger.logger.info(f"    💡 解释: ATR百分比高于0.5%，市场波动正常")
+
+                # 性能详情
+                performance = health_report.get('performance', {})
+                if performance:
+                    self.enhanced_logger.logger.info(f"  ⚡ 性能状态: {performance.get('status', 'unknown')}")
+                    if performance.get('execution_time'):
+                        self.enhanced_logger.logger.info(f"  ⏱️  执行时间: {performance['execution_time']:.2f}s")
+
+                # API详情
+                api = health_report.get('api', {})
+                if api:
+                    self.enhanced_logger.logger.info(f"  🔌 API状态: {api.get('status', 'unknown')}")
+                    if api.get('response_time'):
+                        self.enhanced_logger.logger.info(f"  🔄 API响应时间: {api['response_time']:.2f}s")
+                    if api.get('errors', 0) > 0:
+                        self.enhanced_logger.logger.info(f"  ❌ API错误数: {api['errors']}")
+
+                # 统计信息
+                self.enhanced_logger.logger.info(f"  📋 统计: {health_report.get('critical_count', 0)}个严重问题, {health_report.get('warning_count', 0)}个警告")
+
+                if health_report['overall_status'] != 'healthy':
+                    self.enhanced_logger.logger.warning(f"⚠️  系统健康异常: {health_report['critical_count']}个严重问题, {health_report['warning_count']}个警告")
+
+                    # 如果流动性严重不足，可以考虑暂停交易
+                    liquidity_health = health_report.get('liquidity', {})
+                    if liquidity_health.get('status') == 'critical':
+                        self.enhanced_logger.logger.error("🚨 流动性严重不足，建议暂停交易")
+                        # TODO: 可以在这里添加暂停交易的逻辑
+
+            except Exception as e:
+                self.enhanced_logger.logger.error(f"健康检查失败: {e}")
 
             # 生成AI信号
             ai_signals = await self.ai_manager.generate_signals(market_data)

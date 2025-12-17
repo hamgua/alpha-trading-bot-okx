@@ -3,6 +3,7 @@ ccxt>=4.0.0
 numpy>=1.25.0
 python-dotenv>=1.0.0
 aiohttp>=3.8.0
+psutil>=5.9.0  # 系统监控
 
 # AI支持（可选）
 # openai>=1.0.0  # 当前通过HTTP API调用，未使用官方SDK
