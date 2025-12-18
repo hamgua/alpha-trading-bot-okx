@@ -157,14 +157,22 @@ class TradeExecutor(BaseComponent):
 
                 # 合约交易使用杠杆，计算所需保证金
                 if self.config.use_leverage:
-                    # 所需保证金 = 名义价值 / 杠杆倍数
-                    notional_value = amount * current_price
+                    # 获取合约大小（每张合约代表的标的资产数量）
+                    contract_size = 0.01  # BTC/USDT:USDT 默认合约大小为0.01 BTC
+                    if symbol in self.exchange_client.exchange.markets:
+                        market = self.exchange_client.exchange.markets[symbol]
+                        contract_size = market.get('contractSize', 0.01)
+
+                    # 计算实际的名义价值 = 数量 × 合约大小 × 价格
+                    actual_amount = amount * contract_size
+                    notional_value = actual_amount * current_price
                     required_margin = notional_value / self.config.leverage
 
                     # 对于合约交易，检查是否有足够的可用资金
                     # 考虑到可能存在其他持仓占用的保证金
                     available_for_trade = balance.free
 
+                    logger.info(f"合约交易 - 合约大小: {contract_size} BTC/张, 数量: {amount} 张 = {actual_amount:.6f} BTC")
                     logger.info(f"合约交易 - 名义价值: {notional_value:.4f} USDT, 杠杆: {self.config.leverage}x, 所需保证金: {required_margin:.4f} USDT")
                     logger.info(f"账户余额 - 总余额: {balance.total:.4f} USDT, 已用: {balance.used:.4f} USDT, 可用: {balance.free:.4f} USDT")
 
