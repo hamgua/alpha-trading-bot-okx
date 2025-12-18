@@ -300,15 +300,24 @@ class ExchangeClient:
 
                 # 根据精度调整数量
                 if amount_precision and isinstance(amount_precision, int):
+                    # 对于整数精度，直接使用
                     amount = round(amount, amount_precision)
                     logger.info(f"根据交易所精度调整订单数量至: {amount}")
                 elif amount_precision:
-                    # 处理精度为浮点数的情况
+                    # 处理浮点数精度（如0.01）
                     try:
-                        # 确保精度是有效的数字
-                        precision_int = int(amount_precision)
-                        amount = round(amount, precision_int)
-                        logger.info(f"根据交易所精度调整订单数量至: {amount}")
+                        # 对于OKX等交易所，精度可能是0.01
+                        # 确保数量是精度的整数倍
+                        if amount_precision > 0 and amount_precision < 1:
+                            # 计算最接近的精度倍数
+                            multiplier = round(amount / amount_precision)
+                            amount = multiplier * amount_precision
+                            logger.info(f"根据交易所精度({amount_precision})调整订单数量至: {amount} (倍数: {multiplier})")
+                        else:
+                            # 其他情况，按正常四舍五入处理
+                            precision_int = int(amount_precision)
+                            amount = round(amount, precision_int)
+                            logger.info(f"根据交易所精度调整订单数量至: {amount}")
                     except (ValueError, TypeError):
                         # 如果精度无效，保持原数量
                         logger.warning(f"交易所精度格式无效: {amount_precision}，保持原数量: {amount}")
