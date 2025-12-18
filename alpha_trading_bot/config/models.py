@@ -69,7 +69,9 @@ class RiskConfig:
     stop_loss_enabled: bool = True
     take_profit_enabled: bool = True
     trailing_stop_enabled: bool = True
-    trailing_distance: float = 0.015
+    trailing_distance: float = 0.015  # 追踪距离（百分比）
+    trailing_stop_loss_enabled: bool = True  # 是否启用追踪止损
+    trailing_stop_loss_mode: str = 'entry_based'  # 追踪模式：'entry_based'（基于入场价）或 'fixed'（固定距离）
 
 @dataclass
 class AIConfig:

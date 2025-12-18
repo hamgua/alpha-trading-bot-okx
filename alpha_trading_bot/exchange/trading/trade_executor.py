@@ -393,7 +393,7 @@ class TradeExecutor(BaseComponent):
         return take_profit_pct, stop_loss_pct
 
     async def _check_and_update_tp_sl(self, symbol: str, side: TradeSide, current_position: PositionInfo, min_price_change_pct: float = 0.01) -> None:
-        """检查并更新止盈 - 只更新止盈不更新止损"""
+        """检查并更新止盈止损 - 实现追踪止损逻辑"""
         try:
             # 检查更新间隔
             now = datetime.now()
@@ -411,43 +411,70 @@ class TradeExecutor(BaseComponent):
             # 获取止盈止损百分比配置
             take_profit_pct, stop_loss_pct = self._get_tp_sl_percentages()
 
-            # 新策略：只更新止盈，止损保持固定（基于入场价）
+            # 追踪止损策略：根据价格变动动态调整止损
             if current_position.side == TradeSide.LONG:
-                # 多头：止盈在上方
+                # 多头：止盈在上方，止损追踪上涨但不下穿入场价
                 new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
-                # 止损：基于持仓均价（固定），不更新
-                fixed_stop_loss = entry_price * (1 - stop_loss_pct)
+
+                # 追踪止损逻辑
+                if current_price > entry_price:
+                    # 价格上涨超过入场价：止损同步上涨
+                    # 止损价 = 当前价 × (1 - 止损百分比)
+                    new_stop_loss = current_price * (1 - stop_loss_pct)
+                    logger.info(f"价格上涨超过入场价，止损同步上涨至: ${new_stop_loss:.2f}")
+                else:
+                    # 价格未超过入场价：保持入场时的固定止损
+                    new_stop_loss = entry_price * (1 - stop_loss_pct)
+                    logger.info(f"价格未超过入场价，保持固定止损: ${new_stop_loss:.2f}")
+
                 tp_side = TradeSide.SELL
+                sl_side = TradeSide.SELL
+
             else:
-                # 空头：止盈在下方
+                # 空头：止盈在下方，止损追踪下跌但不上穿入场价
                 new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
-                # 止损：基于持仓均价（固定），不更新
-                fixed_stop_loss = entry_price * (1 + stop_loss_pct)
+
+                # 追踪止损逻辑
+                if current_price < entry_price:
+                    # 价格下跌低于入场价：止损同步下跌
+                    # 止损价 = 当前价 × (1 + 止损百分比)
+                    new_stop_loss = current_price * (1 + stop_loss_pct)
+                    logger.info(f"价格下跌低于入场价，止损同步下跌至: ${new_stop_loss:.2f}")
+                else:
+                    # 价格未低于入场价：保持入场时的固定止损
+                    new_stop_loss = entry_price * (1 + stop_loss_pct)
+                    logger.info(f"价格未低于入场价，保持固定止损: ${new_stop_loss:.2f}")
+
                 tp_side = TradeSide.BUY
+                sl_side = TradeSide.BUY
 
             logger.info(f"当前持仓: {symbol} {current_position.side.value} {current_position.amount} 张")
-            logger.info(f"新策略设置 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
+            logger.info(f"追踪止损策略 - 持仓均价: ${entry_price:.2f}, 当前价格: ${current_price:.2f}")
             logger.info(f"- 止盈: ${new_take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%) - 动态更新")
-            logger.info(f"- 止损: ${fixed_stop_loss:.2f} (基于持仓均价 -{stop_loss_pct*100:.0f}%) - 固定不变")
+            logger.info(f"- 止损: ${new_stop_loss:.2f} (追踪止损 -{stop_loss_pct*100:.0f}%) - 动态调整")
 
             # 获取现有的算法订单
             existing_orders = await self.order_manager.fetch_algo_orders(symbol)
             logger.info(f"找到 {len(existing_orders)} 个现有算法订单")
 
-            # 检查是否有现有止盈订单，并计算价格变动
+            # 分离止盈和止损订单
             current_tp_price = None
+            current_sl_price = None
+
             for order in existing_orders:
                 # 通过触发价格与当前价格的关系来判断是止盈还是止损订单
                 if current_position.side == TradeSide.LONG:
                     if order.price > current_price:
                         current_tp_price = order.price
-                        break
+                    elif order.price < current_price:
+                        current_sl_price = order.price
                 else:  # SHORT
                     if order.price < current_price:
                         current_tp_price = order.price
-                        break
+                    elif order.price > current_price:
+                        current_sl_price = order.price
 
-            # 检查价格变动是否达到阈值
+            # 检查止盈价格变动是否达到阈值
             if current_tp_price:
                 price_change_pct = abs(current_price - current_tp_price) / current_tp_price
                 if price_change_pct < min_price_change_pct:
@@ -455,6 +482,38 @@ class TradeExecutor(BaseComponent):
                     return
                 else:
                     logger.info(f"价格变动 {price_change_pct*100:.2f}% 达到阈值 {min_price_change_pct*100:.2f}%，需要更新止盈")
+
+            # 检查是否需要更新止损（追踪止损逻辑）
+            if current_sl_price:
+                # 计算当前价格与入场价的关系
+                price_vs_entry_pct = (current_price - entry_price) / entry_price
+
+                if current_position.side == TradeSide.LONG:
+                    # 多头：价格上涨超过入场价时追踪止损
+                    if current_price > entry_price:
+                        # 计算当前止损与入场价的关系
+                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
+
+                        # 如果当前止损仍低于入场价，需要更新
+                        if current_sl_price < entry_price * (1 - stop_loss_pct):
+                            logger.info(f"价格已上涨，需要更新追踪止损")
+                        else:
+                            logger.info(f"当前止损已追踪上涨，无需更新")
+                    else:
+                        logger.info(f"价格未超过入场价，保持固定止损")
+                else:  # SHORT
+                    # 空头：价格下跌低于入场价时追踪止损
+                    if current_price < entry_price:
+                        # 计算当前止损与入场价的关系
+                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
+
+                        # 如果当前止损仍高于入场价，需要更新
+                        if current_sl_price > entry_price * (1 + stop_loss_pct):
+                            logger.info(f"价格已下跌，需要更新追踪止损")
+                        else:
+                            logger.info(f"当前止损已追踪下跌，无需更新")
+                    else:
+                        logger.info(f"价格未低于入场价，保持固定止损")
 
             # 打印订单详情以便调试
             for i, order in enumerate(existing_orders):
@@ -499,8 +558,9 @@ class TradeExecutor(BaseComponent):
                     elif trigger_price > current_price:
                         current_sl = {'algoId': algo_id, 'triggerPx': trigger_price}
 
-            # 只检查和处理止盈订单
+            # 检查和处理止盈与止损订单（追踪止损逻辑）
             tp_needs_update = False
+            sl_needs_update = False
 
             if current_tp:
                 tp_price_diff = abs(current_tp['triggerPx'] - new_take_profit)
@@ -513,15 +573,51 @@ class TradeExecutor(BaseComponent):
                 tp_needs_update = True  # 没有现有止盈订单，需要创建
                 logger.info("没有找到现有止盈订单，需要创建")
 
-            # 检查现有止损订单（只检查，不更新）
+            # 检查现有止损订单（追踪止损逻辑）
             if current_sl:
-                logger.info(f"检测到现有止损订单: {current_sl['algoId']} @ ${current_sl['triggerPx']:.2f} - 保持固定，不更新")
+                # 追踪止损逻辑：检查是否需要更新止损价格
+                current_sl_price = current_sl['triggerPx']
+
+                if current_position.side == TradeSide.LONG:
+                    # 多头：价格上涨超过入场价时追踪止损
+                    if current_price > entry_price:
+                        # 计算当前止损与入场价的关系
+                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
+                        entry_sl_pct = -stop_loss_pct  # 入场时的止损百分比
+
+                        # 如果当前止损仍低于入场价，需要更新
+                        if current_sl_price < entry_price * (1 + entry_sl_pct):
+                            sl_needs_update = True
+                            logger.info(f"价格已上涨，需要更新追踪止损")
+                        else:
+                            logger.info(f"当前止损已追踪上涨，无需更新")
+                    else:
+                        logger.info(f"价格未超过入场价，保持固定止损")
+                else:  # SHORT
+                    # 空头：价格下跌低于入场价时追踪止损
+                    if current_price < entry_price:
+                        # 计算当前止损与入场价的关系
+                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
+                        entry_sl_pct = stop_loss_pct  # 入场时的止损百分比
+
+                        # 如果当前止损仍高于入场价，需要更新
+                        if current_sl_price > entry_price * (1 + entry_sl_pct):
+                            sl_needs_update = True
+                            logger.info(f"价格已下跌，需要更新追踪止损")
+                        else:
+                            logger.info(f"当前止损已追踪下跌，无需更新")
+                    else:
+                        logger.info(f"价格未低于入场价，保持固定止损")
             else:
-                logger.warning(f"未检测到止损订单 - 建议检查仓位安全")
+                # 没有现有止损订单，需要创建
+                sl_needs_update = True
+                logger.info("没有找到现有止损订单，需要创建")
 
-            # 只更新止盈订单
+            # 更新止盈和止损订单（追踪止损实现）
             created_count = 0
+            updated_count = 0
 
+            # 更新止盈订单
             if tp_needs_update:
                 if current_tp:
                     # 取消现有止盈订单
@@ -544,8 +640,30 @@ class TradeExecutor(BaseComponent):
                 else:
                     logger.error(f"✗ 止盈订单创建失败: {tp_result.error_message}")
 
-            logger.info(f"止盈更新完成: {created_count} 个新止盈订单已创建")
-            logger.info(f"止损订单保持不变: 固定止损 @ ${fixed_stop_loss:.2f}")
+            # 更新止损订单（追踪止损逻辑）
+            if sl_needs_update:
+                if current_sl:
+                    # 取消现有止损订单
+                    logger.info(f"取消现有止损订单: {current_sl['algoId']}")
+                    await self.order_manager.cancel_algo_order(current_sl['algoId'], symbol)
+
+                # 创建新的止损订单
+                logger.info(f"创建新止损订单: {symbol} {sl_side.value} {current_position.amount} @ ${new_stop_loss:.2f}")
+                sl_result = await self.order_manager.create_stop_order(
+                    symbol=symbol,
+                    side=sl_side,
+                    amount=current_position.amount,
+                    stop_price=new_stop_loss,
+                    reduce_only=True
+                )
+
+                if sl_result.success:
+                    logger.info(f"✓ 止损订单创建成功: ID={sl_result.order_id}")
+                    updated_count += 1
+                else:
+                    logger.error(f"✗ 止损订单创建失败: {sl_result.error_message}")
+
+            logger.info(f"止盈止损更新完成: {created_count} 个新止盈订单, {updated_count} 个新止损订单已创建")
 
             # 记录更新时间
             if created_count > 0:
