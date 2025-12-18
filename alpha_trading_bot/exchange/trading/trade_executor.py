@@ -581,31 +581,31 @@ class TradeExecutor(BaseComponent):
                 if current_position.side == TradeSide.LONG:
                     # 多头：价格上涨超过入场价时追踪止损
                     if current_price > entry_price:
-                        # 计算当前止损与入场价的关系
-                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
-                        entry_sl_pct = -stop_loss_pct  # 入场时的止损百分比
+                        # 计算新的追踪止损价格（基于当前价格）
+                        expected_sl_price = current_price * (1 - stop_loss_pct)
 
-                        # 如果当前止损仍低于入场价，需要更新
-                        if current_sl_price < entry_price * (1 + entry_sl_pct):
+                        # 如果当前止损价格与新的追踪止损价格差异超过阈值（0.1%），则更新
+                        price_diff_pct = abs(current_sl_price - expected_sl_price) / current_sl_price
+                        if price_diff_pct > 0.001:  # 0.1% 阈值
                             sl_needs_update = True
-                            logger.info(f"价格已上涨，需要更新追踪止损")
+                            logger.info(f"价格已上涨，需要更新追踪止损: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
                         else:
-                            logger.info(f"当前止损已追踪上涨，无需更新")
+                            logger.info(f"当前止损已正确追踪，无需更新")
                     else:
                         logger.info(f"价格未超过入场价，保持固定止损")
                 else:  # SHORT
                     # 空头：价格下跌低于入场价时追踪止损
                     if current_price < entry_price:
-                        # 计算当前止损与入场价的关系
-                        current_sl_vs_entry_pct = (current_sl_price - entry_price) / entry_price
-                        entry_sl_pct = stop_loss_pct  # 入场时的止损百分比
+                        # 计算新的追踪止损价格（基于当前价格）
+                        expected_sl_price = current_price * (1 + stop_loss_pct)
 
-                        # 如果当前止损仍高于入场价，需要更新
-                        if current_sl_price > entry_price * (1 + entry_sl_pct):
+                        # 如果当前止损价格与新的追踪止损价格差异超过阈值（0.1%），则更新
+                        price_diff_pct = abs(current_sl_price - expected_sl_price) / current_sl_price
+                        if price_diff_pct > 0.001:  # 0.1% 阈值
                             sl_needs_update = True
-                            logger.info(f"价格已下跌，需要更新追踪止损")
+                            logger.info(f"价格已下跌，需要更新追踪止损: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
                         else:
-                            logger.info(f"当前止损已追踪下跌，无需更新")
+                            logger.info(f"当前止损已正确追踪，无需更新")
                     else:
                         logger.info(f"价格未低于入场价，保持固定止损")
             else:
