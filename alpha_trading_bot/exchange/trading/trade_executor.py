@@ -26,7 +26,7 @@ class TradeExecutorConfig(BaseConfig):
     tp_update_threshold_pct: float = 0.01  # 止盈更新阈值（价格变动百分比）
     tp_update_min_interval: int = 300  # 止盈更新最小间隔（秒，5分钟）
     use_leverage: bool = True  # 是否使用杠杆（合约交易）
-    leverage: int = 10  # 杠杆倍数
+    leverage: int = 10  # 杠杆倍数（用户要求10倍）
 
 class TradeExecutor(BaseComponent):
     """交易执行器"""

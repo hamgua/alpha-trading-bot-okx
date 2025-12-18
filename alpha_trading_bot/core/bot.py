@@ -513,7 +513,9 @@ class TradingBot(BaseComponent):
             self.enhanced_logger.logger.info("⚠️ 进行风险评估...")
             # 获取当前价格用于风险评估
             current_price = market_data.get('price', 0)
-            risk_assessment = await self.risk_manager.assess_risk(signals, current_price)
+            # 获取账户余额用于动态计算交易数量
+            balance = await self.trading_engine.get_balance()
+            risk_assessment = await self.risk_manager.assess_risk(signals, current_price, balance)
             risk_level = risk_assessment.get('risk_level', 'unknown')
             risk_score = risk_assessment.get('risk_score', 0)
             trades = risk_assessment.get('trades', [])  # 确保trades变量被定义

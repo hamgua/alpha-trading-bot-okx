@@ -35,6 +35,7 @@ class RiskManager(BaseComponent):
         self.market_risk_score = 0.0
         self.position_risk_score = 0.0
         self.trade_history: list = []
+        self._current_balance = None  # 存储当前余额信息
 
     async def initialize(self) -> bool:
         """初始化风险管理器"""
@@ -50,8 +51,10 @@ class RiskManager(BaseComponent):
         """清理资源"""
         pass
 
-    async def assess_risk(self, signals: list, current_price: float = 0) -> Dict[str, Any]:
+    async def assess_risk(self, signals: list, current_price: float = 0, balance: Any = None) -> Dict[str, Any]:
         """评估交易风险（兼容策略管理器调用的接口）"""
+        # 存储余额信息供后续使用
+        self._current_balance = balance
         try:
             # 如果没有信号，返回默认允许交易
             if not signals:
@@ -147,17 +150,65 @@ class RiskManager(BaseComponent):
                     signal_type = signal.get('signal', signal.get('type', 'HOLD')).upper()
                     if signal_type in ['BUY', 'SELL']:
                         # 验证交易数量，确保满足最小交易量要求
-                        amount = signal.get('size', 1.0)  # 默认交易量1张
                         symbol = signal.get('symbol', 'BTC/USDT:USDT')
 
-                        # 获取合约大小来计算最小BTC数量
-                        contract_size = 0.01  # BTC/USDT:USDT默认合约大小
-                        if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
-                            # OKX要求最小0.01 BTC，合约大小0.01 BTC/张，所以最小1张
-                            min_contracts = 1.0
-                            if amount < min_contracts:
-                                logger.warning(f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张")
-                                amount = min_contracts
+                        # 如果有余额信息，根据余额和杠杆计算最优交易数量
+                        if self._current_balance and signal_type == 'BUY':  # 只允许做多
+                            try:
+                                # 获取合约大小
+                                contract_size = 0.01  # BTC/USDT:USDT默认合约大小
+                                if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                                    contract_size = 0.01
+
+                                # 从配置获取杠杆倍数
+                                from ...config import load_config
+                                config = load_config()
+                                leverage = config.trading.leverage
+
+                                # 使用全部可用余额（保留少量缓冲）
+                                available_balance = self._current_balance.free
+                                # 保留5%的余额作为缓冲，防止价格波动导致爆仓
+                                usable_balance = available_balance * 0.95
+
+                                # 计算可交易的最大张数
+                                # 保证金 = 数量 × 合约大小 × 价格 ÷ 杠杆
+                                # 所以 数量 = 保证金 × 杠杆 ÷ (合约大小 × 价格)
+                                max_contracts = (usable_balance * leverage) / (contract_size * current_price)
+
+                                # 确保满足最小交易量要求
+                                min_contracts = 1.0  # OKX最小1张
+
+                                if max_contracts < min_contracts:
+                                    # 如果余额不足以交易最小数量，记录警告但仍使用最小数量
+                                    logger.warning(f"余额不足以交易最小数量 - 计算得到: {max_contracts:.4f} 张，最小要求: {min_contracts} 张")
+                                    logger.warning(f"将使用最小交易量 {min_contracts} 张，需要保证金: {(min_contracts * contract_size * current_price) / leverage:.4f} USDT")
+                                    max_contracts = min_contracts
+                                else:
+                                    # 向下取整到整数张数
+                                    max_contracts = int(max_contracts)
+
+                                # 计算实际使用的保证金
+                                actual_margin = (max_contracts * contract_size * current_price) / leverage
+
+                                logger.info(f"根据余额计算交易数量 - 可用余额: {available_balance:.4f} USDT, "
+                                          f"使用余额: {usable_balance:.4f} USDT, 杠杆: {leverage}x, "
+                                          f"最大可交易: {max_contracts} 张, 实际使用保证金: {actual_margin:.4f} USDT")
+
+                                amount = max_contracts
+
+                            except Exception as e:
+                                logger.error(f"根据余额计算交易数量失败: {e}，使用默认数量1张")
+                                amount = 1.0
+                        else:
+                            # 没有余额信息或不是买入信号，使用默认数量
+                            amount = signal.get('size', 1.0)  # 默认交易量1张
+
+                            # 验证最小交易量要求
+                            if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                                min_contracts = 1.0
+                                if amount < min_contracts:
+                                    logger.warning(f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张")
+                                    amount = min_contracts
 
                         trade_request = {
                             'symbol': signal.get('symbol', 'BTC/USDT:USDT'),

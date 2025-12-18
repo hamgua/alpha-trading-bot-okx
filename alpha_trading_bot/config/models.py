@@ -40,7 +40,7 @@ class TradingConfig:
     test_mode: bool = True
     max_position_size: float = 1.0  # 默认1张（满足OKX最小交易量要求）
     min_trade_amount: float = 1.0  # 最小交易量1张（满足OKX最小交易量要求）
-    leverage: int = 10
+    leverage: int = 10  # 10倍杠杆，符合用户要求
     cycle_minutes: int = 15
     margin_mode: str = 'cross'
     position_mode: str = 'one_way'
