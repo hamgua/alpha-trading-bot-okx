@@ -25,6 +25,8 @@ class TradeExecutorConfig(BaseConfig):
     add_position_ratio: float = 0.5  # 加仓比例（相对于初始仓位）
     tp_update_threshold_pct: float = 0.01  # 止盈更新阈值（价格变动百分比）
     tp_update_min_interval: int = 300  # 止盈更新最小间隔（秒，5分钟）
+    use_leverage: bool = True  # 是否使用杠杆（合约交易）
+    leverage: int = 10  # 杠杆倍数
 
 class TradeExecutor(BaseComponent):
     """交易执行器"""
@@ -140,8 +142,11 @@ class TradeExecutor(BaseComponent):
                         if not close_result.success:
                             return close_result
 
-                        # 记录平仓成功，但继续执行反向开仓
-                        logger.info("平仓完成，准备执行反向开仓")
+                        # 检查是否真的需要反向开仓
+                        if current_position.amount <= 0:
+                            logger.info(f"当前仓位数量为 {current_position.amount}，无需反向开仓，直接执行新开仓")
+                        else:
+                            logger.info("平仓完成，准备执行反向开仓")
                 else:
                     logger.info("当前无持仓，执行开仓操作")
 
@@ -149,14 +154,24 @@ class TradeExecutor(BaseComponent):
             try:
                 balance = await self.exchange_client.fetch_balance()
                 current_price = price or await self._get_current_price(symbol)
-                required_amount = amount * current_price
 
-                logger.info(f"余额检查 - 可用: {balance.free}, 需要: {required_amount}, 价格: {current_price}")
+                # 合约交易使用杠杆，计算所需保证金
+                if self.config.use_leverage:
+                    # 所需保证金 = 名义价值 / 杠杆倍数
+                    notional_value = amount * current_price
+                    required_margin = notional_value / self.config.leverage
+                    logger.info(f"合约交易 - 名义价值: {notional_value:.4f} USDT, 杠杆: {self.config.leverage}x, 所需保证金: {required_margin:.4f} USDT")
+                else:
+                    # 现货交易需要全额资金
+                    required_margin = amount * current_price
+                    logger.info(f"现货交易 - 所需资金: {required_margin:.4f} USDT")
 
-                if balance.free < required_amount:
+                logger.info(f"余额检查 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT")
+
+                if balance.free < required_margin:
                     return TradeResult(
                         success=False,
-                        error_message=f"余额不足 - 可用: {balance.free:.4f}, 需要: {required_amount:.4f}"
+                        error_message=f"余额不足 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT"
                     )
             except Exception as e:
                 logger.error(f"余额检查失败: {e}")
