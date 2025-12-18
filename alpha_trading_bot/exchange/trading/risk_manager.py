@@ -55,6 +55,7 @@ class RiskManager(BaseComponent):
         """评估交易风险（兼容策略管理器调用的接口）"""
         # 存储余额信息供后续使用
         self._current_balance = balance
+        logger.info(f"[风险管理器] 收到余额信息 - total: {balance.total if balance else 'None'}, free: {balance.free if balance else 'None'}")
         try:
             # 如果没有信号，返回默认允许交易
             if not signals:
@@ -154,6 +155,7 @@ class RiskManager(BaseComponent):
 
                         # 如果有余额信息，根据余额和杠杆计算最优交易数量
                         if self._current_balance and signal_type == 'BUY':  # 只允许做多
+                            logger.info(f"[风险管理器] 检测到买入信号和余额信息，开始动态计算交易数量")
                             try:
                                 # 获取合约大小
                                 contract_size = 0.01  # BTC/USDT:USDT默认合约大小
@@ -176,16 +178,17 @@ class RiskManager(BaseComponent):
                                 max_contracts = (usable_balance * leverage) / (contract_size * current_price)
 
                                 # 确保满足最小交易量要求
-                                min_contracts = 1.0  # OKX最小1张
+                                min_contracts = 0.01  # OKX最小0.01张（不是1张）
 
                                 if max_contracts < min_contracts:
                                     # 如果余额不足以交易最小数量，记录警告但仍使用最小数量
                                     logger.warning(f"余额不足以交易最小数量 - 计算得到: {max_contracts:.4f} 张，最小要求: {min_contracts} 张")
                                     logger.warning(f"将使用最小交易量 {min_contracts} 张，需要保证金: {(min_contracts * contract_size * current_price) / leverage:.4f} USDT")
+                                    logger.warning(f"实际BTC数量: {min_contracts * contract_size:.6f} BTC")
                                     max_contracts = min_contracts
                                 else:
-                                    # 向下取整到整数张数
-                                    max_contracts = int(max_contracts)
+                                    # 保留小数位数，不进行向下取整，让交易所处理精度
+                                    max_contracts = round(max_contracts, 4)  # 保留4位小数
 
                                 # 计算实际使用的保证金
                                 actual_margin = (max_contracts * contract_size * current_price) / leverage

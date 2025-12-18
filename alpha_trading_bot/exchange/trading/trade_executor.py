@@ -197,6 +197,11 @@ class TradeExecutor(BaseComponent):
                         )
 
                 logger.info(f"余额检查通过 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT")
+
+                # 添加余额不足的特殊处理提示
+                if balance.free < required_margin and balance.total >= required_margin:
+                    logger.warning("⚠️ 注意：虽然余额检查通过，但可用余额不足。系统仍会尝试提交订单，由交易所决定是否接受")
+                    logger.warning(f"建议：增加账户USDT余额至至少 {required_margin * 1.1:.2f} USDT 以确保正常交易")
             except Exception as e:
                 logger.error(f"余额检查失败: {e}")
                 return TradeResult(
