@@ -160,19 +160,35 @@ class TradeExecutor(BaseComponent):
                     # 所需保证金 = 名义价值 / 杠杆倍数
                     notional_value = amount * current_price
                     required_margin = notional_value / self.config.leverage
+
+                    # 对于合约交易，检查是否有足够的可用资金
+                    # 考虑到可能存在其他持仓占用的保证金
+                    available_for_trade = balance.free
+
                     logger.info(f"合约交易 - 名义价值: {notional_value:.4f} USDT, 杠杆: {self.config.leverage}x, 所需保证金: {required_margin:.4f} USDT")
+                    logger.info(f"账户余额 - 总余额: {balance.total:.4f} USDT, 已用: {balance.used:.4f} USDT, 可用: {balance.free:.4f} USDT")
+
+                    # 如果可用余额不足但总额足够，给出更友好的提示
+                    if available_for_trade < required_margin and balance.total >= required_margin:
+                        logger.warning(f"可用余额不足，但账户总额足够。建议检查是否有其他持仓占用保证金")
+                        # 仍然允许交易，由交易所决定是否接受
+                    elif balance.total < required_margin:
+                        return TradeResult(
+                            success=False,
+                            error_message=f"账户总余额不足 - 总余额: {balance.total:.4f} USDT, 需要保证金: {required_margin:.4f} USDT"
+                        )
                 else:
                     # 现货交易需要全额资金
                     required_margin = amount * current_price
                     logger.info(f"现货交易 - 所需资金: {required_margin:.4f} USDT")
 
-                logger.info(f"余额检查 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT")
+                    if balance.free < required_margin:
+                        return TradeResult(
+                            success=False,
+                            error_message=f"余额不足 - 可用: {balance.free:.4f} USDT, 需要: {required_margin:.4f} USDT"
+                        )
 
-                if balance.free < required_margin:
-                    return TradeResult(
-                        success=False,
-                        error_message=f"余额不足 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT"
-                    )
+                logger.info(f"余额检查通过 - 可用: {balance.free:.4f} USDT, 需要保证金: {required_margin:.4f} USDT")
             except Exception as e:
                 logger.error(f"余额检查失败: {e}")
                 return TradeResult(

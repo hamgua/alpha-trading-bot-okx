@@ -49,27 +49,40 @@ class PositionManager(BaseComponent):
 
             if positions and len(positions) > 0:
                 pos_data = positions[0]  # 取第一个仓位
-                # 简化日志 - 只显示关键信息，处理None值
+
+                # 检查是否真的没有仓位（合约数量为0或side为None）
+                contracts = pos_data.get('contracts', 0) or 0
+                side = pos_data.get('side')
+
+                if contracts == 0 or side is None:
+                    # 没有实际仓位，清理缓存
+                    if symbol in self.positions:
+                        closed_pos = self.positions.pop(symbol)
+                        self.closed_positions.append(closed_pos)
+                        self.total_pnl += closed_pos.realized_pnl
+                        logger.info(f"仓位已平仓: {symbol}")
+                    logger.info(f"检测到无持仓: {symbol}")
+                    return None
+
+                # 有实际仓位，处理仓位信息
                 entry_price = pos_data.get('entryPrice', 0) or 0
                 unrealized_pnl = pos_data.get('unrealizedPnl', 0) or 0
                 percentage = pos_data.get('percentage', 0) or 0
-                contracts = pos_data.get('contracts', 0) or 0
-                side = pos_data.get('side', 'unknown')
 
                 logger.info(f"检测到仓位: {symbol} {side} {contracts} 张, "
                            f"均价: ${entry_price:.2f}, 浮盈: ${unrealized_pnl:.4f} ({percentage:.2f}%)")
 
                 position = PositionInfo(
                     symbol=symbol,
-                    side=TradeSide.LONG if pos_data['side'] == 'long' else TradeSide.SHORT,
-                    amount=abs(pos_data['contracts']),
-                    entry_price=pos_data['entryPrice'],
-                    mark_price=pos_data['markPrice'],
-                    liquidation_price=pos_data['liquidationPrice'],
-                    unrealized_pnl=pos_data['unrealizedPnl'],
+                    side=TradeSide.LONG if side == 'long' else TradeSide.SHORT,
+                    amount=abs(contracts),
+                    entry_price=pos_data.get('entryPrice', 0),
+                    mark_price=pos_data.get('markPrice', 0),
+                    liquidation_price=pos_data.get('liquidationPrice', 0),
+                    unrealized_pnl=pos_data.get('unrealizedPnl', 0),
                     realized_pnl=pos_data.get('realizedPnl', 0),
-                    margin=pos_data['initialMargin'],
-                    leverage=pos_data['leverage']
+                    margin=pos_data.get('initialMargin', 0),
+                    leverage=pos_data.get('leverage', 0)
                 )
 
                 self.positions[symbol] = position
