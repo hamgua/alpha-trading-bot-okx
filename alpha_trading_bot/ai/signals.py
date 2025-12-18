@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..core.base import BaseComponent, BaseConfig
 from ..core.exceptions import AIProviderError
+from ..utils.crash_detector import detect_crash_events, CrashLevel
 
 logger = logging.getLogger(__name__)
 
@@ -175,40 +176,93 @@ class SignalGenerator(BaseComponent):
             return []
 
     async def _generate_sentiment_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """生成情绪分析信号"""
+        """生成情绪分析信号 - 使用改进的暴跌检测器"""
         try:
             signals = []
 
-            # 基于价格变化的简单情绪分析
-            current_price = market_data.get('price', 0)
-            open_price = market_data.get('open', current_price)
+            # 获取交易对符号
+            symbol = market_data.get('symbol', 'BTC/USDT')
 
-            if current_price > 0 and open_price > 0:
-                price_change = (current_price - open_price) / open_price
+            # 使用改进的暴跌检测器
+            crash_events = detect_crash_events(market_data, symbol)
 
-                # 强势上涨
-                if price_change > 0.03:
-                    signals.append({
-                        'type': 'buy',
-                        'confidence': 0.65,
-                        'reason': '市场情绪积极，价格上涨超过3%',
-                        'source': 'sentiment',
-                        'sentiment': 'bullish',
-                        'timestamp': datetime.now(),
-                        'priority': 3
-                    })
+            # 处理暴跌事件
+            if crash_events:
+                # 按严重程度排序
+                crash_events.sort(key=lambda x: x.level.value, reverse=True)
 
-                # 强势下跌
-                elif price_change < -0.03:
-                    signals.append({
-                        'type': 'sell',
-                        'confidence': 0.65,
-                        'reason': '市场情绪消极，价格下跌超过3%',
-                        'source': 'sentiment',
-                        'sentiment': 'bearish',
-                        'timestamp': datetime.now(),
-                        'priority': 3
-                    })
+                # 取最严重的暴跌事件生成信号
+                worst_crash = crash_events[0]
+
+                # 根据暴跌等级调整信号强度
+                if worst_crash.level in [CrashLevel.CRITICAL, CrashLevel.HIGH]:
+                    confidence = 0.8
+                    priority = 4
+                    reason = f"检测到严重暴跌: {worst_crash.reason}，建议立即减仓"
+                elif worst_crash.level == CrashLevel.MEDIUM:
+                    confidence = 0.7
+                    priority = 3
+                    reason = f"检测到中度暴跌: {worst_crash.reason}，考虑减仓"
+                else:
+                    confidence = 0.6
+                    priority = 2
+                    reason = f"检测到轻度暴跌: {worst_crash.reason}，保持谨慎"
+
+                signals.append({
+                    'type': 'sell',
+                    'confidence': confidence,
+                    'reason': reason,
+                    'source': 'crash_detection',
+                    'sentiment': 'bearish',
+                    'timestamp': datetime.now(),
+                    'priority': priority,
+                    'crash_details': {
+                        'level': worst_crash.level.value,
+                        'timeframe': worst_crash.timeframe,
+                        'price_change': worst_crash.price_change,
+                        'threshold': worst_crash.threshold
+                    }
+                })
+
+            else:
+                # 回退到原始的价格变化检测（作为补充）
+                current_price = market_data.get('price', 0)
+                open_price = market_data.get('open', current_price)
+
+                if current_price > 0 and open_price > 0:
+                    price_change = (current_price - open_price) / open_price
+
+                    # 强势上涨
+                    if price_change > 0.03:
+                        signals.append({
+                            'type': 'buy',
+                            'confidence': 0.65,
+                            'reason': '市场情绪积极，价格上涨超过3%',
+                            'source': 'sentiment',
+                            'sentiment': 'bullish',
+                            'timestamp': datetime.now(),
+                            'priority': 3
+                        })
+
+                    # 强势下跌（基于当日开盘价的补充检测）
+                    elif price_change < -0.03:
+                        signals.append({
+                            'type': 'sell',
+                            'confidence': 0.65,
+                            'reason': '市场情绪消极，当日价格下跌超过3%',
+                            'source': 'sentiment',
+                            'sentiment': 'bearish',
+                            'timestamp': datetime.now(),
+                            'priority': 3
+                        })
+
+            # 记录检测结果
+            if crash_events:
+                logger.info(f"暴跌检测完成: 发现 {len(crash_events)} 个暴跌事件")
+                for event in crash_events:
+                    logger.info(f"  - {event.timeframe}: {event.price_change*100:.2f}% ({event.level.value})")
+            else:
+                logger.debug("暴跌检测完成: 未发现暴跌事件")
 
             return signals
 
