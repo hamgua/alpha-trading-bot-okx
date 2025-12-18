@@ -285,6 +285,34 @@ class ExchangeClient:
             amount = order_request['amount']
             price = order_request.get('price')
 
+            # 验证最小交易量
+            if symbol in self.exchange.markets:
+                market = self.exchange.markets[symbol]
+                min_amount = market.get('limits', {}).get('amount', {}).get('min', 0)
+                amount_precision = market.get('precision', {}).get('amount', 0)
+
+                if min_amount and amount < min_amount:
+                    logger.error(f"订单数量 {amount} 小于交易所最小交易量 {min_amount} for {symbol}")
+                    return OrderResult(
+                        success=False,
+                        error_message=f"订单数量必须大于等于 {min_amount}"
+                    )
+
+                # 根据精度调整数量
+                if amount_precision and isinstance(amount_precision, int):
+                    amount = round(amount, amount_precision)
+                    logger.info(f"根据交易所精度调整订单数量至: {amount}")
+                elif amount_precision:
+                    # 处理精度为浮点数的情况
+                    try:
+                        # 确保精度是有效的数字
+                        precision_int = int(amount_precision)
+                        amount = round(amount, precision_int)
+                        logger.info(f"根据交易所精度调整订单数量至: {amount}")
+                    except (ValueError, TypeError):
+                        # 如果精度无效，保持原数量
+                        logger.warning(f"交易所精度格式无效: {amount_precision}，保持原数量: {amount}")
+
             params = {}
             if 'reduce_only' in order_request:
                 params['reduceOnly'] = order_request['reduce_only']
@@ -565,3 +593,12 @@ class ExchangeClient:
             logger.error(f"获取K线数据失败: {type(e).__name__}: {e}")
             # 其他异常返回空数据
             return []
+
+    async def close(self) -> None:
+        """关闭交易所连接"""
+        try:
+            if self.exchange:
+                await self.exchange.close()
+                logger.info("交易所连接已关闭")
+        except Exception as e:
+            logger.error(f"关闭交易所连接失败: {e}")
