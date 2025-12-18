@@ -49,6 +49,15 @@ class OrderManager(BaseComponent):
 
     async def create_market_order(self, symbol: str, side: TradeSide, amount: float, reduce_only: bool = False) -> OrderResult:
         """创建市价单"""
+        # 验证订单数量
+        if amount <= 0:
+            error_msg = f"订单数量 {amount} 无效，必须大于 0"
+            logger.error(error_msg)
+            return OrderResult(
+                success=False,
+                error_message=error_msg
+            )
+
         order_request = {
             'symbol': symbol,
             'type': 'market',
@@ -70,6 +79,15 @@ class OrderManager(BaseComponent):
 
     async def create_limit_order(self, symbol: str, side: TradeSide, amount: float, price: float, reduce_only: bool = False) -> OrderResult:
         """创建限价单"""
+        # 验证订单数量
+        if amount <= 0:
+            error_msg = f"订单数量 {amount} 无效，必须大于 0"
+            logger.error(error_msg)
+            return OrderResult(
+                success=False,
+                error_message=error_msg
+            )
+
         if not self.config.enable_limit_orders:
             # 如果禁用限价单，转为市价单
             logger.info("限价单已禁用，转为市价单")

@@ -285,6 +285,14 @@ class TradeExecutor(BaseComponent):
                     error_message="无持仓可平"
                 )
 
+            # 检查仓位数量，如果为0则不需要平仓
+            if current_position.amount <= 0:
+                logger.warning(f"仓位数量为 {current_position.amount}，无需平仓: {symbol}")
+                return TradeResult(
+                    success=True,
+                    error_message=f"仓位数量为 {current_position.amount}，无需平仓"
+                )
+
             logger.info(f"正在平仓: {symbol} {current_position.side.value} {current_position.amount}")
 
             # 创建反向订单以平仓
