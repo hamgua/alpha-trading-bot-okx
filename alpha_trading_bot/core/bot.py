@@ -612,6 +612,15 @@ class TradingBot(BaseComponent):
                                 try:
                                     # 检查是否需要创建缺失的止盈止损订单
                                     await self.trading_engine.trade_executor.check_and_create_missing_tp_sl(symbol, position)
+
+                                    # 同时更新现有止盈止损订单（实现追踪止损）
+                                    self.enhanced_logger.logger.info(f"🔍 检查是否需要更新 {symbol} 的追踪止损...")
+                                    if self.trading_engine.trade_executor.config.enable_tp_sl:
+                                        await self.trading_engine.trade_executor._check_and_update_tp_sl(
+                                            symbol,
+                                            position.side,
+                                            position
+                                        )
                                 except Exception as e:
                                     self.enhanced_logger.logger.error(f"为 {symbol} 检查止盈止损订单失败: {e}")
                     else:
@@ -633,8 +642,17 @@ class TradingBot(BaseComponent):
                                 try:
                                     # 检查并创建缺失的止盈止损订单
                                     await self.trading_engine.trade_executor.check_and_create_missing_tp_sl(symbol, position)
+
+                                    # 同时更新现有止盈止损订单（实现追踪止损）
+                                    self.enhanced_logger.logger.info(f"🔍 检查是否需要更新 {symbol} 的追踪止损...")
+                                    if self.trading_engine.trade_executor.config.enable_tp_sl:
+                                        await self.trading_engine.trade_executor._check_and_update_tp_sl(
+                                            symbol,
+                                            position.side,
+                                            position
+                                        )
                                 except Exception as e:
-                                    self.enhanced_logger.logger.error(f"为 {symbol} 创建止盈止损订单失败: {e}")
+                                    self.enhanced_logger.logger.error(f"为 {symbol} 处理止盈止损订单失败: {e}")
                     else:
                         self.enhanced_logger.logger.info("当前没有持仓，无需检查止盈止损订单")
             else:
