@@ -243,10 +243,21 @@ class TradingEngine(BaseComponent):
                 closes = []
                 volumes = []
 
-                # 获取15分钟K线（主时间框架）- 使用增强的错误处理
+                # 并行获取多时间框架K线数据 - 优化性能
                 try:
-                    ohlcv_15m = await self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100)
-                    if ohlcv_15m and len(ohlcv_15m) >= 50:
+                    # 创建并发任务
+                    tasks = [
+                        self.exchange_client.fetch_ohlcv(symbol, timeframe='15m', limit=100),  # 主时间框架
+                        self.exchange_client.fetch_ohlcv(symbol, timeframe='1h', limit=50),    # 次要时间框架
+                        self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30)     # 长期时间框架
+                    ]
+
+                    # 并行执行所有任务
+                    ohlcv_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                    # 处理15分钟K线（主时间框架）
+                    ohlcv_15m = ohlcv_results[0]
+                    if not isinstance(ohlcv_15m, Exception) and ohlcv_15m and len(ohlcv_15m) >= 50:
                         ohlcv_data = ohlcv_15m
                         timestamps = [candle[0] for candle in ohlcv_15m]
                         opens = [candle[1] for candle in ohlcv_15m]
@@ -257,31 +268,29 @@ class TradingEngine(BaseComponent):
                         multi_timeframe_data['15m'] = ohlcv_15m
                         logger.info(f"成功获取15分钟K线数据: {len(ohlcv_15m)} 根")
                     else:
-                        logger.warning(f"15分钟K线数据不足: {len(ohlcv_15m) if ohlcv_15m else 0} 根")
-                except Exception as e:
-                    logger.warning(f"获取15分钟K线数据失败: {type(e).__name__}: {e}")
+                        error_msg = str(ohlcv_15m) if isinstance(ohlcv_15m, Exception) else "数据不足"
+                        logger.warning(f"15分钟K线数据获取失败: {error_msg}")
 
-                # 获取1小时K线（次要时间框架）- 即使失败也不影响主逻辑
-                try:
-                    ohlcv_1h = await self.exchange_client.fetch_ohlcv(symbol, timeframe='1h', limit=50)
-                    if ohlcv_1h and len(ohlcv_1h) >= 20:
+                    # 处理1小时K线
+                    ohlcv_1h = ohlcv_results[1]
+                    if not isinstance(ohlcv_1h, Exception) and ohlcv_1h and len(ohlcv_1h) >= 20:
                         multi_timeframe_data['1h'] = ohlcv_1h
                         logger.info(f"成功获取1小时K线数据: {len(ohlcv_1h)} 根")
                     else:
-                        logger.debug(f"1小时K线数据不足: {len(ohlcv_1h) if ohlcv_1h else 0} 根")
-                except Exception as e:
-                    logger.debug(f"获取1小时K线数据失败: {type(e).__name__}: {e}")
+                        error_msg = str(ohlcv_1h) if isinstance(ohlcv_1h, Exception) else "数据不足"
+                        logger.debug(f"1小时K线数据获取失败: {error_msg}")
 
-                # 获取4小时K线（长期时间框架）- 可选
-                try:
-                    ohlcv_4h = await self.exchange_client.fetch_ohlcv(symbol, timeframe='4h', limit=30)
-                    if ohlcv_4h and len(ohlcv_4h) >= 15:
+                    # 处理4小时K线
+                    ohlcv_4h = ohlcv_results[2]
+                    if not isinstance(ohlcv_4h, Exception) and ohlcv_4h and len(ohlcv_4h) >= 15:
                         multi_timeframe_data['4h'] = ohlcv_4h
                         logger.info(f"成功获取4小时K线数据: {len(ohlcv_4h)} 根")
                     else:
-                        logger.debug(f"4小时K线数据不足: {len(ohlcv_4h) if ohlcv_4h else 0} 根")
+                        error_msg = str(ohlcv_4h) if isinstance(ohlcv_4h, Exception) else "数据不足"
+                        logger.debug(f"4小时K线数据获取失败: {error_msg}")
+
                 except Exception as e:
-                    logger.debug(f"获取4小时K线数据失败: {type(e).__name__}: {e}")
+                    logger.warning(f"并行获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")
 
             except Exception as e:
                 logger.warning(f"获取OHLCV数据失败: {type(e).__name__}: {e}，将使用基础数据")
@@ -387,6 +396,9 @@ class TradingEngine(BaseComponent):
                 'period': '15m',
                 'change_percent': ((closes[-1] - closes[-2]) / closes[-2] * 100) if len(closes) >= 2 else 0,
                 'last_kline_time': datetime.fromtimestamp(timestamps[-1]/1000).isoformat() if timestamps else '',
+                # 技术指标数据
+                'atr': atr_value,  # ATR绝对值
+                'atr_percentage': atr_percentage,  # ATR百分比
                 # 多时间框架数据
                 'multi_timeframe': multi_timeframe_data
             }

@@ -172,19 +172,30 @@ class RiskManager(BaseComponent):
                                 # 保留5%的余额作为缓冲，防止价格波动导致爆仓
                                 usable_balance = available_balance * 0.95
 
+                                # 提前计算最小交易所需的保证金
+                                min_contracts = 0.01  # OKX最小0.01张（不是1张）
+                                min_required_margin = (min_contracts * contract_size * current_price) / leverage
+
+                                # 检查余额是否足够最小交易
+                                if usable_balance < min_required_margin:
+                                    logger.warning(f"可用余额不足最小交易要求")
+                                    logger.warning(f"  当前可用余额: {usable_balance:.4f} USDT")
+                                    logger.warning(f"  最小交易需要: {min_required_margin:.4f} USDT")
+                                    logger.warning(f"  缺少: {min_required_margin - usable_balance:.4f} USDT")
+                                    logger.warning(f"  建议: 增加账户余额或减少杠杆倍数")
+
                                 # 计算可交易的最大张数
                                 # 保证金 = 数量 × 合约大小 × 价格 ÷ 杠杆
                                 # 所以 数量 = 保证金 × 杠杆 ÷ (合约大小 × 价格)
                                 max_contracts = (usable_balance * leverage) / (contract_size * current_price)
 
-                                # 确保满足最小交易量要求
-                                min_contracts = 0.01  # OKX最小0.01张（不是1张）
-
                                 if max_contracts < min_contracts:
-                                    # 如果余额不足以交易最小数量，记录警告但仍使用最小数量
-                                    logger.warning(f"余额不足以交易最小数量 - 计算得到: {max_contracts:.4f} 张，最小要求: {min_contracts} 张")
-                                    logger.warning(f"将使用最小交易量 {min_contracts} 张，需要保证金: {(min_contracts * contract_size * current_price) / leverage:.4f} USDT")
-                                    logger.warning(f"实际BTC数量: {min_contracts * contract_size:.6f} BTC")
+                                    # 如果计算的数量小于最小交易量，使用最小交易量
+                                    logger.warning(f"计算的交易数量小于最小交易量要求")
+                                    logger.warning(f"  计算得到: {max_contracts:.4f} 张")
+                                    logger.warning(f"  最小要求: {min_contracts} 张")
+                                    logger.warning(f"  将使用最小交易量: {min_contracts} 张")
+                                    logger.warning(f"  实际需要保证金: {min_required_margin:.4f} USDT")
                                     max_contracts = min_contracts
                                 else:
                                     # 保留小数位数，不进行向下取整，让交易所处理精度

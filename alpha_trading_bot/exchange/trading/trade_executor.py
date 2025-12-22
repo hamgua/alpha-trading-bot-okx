@@ -27,6 +27,7 @@ class TradeExecutorConfig(BaseConfig):
     tp_update_min_interval: int = 300  # 止盈更新最小间隔（秒，5分钟）
     use_leverage: bool = True  # 是否使用杠杆（合约交易）
     leverage: int = 10  # 杠杆倍数（用户要求10倍）
+    allow_short_selling: bool = False  # 是否允许做空
 
 class TradeExecutor(BaseComponent):
     """交易执行器"""

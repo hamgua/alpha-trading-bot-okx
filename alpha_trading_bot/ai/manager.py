@@ -375,12 +375,30 @@ class AIManager(BaseComponent):
             }
 
     def _generate_cache_key(self, market_data: Dict[str, Any]) -> str:
-        """生成缓存键"""
-        # 基于市场数据生成唯一键
+        """生成缓存键 - 基于价格区间而非精确值，提高缓存命中率"""
+        # 获取关键数据
         price = market_data.get('price', 0)
         volume = market_data.get('volume', 0)
-        timestamp = market_data.get('timestamp', datetime.now())
-        return f"ai_signal_{price}_{volume}_{timestamp}"
+
+        # 将价格四舍五入到最近的100美元，减少缓存键数量
+        price_bucket = round(float(price) / 100) * 100 if price > 0 else 0
+
+        # 将成交量四舍五入到最近的合理单位
+        if volume > 1000000:
+            volume_bucket = round(volume / 100000) * 100000
+        elif volume > 100000:
+            volume_bucket = round(volume / 10000) * 10000
+        else:
+            volume_bucket = round(volume / 1000) * 1000
+
+        # 当前时间的小时（不是精确时间），允许1小时内的缓存复用
+        current_hour = datetime.now().hour
+
+        # 生成缓存键
+        cache_key = f"ai_signal_{price_bucket}_{volume_bucket}_{current_hour}"
+
+        logger.debug(f"生成缓存键: {cache_key} (价格桶: {price_bucket}, 成交量桶: {volume_bucket}, 小时: {current_hour})")
+        return cache_key
 
     def get_provider_status(self) -> Dict[str, Any]:
         """获取提供商状态"""

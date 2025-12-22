@@ -49,16 +49,26 @@ class HealthCheck:
                         'price': price
                     }
 
-                    # 根据不同的ATR百分比进行评估
-                    if atr_percentage < 0.2:  # 小于0.2%认为过低
-                        health_score -= 30
-                        issues.append(f"ATR过低({atr_percentage:.2f}% < 0.2%)")
-                    elif atr_percentage < 0.5:  # 小于0.5%认为偏低
+                    # 根据不同的ATR百分比进行评估 - 针对BTC等加密货币调整阈值
+                    if atr_percentage < 0.1:  # 小于0.1%认为过低（BTC在平静期常见）
+                        health_score -= 25
+                        issues.append(f"ATR过低({atr_percentage:.2f}% < 0.1%)")
+                    elif atr_percentage < 0.2:  # 小于0.2%认为偏低
                         health_score -= 15
-                        issues.append(f"ATR偏低({atr_percentage:.2f}% < 0.5%)")
+                        issues.append(f"ATR偏低({atr_percentage:.2f}% < 0.2%)")
+                    elif atr_percentage > 2.0:  # 大于2%认为波动过大
+                        health_score -= 10
+                        issues.append(f"ATR过高({atr_percentage:.2f}% > 2.0%)")
 
                     # 添加详细ATR信息
-                    atr_info['assessment'] = '过低' if atr_percentage < 0.2 else '偏低' if atr_percentage < 0.5 else '正常'
+                    if atr_percentage < 0.1:
+                        atr_info['assessment'] = '极低'
+                    elif atr_percentage < 0.2:
+                        atr_info['assessment'] = '偏低'
+                    elif atr_percentage > 2.0:
+                        atr_info['assessment'] = '过高'
+                    else:
+                        atr_info['assessment'] = '正常'
                 else:
                     health_score -= 20
                     issues.append("无法计算ATR百分比(价格无效)")
