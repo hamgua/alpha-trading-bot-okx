@@ -69,6 +69,8 @@ class ConfigManager:
             min_trade_amount=float(os.getenv('MIN_TRADE_AMOUNT', '0.0005')),
             leverage=int(os.getenv('LEVERAGE', '10')),
             cycle_minutes=int(os.getenv('CYCLE_MINUTES', '15')),
+            random_offset_enabled=os.getenv('RANDOM_OFFSET_ENABLED', 'true').lower() == 'true',
+            random_offset_range=int(os.getenv('RANDOM_OFFSET_RANGE', '180')),
             margin_mode='cross',
             position_mode='one_way',
             allow_short_selling=os.getenv('ALLOW_SHORT_SELLING', 'false').lower() == 'true'

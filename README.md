@@ -228,6 +228,8 @@ alpha_trading_bot/
 - `MIN_TRADE_AMOUNT`: 最小交易量（默认0.01张，符合OKX要求）
 - `LEVERAGE`: 杠杆倍数（默认10倍）
 - `CYCLE_MINUTES`: 交易周期（默认15分钟）
+- `RANDOM_OFFSET_ENABLED`: 是否启用随机时间偏移（默认true，用于规避风控检测）
+- `RANDOM_OFFSET_RANGE`: 随机偏移范围（默认180秒=±3分钟）
 - `MARGIN_MODE`: 保证金模式（cross全仓/isolated逐仓）
 - `POSITION_MODE`: 持仓模式（one_way单向/hedge双向）
 - `ALLOW_SHORT_SELLING`: 是否允许做空（默认false，只做多）

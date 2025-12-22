@@ -4,8 +4,9 @@
 
 import asyncio
 import logging
+import random
 from typing import Dict, Any, Optional, List
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass
 
 from .base import BaseComponent, BaseConfig
@@ -22,6 +23,7 @@ class BotConfig(BaseConfig):
     leverage: int = 10
     test_mode: bool = True
     cycle_interval: int = 15  # 分钟（从配置文件中读取，默认15分钟）
+    random_offset_enabled: bool = True  # 是否启用随机时间偏移
     random_offset_range: int = 180  # 随机偏移范围（秒），默认±3分钟
 
 class TradingBot(BaseComponent):
@@ -687,8 +689,6 @@ class TradingBot(BaseComponent):
             execution_time = time.time() - start_time
 
             # 计算下次执行时间（下一个周期整点 + 随机偏移）
-            from datetime import datetime, timedelta
-            import random
             now = datetime.now()
 
             # 从配置读取周期（默认15分钟）
@@ -705,10 +705,16 @@ class TradingBot(BaseComponent):
             # 基础执行时间（周期整点）
             base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
 
-            # 添加随机时间偏移（使用配置的偏移范围）
-            offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
-            random_offset = random.randint(-offset_range, offset_range)
-            next_execution_time = base_execution_time + timedelta(seconds=random_offset)
+            # 根据配置决定是否添加随机时间偏移
+            if self.config.random_offset_enabled:
+                # 添加随机时间偏移（使用配置的偏移范围）
+                offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
+                random_offset = random.randint(-offset_range, offset_range)
+                next_execution_time = base_execution_time + timedelta(seconds=random_offset)
+            else:
+                # 不启用随机偏移，直接使用基准时间
+                random_offset = 0
+                next_execution_time = base_execution_time
 
             # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
             if next_execution_time <= now:
@@ -716,8 +722,11 @@ class TradingBot(BaseComponent):
                 self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
 
             # 记录随机偏移信息
-            offset_minutes = random_offset / 60
-            self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
+            if self.config.random_offset_enabled:
+                offset_minutes = random_offset / 60
+                self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
+            else:
+                self.enhanced_logger.logger.info(f"⏰ 下次执行时间: {next_execution_time.strftime('%Y-%m-%d %H:%M:%S')} (无随机偏移，周期: {cycle_minutes}分钟)")
 
             # 计算等待时间
             wait_seconds = (next_execution_time - now).total_seconds()

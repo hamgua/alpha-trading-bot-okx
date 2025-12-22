@@ -30,7 +30,9 @@ async def run_bot(args):
             'max_position_size': args.max_position_size,
             'leverage': args.leverage,
             'test_mode': not args.real_trading,
-            'cycle_interval': args.cycle_interval
+            'cycle_interval': args.cycle_interval,
+            'random_offset_enabled': args.random_offset_enabled,
+            'random_offset_range': args.random_offset_range
         }
 
         bot = await create_bot(
@@ -73,6 +75,12 @@ def main():
 
   # 自定义参数
   python -m alpha_trading_bot run --bot-id my-bot --max-position-size 0.02 --leverage 5
+
+  # 自定义交易周期和随机偏移（规避风控检测）
+  python -m alpha_trading_bot run --bot-id my-bot --cycle-interval 15 --random-offset-range 300
+
+  # 禁用随机偏移（固定周期执行）
+  python -m alpha_trading_bot run --bot-id my-bot --no-random-offset
         """
     )
 
@@ -88,6 +96,12 @@ def main():
                            help='杠杆倍数 (默认: 10)')
     run_parser.add_argument('--cycle-interval', type=int, default=15,
                            help='交易周期（分钟）(默认: 15)')
+    run_parser.add_argument('--random-offset-enabled', action='store_true', default=True,
+                           help='启用随机时间偏移（默认: 开启）')
+    run_parser.add_argument('--no-random-offset', dest='random_offset_enabled', action='store_false',
+                           help='禁用随机时间偏移')
+    run_parser.add_argument('--random-offset-range', type=int, default=180,
+                           help='随机偏移范围（秒，默认: ±180秒=±3分钟）')
     run_parser.add_argument('--real-trading', action='store_true',
                            help='启用真实交易（默认: 测试模式）')
     run_parser.add_argument('--log-level', default='INFO',

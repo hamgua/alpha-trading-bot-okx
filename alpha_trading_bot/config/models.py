@@ -42,6 +42,8 @@ class TradingConfig:
     min_trade_amount: float = 0.01  # 最小交易量0.01张（符合OKX实际要求）
     leverage: int = 10  # 10倍杠杆，符合用户要求
     cycle_minutes: int = 15
+    random_offset_enabled: bool = True  # 是否启用随机时间偏移
+    random_offset_range: int = 180  # 随机偏移范围（秒），默认±3分钟
     margin_mode: str = 'cross'
     position_mode: str = 'one_way'
     allow_short_selling: bool = False

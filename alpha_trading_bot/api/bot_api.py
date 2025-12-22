@@ -44,7 +44,9 @@ async def create_bot(
         max_position_size=config.get('max_position_size', 0.01) if config else 0.01,
         leverage=config.get('leverage', 10) if config else 10,
         test_mode=config.get('test_mode', True) if config else True,
-        cycle_interval=config.get('cycle_interval', 15) if config else 15
+        cycle_interval=config.get('cycle_interval', config_manager.trading.cycle_minutes) if config else config_manager.trading.cycle_minutes,
+        random_offset_enabled=config.get('random_offset_enabled', config_manager.trading.random_offset_enabled) if config else config_manager.trading.random_offset_enabled,
+        random_offset_range=config.get('random_offset_range', config_manager.trading.random_offset_range) if config else config_manager.trading.random_offset_range
     )
 
     # 创建机器人
