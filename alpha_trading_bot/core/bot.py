@@ -664,8 +664,9 @@ class TradingBot(BaseComponent):
             # 记录周期完成信息
             execution_time = time.time() - start_time
 
-            # 计算下次执行时间（下一个15分钟整点）
+            # 计算下次执行时间（下一个15分钟整点 + 随机偏移）
             from datetime import datetime, timedelta
+            import random
             now = datetime.now()
             next_minute = ((now.minute // 15) + 1) * 15
             if next_minute >= 60:
@@ -676,7 +677,21 @@ class TradingBot(BaseComponent):
             else:
                 next_hour = now.hour
 
-            next_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+            # 基础执行时间（15分钟整点）
+            base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
+
+            # 添加随机时间偏移（-3到+3分钟），让执行时间不那么规律
+            random_offset = random.randint(-180, 180)  # -180到180秒（-3到+3分钟）
+            next_execution_time = base_execution_time + timedelta(seconds=random_offset)
+
+            # 确保不会在过去时间执行（如果随机偏移为负数且绝对值很大）
+            if next_execution_time <= now:
+                next_execution_time = base_execution_time
+                self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
+
+            # 记录随机偏移信息
+            offset_minutes = random_offset / 60
+            self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±3分钟)")
 
             # 计算等待时间
             wait_seconds = (next_execution_time - now).total_seconds()
