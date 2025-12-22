@@ -268,7 +268,7 @@ class TradingBot(BaseComponent):
                 # 记录周期和随机偏移信息
                 offset_minutes = random_offset / 60
                 offset_range_minutes = offset_range / 60
-                self.enhanced_logger.logger.info(f"⏰ 下次执行周期: {cycle_minutes}分钟 + 随机偏移: {offset_minutes:+.1f} 分钟 (范围: ±{offset_range_minutes}分钟)")
+                self.enhanced_logger.logger.info(f"⏰ 等待执行 - 周期: {cycle_minutes}分钟，随机偏移: {offset_minutes:+.1f} 分钟 (范围: ±{offset_range_minutes}分钟)")
 
                 # 计算等待时间
                 wait_seconds = (next_execution_time - now).total_seconds()
@@ -276,7 +276,11 @@ class TradingBot(BaseComponent):
                     wait_seconds += 86400
 
                 # 记录等待信息
-                self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒到下一个15分钟整点执行...")
+                wait_minutes = wait_seconds / 60
+                if self.config.random_offset_enabled:
+                    self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒 ({wait_minutes:.1f} 分钟) 到下一个周期执行...")
+                else:
+                    self.enhanced_logger.logger.info(f"⏰ 等待 {wait_seconds:.0f} 秒 ({wait_minutes:.1f} 分钟) 到下一个{cycle_minutes}分钟整点执行...")
 
                 # 等待到下一个整点
                 await asyncio.sleep(wait_seconds)
@@ -721,10 +725,10 @@ class TradingBot(BaseComponent):
                 next_execution_time = base_execution_time
                 self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为基准时间")
 
-            # 记录随机偏移信息
+            # 记录随机偏移信息（周期完成后）
             if self.config.random_offset_enabled:
                 offset_minutes = random_offset / 60
-                self.enhanced_logger.logger.info(f"⏰ 下次执行时间偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
+                self.enhanced_logger.logger.info(f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
             else:
                 self.enhanced_logger.logger.info(f"⏰ 下次执行时间: {next_execution_time.strftime('%Y-%m-%d %H:%M:%S')} (无随机偏移，周期: {cycle_minutes}分钟)")
 
