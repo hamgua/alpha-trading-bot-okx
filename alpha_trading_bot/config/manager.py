@@ -108,9 +108,10 @@ class ConfigManager:
         enable_profit_lock = os.getenv('ENABLE_PROFIT_LOCK', 'true').lower() == 'true'
         profit_lock_threshold = float(os.getenv('PROFIT_LOCK_THRESHOLD', '0.05'))
 
-        # 解析多级止盈级别和比例
-        profit_taking_levels_str = os.getenv('PROFIT_TAKING_LEVELS', '3,6,10')
-        profit_taking_ratios_str = os.getenv('PROFIT_TAKING_RATIOS', '0.3,0.3,0.4')
+        # 根据投资类型获取对应的多级止盈配置
+        investment_type_prefix = investment_type.upper()
+        profit_taking_levels_str = os.getenv(f'{investment_type_prefix}_PROFIT_TAKING_LEVELS', '3,6,10')
+        profit_taking_ratios_str = os.getenv(f'{investment_type_prefix}_PROFIT_TAKING_RATIOS', '0.3,0.3,0.4')
 
         try:
             profit_taking_levels = [float(x.strip()) / 100 for x in profit_taking_levels_str.split(',')]
@@ -119,11 +120,33 @@ class ConfigManager:
             # 验证比例总和为1.0
             if abs(sum(profit_taking_ratios) - 1.0) > 0.001:
                 logger.warning(f"多级止盈比例总和不为1.0，当前总和: {sum(profit_taking_ratios)}")
-                profit_taking_ratios = [0.3, 0.3, 0.4]  # 使用默认值
+                # 根据投资类型使用默认比例
+                if investment_type == 'conservative':
+                    profit_taking_ratios = [0.4, 0.3, 0.3]  # 保守型：前期多平仓
+                elif investment_type == 'aggressive':
+                    profit_taking_ratios = [0.2, 0.3, 0.5]  # 激进型：后期多平仓
+                else:
+                    profit_taking_ratios = [0.3, 0.3, 0.4]  # 中等型：平衡配置
         except ValueError:
-            logger.warning(f"解析多级止盈配置失败，使用默认值")
-            profit_taking_levels = [0.03, 0.06, 0.10]  # 3%, 6%, 10%
-            profit_taking_ratios = [0.3, 0.3, 0.4]     # 30%, 30%, 40%
+            logger.warning(f"解析多级止盈配置失败，使用{investment_type}默认值")
+            if investment_type == 'conservative':
+                profit_taking_levels = [0.03, 0.05, 0.08]  # 3%, 5%, 8%
+                profit_taking_ratios = [0.4, 0.3, 0.3]     # 40%, 30%, 30%
+            elif investment_type == 'aggressive':
+                profit_taking_levels = [0.05, 0.10, 0.15]  # 5%, 10%, 15%
+                profit_taking_ratios = [0.2, 0.3, 0.5]     # 20%, 30%, 50%
+            else:  # moderate
+                profit_taking_levels = [0.03, 0.06, 0.10]  # 3%, 6%, 10%
+                profit_taking_ratios = [0.3, 0.3, 0.4]     # 30%, 30%, 40%
+
+        # 记录多级止盈配置信息
+        if profit_taking_strategy == 'multi_level':
+            config_info = []
+            for i, (level, ratio) in enumerate(zip(profit_taking_levels, profit_taking_ratios)):
+                profit_pct = f"{level*100:.0f}%"
+                ratio_pct = f"{ratio*100:.0f}%"
+                config_info.append(f"级别{i+1}: {profit_pct}止盈, 平仓{ratio_pct}")
+            logger.info(f"多级止盈配置 ({investment_type}): {' | '.join(config_info)}")
 
         return StrategyConfig(
             investment_type=investment_type,
