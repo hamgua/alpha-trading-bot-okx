@@ -461,28 +461,42 @@ class TradeExecutor(BaseComponent):
 
             logger.info(f"多级止盈检查: 配置 {len(multi_level_tps)} 个级别，现有 {len(existing_orders)} 个订单")
 
-            # 获取已存在的止盈订单价格
-            existing_tp_prices = set()
+            # 确保tp_orders_info已初始化
+            if not current_position.tp_orders_info:
+                current_position.tp_orders_info = {}
+
+            # 获取已存在的止盈订单价格和总数量（按价格分组）
+            existing_tp_orders = {}  # {price: total_amount}
             for order in existing_orders:
                 if ((current_position.side == TradeSide.LONG and order.price > current_price) or
                     (current_position.side == TradeSide.SHORT and order.price < current_price)):
-                    existing_tp_prices.add(round(order.price, 2))
+                    price_key = round(order.price, 2)
+                    if price_key not in existing_tp_orders:
+                        existing_tp_orders[price_key] = 0
+                    existing_tp_orders[price_key] += getattr(order, 'amount', 0) or 0
 
-            logger.info(f"已存在的止盈订单价格: {existing_tp_prices}")
+            logger.info(f"已存在的止盈订单（按价格汇总）: {existing_tp_orders}")
 
             # 检查每个止盈级别
             created_count = 0
             for tp_level in multi_level_tps:
                 tp_price = round(tp_level['price'], 2)
+                expected_amount = current_position.amount * tp_level['ratio']
+                expected_amount = round(expected_amount, 2)
+                existing_amount = existing_tp_orders.get(tp_price, 0)
 
-                # 检查是否已存在此价格的止盈订单
-                if tp_price in existing_tp_prices:
-                    logger.info(f"第{tp_level['level']}级止盈订单已存在，价格: ${tp_price:.2f}")
+                # 检查是否已存在足够数量的止盈订单
+                if existing_amount >= expected_amount:
+                    logger.info(f"第{tp_level['level']}级止盈订单已存在且数量足够，价格: ${tp_price:.2f}, 数量: {existing_amount}/{expected_amount}")
                     continue
-
-                # 计算此级别的数量
-                tp_amount = current_position.amount * tp_level['ratio']
-                tp_amount = round(tp_amount, 2)
+                elif existing_amount > 0:
+                    logger.info(f"第{tp_level['level']}级止盈订单存在但数量不足，价格: ${tp_price:.2f}, 现有: {existing_amount}, 需要: {expected_amount}")
+                    # 计算需要补充的数量
+                    needed_amount = expected_amount - existing_amount
+                    tp_amount = needed_amount
+                else:
+                    logger.info(f"第{tp_level['level']}级止盈订单不存在，需要创建: {expected_amount} 张")
+                    tp_amount = expected_amount
 
                 # 确定订单方向
                 tp_side = TradeSide.SELL if current_position.side == TradeSide.LONG else TradeSide.BUY
@@ -873,9 +887,10 @@ class TradeExecutor(BaseComponent):
                 logger.info("多级止盈策略：固定价格，不随价格变动更新")
                 tp_needs_update = False
                 sl_needs_update = False  # 多级策略下不更新止损
-                # 检查是否缺少任何级别的订单
-                if len(current_position.tp_orders_info) < len(is_multi_level):
-                    logger.info(f"多级止盈缺失订单：已存在 {len(current_position.tp_orders_info)} 个，需要 {len(is_multi_level)} 个")
+
+                # 只在首次或确实缺失订单时补充创建
+                if not current_position.tp_orders_info or len(current_position.tp_orders_info) < len(is_multi_level):
+                    logger.info(f"多级止盈缺失订单：已存在 {len(current_position.tp_orders_info) if current_position.tp_orders_info else 0} 个，需要 {len(is_multi_level)} 个")
                     # 调用补充创建逻辑
                     await self._check_and_create_multi_level_tp_sl(symbol, current_position, existing_orders)
             else:
