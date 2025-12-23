@@ -247,7 +247,7 @@ class TradingBot(BaseComponent):
                 next_minute = ((current_minute // cycle_minutes) + 1) * cycle_minutes
                 if next_minute >= 60:
                     next_minute = next_minute % 60
-                    next_hour = now.hour + (next_minute // 60)
+                    next_hour = now.hour + 1  # 小时增加1
                     if next_hour >= 24:
                         next_hour = next_hour % 24
                 else:
@@ -707,7 +707,7 @@ class TradingBot(BaseComponent):
             next_minute = ((now.minute // cycle_minutes) + 1) * cycle_minutes
             if next_minute >= 60:
                 next_minute = next_minute % 60
-                next_hour = now.hour + (next_minute // 60) + 1
+                next_hour = now.hour + 1  # 小时增加1
                 if next_hour >= 24:
                     next_hour = next_hour % 24
             else:
