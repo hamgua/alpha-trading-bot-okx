@@ -103,6 +103,28 @@ class ConfigManager:
         logger.info(f"策略配置: 投资类型={investment_type} - {description}")
         logger.info(f"自动设置止盈止损: 止盈={take_profit_percent*100:.0f}%, 止损={stop_loss_percent*100:.0f}%")
 
+        # 加载多级止盈配置
+        profit_taking_strategy = os.getenv('PROFIT_TAKING_STRATEGY', 'single_level')
+        enable_profit_lock = os.getenv('ENABLE_PROFIT_LOCK', 'true').lower() == 'true'
+        profit_lock_threshold = float(os.getenv('PROFIT_LOCK_THRESHOLD', '0.05'))
+
+        # 解析多级止盈级别和比例
+        profit_taking_levels_str = os.getenv('PROFIT_TAKING_LEVELS', '3,6,10')
+        profit_taking_ratios_str = os.getenv('PROFIT_TAKING_RATIOS', '0.3,0.3,0.4')
+
+        try:
+            profit_taking_levels = [float(x.strip()) / 100 for x in profit_taking_levels_str.split(',')]
+            profit_taking_ratios = [float(x.strip()) for x in profit_taking_ratios_str.split(',')]
+
+            # 验证比例总和为1.0
+            if abs(sum(profit_taking_ratios) - 1.0) > 0.001:
+                logger.warning(f"多级止盈比例总和不为1.0，当前总和: {sum(profit_taking_ratios)}")
+                profit_taking_ratios = [0.3, 0.3, 0.4]  # 使用默认值
+        except ValueError:
+            logger.warning(f"解析多级止盈配置失败，使用默认值")
+            profit_taking_levels = [0.03, 0.06, 0.10]  # 3%, 6%, 10%
+            profit_taking_ratios = [0.3, 0.3, 0.4]     # 30%, 30%, 40%
+
         return StrategyConfig(
             investment_type=investment_type,
             profit_lock_enabled=True,
@@ -113,7 +135,13 @@ class ConfigManager:
             limit_order_enabled=os.getenv('LIMIT_ORDER_ENABLED', 'true').lower() == 'true',
             price_crash_protection_enabled=True,
             take_profit_percent=take_profit_percent,
-            stop_loss_percent=stop_loss_percent
+            stop_loss_percent=stop_loss_percent,
+            # 多级止盈配置
+            profit_taking_strategy=profit_taking_strategy,
+            profit_taking_levels=profit_taking_levels,
+            profit_taking_ratios=profit_taking_ratios,
+            enable_profit_lock=enable_profit_lock,
+            profit_lock_threshold=profit_lock_threshold
         )
 
     def _load_risk_config(self) -> RiskConfig:

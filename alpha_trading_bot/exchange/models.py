@@ -102,10 +102,20 @@ class PositionInfo:
     margin: float
     leverage: float
     timestamp: datetime = None
+    # 多级止盈相关字段
+    tp_levels_hit: List[int] = None  # 已触发的止盈级别列表
+    tp_orders_info: Dict[str, Any] = None  # 止盈订单信息 {order_id: {level: int, amount: float, price: float}}
+    original_amount: float = 0.0  # 原始仓位数量（用于计算部分平仓比例）
 
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now()
+        if self.tp_levels_hit is None:
+            self.tp_levels_hit = []
+        if self.tp_orders_info is None:
+            self.tp_orders_info = {}
+        if self.original_amount == 0.0:
+            self.original_amount = self.amount
 
 @dataclass
 class TradeResult:

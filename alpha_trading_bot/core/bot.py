@@ -642,6 +642,14 @@ class TradingBot(BaseComponent):
                         for position in positions:
                             if position and position.amount != 0:
                                 symbol = position.symbol
+
+                                # 监控已成交的多级止盈订单
+                                try:
+                                    self.enhanced_logger.logger.info(f"🔍 监控 {symbol} 的多级止盈订单状态...")
+                                    await self.trading_engine.trade_executor.monitor_filled_tp_orders(symbol)
+                                except Exception as e:
+                                    self.enhanced_logger.logger.error(f"监控 {symbol} 的止盈订单失败: {e}")
+
                                 # 检查并更新止盈止损（包括创建缺失的订单）
                                 self.enhanced_logger.logger.info(f"检查 {symbol} 的止盈止损订单状态")
                                 try:
@@ -675,6 +683,10 @@ class TradingBot(BaseComponent):
                             if position and position.amount > 0:
                                 symbol = position.symbol
                                 try:
+                                    # 监控已成交的多级止盈订单
+                                    self.enhanced_logger.logger.info(f"🔍 监控 {symbol} 的多级止盈订单状态...")
+                                    await self.trading_engine.trade_executor.monitor_filled_tp_orders(symbol)
+
                                     # 检查并创建缺失的止盈止损订单
                                     await self.trading_engine.trade_executor.check_and_create_missing_tp_sl(symbol, position)
 

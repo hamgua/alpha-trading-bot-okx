@@ -62,6 +62,12 @@ class StrategyConfig:
     # 止盈止损配置
     take_profit_percent: float = 0.06  # 止盈百分比 (6%)
     stop_loss_percent: float = 0.005   # 止损百分比 (0.5%)
+    # 多级止盈配置
+    profit_taking_strategy: str = 'single_level'  # 止盈策略：single_level 或 multi_level
+    profit_taking_levels: List[float] = None  # 多级止盈级别列表
+    profit_taking_ratios: List[float] = None  # 各级止盈的平仓比例
+    enable_profit_lock: bool = True  # 是否启用利润锁定
+    profit_lock_threshold: float = 0.05  # 利润锁定阈值
 
 @dataclass
 class RiskConfig:

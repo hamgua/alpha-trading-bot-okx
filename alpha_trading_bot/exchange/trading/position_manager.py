@@ -141,6 +141,59 @@ class PositionManager(BaseComponent):
         """获取总盈亏"""
         return self.total_pnl + self.get_total_unrealized_pnl()
 
+    async def partial_close_position(self, exchange_client, symbol: str, amount: float, tp_level: int = None) -> bool:
+        """部分平仓并更新止盈级别信息"""
+        position = self.get_position(symbol)
+        if not position:
+            logger.warning(f"尝试部分平仓但找不到仓位: {symbol}")
+            return False
+
+        try:
+            # 检查剩余数量是否足够
+            if amount >= position.amount:
+                logger.info(f"部分平仓数量 {amount} >= 当前仓位 {position.amount}，执行全部平仓")
+                return await self.close_position(exchange_client, symbol)
+
+            # 执行部分平仓
+            close_side = TradeSide.SELL if position.side == TradeSide.LONG else TradeSide.BUY
+            order_request = {
+                'symbol': symbol,
+                'type': 'market',
+                'side': close_side.value,
+                'amount': amount,
+                'reduce_only': True
+            }
+
+            result = await exchange_client.create_order(order_request)
+
+            if result.get('success'):
+                logger.info(f"部分平仓成功: {symbol} {close_side.value} {amount} 张")
+
+                # 更新仓位数量
+                position.amount -= amount
+
+                # 如果指定了止盈级别，记录已触发的级别
+                if tp_level is not None:
+                    position.tp_levels_hit.append(tp_level)
+                    logger.info(f"记录止盈级别 {tp_level} 已触发，已触发级别: {position.tp_levels_hit}")
+
+                # 更新已实现盈亏
+                if 'realizedPnl' in result:
+                    realized_pnl = float(result['realizedPnl'])
+                    position.realized_pnl += realized_pnl
+                    self.total_pnl += realized_pnl
+
+                return True
+            else:
+                logger.error(f"部分平仓失败: {result.get('error', 'Unknown error')}")
+                return False
+
+        except Exception as e:
+            logger.error(f"部分平仓异常: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
+            return False
+
     async def close_position(self, exchange_client, symbol: str, amount: Optional[float] = None) -> bool:
         """平仓"""
         position = self.get_position(symbol)

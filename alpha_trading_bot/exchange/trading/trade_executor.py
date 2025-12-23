@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from ...core.base import BaseComponent, BaseConfig
@@ -383,12 +383,113 @@ class TradeExecutor(BaseComponent):
         from ...config import load_config
         config = load_config()
 
-        take_profit_pct = config.strategies.take_profit_percent
+        # 检查是否使用多级止盈策略
+        if config.strategies.profit_taking_strategy == 'multi_level' and config.strategies.profit_taking_levels:
+            # 多级止盈模式：返回第一级作为基础止盈
+            take_profit_pct = config.strategies.profit_taking_levels[0]  # 使用第一级作为基础
+            logger.info(f"使用多级止盈策略，第一级止盈: {take_profit_pct*100:.1f}%")
+        else:
+            # 传统单一止盈模式
+            take_profit_pct = config.strategies.take_profit_percent
+
         stop_loss_pct = config.strategies.stop_loss_percent
 
         logger.info(f"使用止盈止损配置: 止盈={take_profit_pct*100:.1f}%, 止损={stop_loss_pct*100:.1f}%")
 
         return take_profit_pct, stop_loss_pct
+
+    def _get_multi_level_take_profit_prices(self, entry_price: float, current_price: float, position_side: TradeSide) -> List[Dict[str, Any]]:
+        """获取多级止盈价格配置"""
+        from ...config import load_config
+        config = load_config()
+
+        # 检查是否启用多级止盈
+        if config.strategies.profit_taking_strategy != 'multi_level' or not config.strategies.profit_taking_levels:
+            return []
+
+        levels = config.strategies.profit_taking_levels
+        ratios = config.strategies.profit_taking_ratios
+
+        if len(levels) != len(ratios):
+            logger.warning(f"多级止盈级别数量({len(levels)})与比例数量({len(ratios)})不匹配")
+            return []
+
+        # 验证比例总和
+        if abs(sum(ratios) - 1.0) > 0.001:
+            logger.warning(f"多级止盈比例总和不为1.0: {sum(ratios)}")
+            return []
+
+        multi_level_prices = []
+        for i, (level, ratio) in enumerate(zip(levels, ratios)):
+            if position_side == TradeSide.LONG:
+                tp_price = entry_price * (1 + level)
+            else:  # SHORT
+                tp_price = entry_price * (1 - level)
+
+            multi_level_prices.append({
+                'level': i + 1,
+                'price': tp_price,
+                'ratio': ratio,
+                'profit_pct': level * 100,
+                'description': f"第{i+1}级止盈: {level*100:.0f}%"
+            })
+
+        logger.info(f"多级止盈配置: {[(f'{p['profit_pct']:.0f}%', f'{p['ratio']*100:.0f}%') for p in multi_level_prices]}")
+        return multi_level_prices
+
+    async def monitor_filled_tp_orders(self, symbol: str) -> None:
+        """监控已成交的止盈订单，处理多级止盈逻辑"""
+        try:
+            position = self.position_manager.get_position(symbol)
+            if not position or not position.tp_orders_info:
+                return
+
+            # 获取所有算法订单
+            algo_orders = await self.order_manager.fetch_algo_orders(symbol)
+
+            # 检查每个止盈订单的状态
+            for order_id, tp_info in list(position.tp_orders_info.items()):
+                # 在现有订单中查找该订单
+                order_exists = any(order.order_id == order_id for order in algo_orders)
+
+                if not order_exists:
+                    # 订单不存在，可能是已成交或被取消
+                    logger.info(f"检测到止盈订单 {order_id} 已不存在，可能是已成交")
+
+                    # 检查是否已记录此级别
+                    if tp_info['level'] not in position.tp_levels_hit:
+                        # 执行部分平仓
+                        logger.info(f"执行第{tp_info['level']}级止盈部分平仓: {tp_info['amount']} 张")
+                        success = await self.position_manager.partial_close_position(
+                            self.exchange_client,
+                            symbol,
+                            tp_info['amount'],
+                            tp_level=tp_info['level']
+                        )
+
+                        if success:
+                            logger.info(f"✓ 第{tp_info['level']}级止盈部分平仓成功")
+                            # 从订单信息中移除已处理的订单
+                            del position.tp_orders_info[order_id]
+                        else:
+                            logger.error(f"✗ 第{tp_info['level']}级止盈部分平仓失败")
+
+            # 检查是否所有止盈级别都已触发
+            from ...config import load_config
+            config = load_config()
+            if config.strategies.profit_taking_strategy == 'multi_level' and config.strategies.profit_taking_levels:
+                total_levels = len(config.strategies.profit_taking_levels)
+                hit_levels = len(position.tp_levels_hit)
+                logger.info(f"多级止盈进度: {hit_levels}/{total_levels} 个级别已触发")
+
+                if hit_levels >= total_levels:
+                    logger.info(f"所有 {total_levels} 个止盈级别均已触发，仓位剩余: {position.amount} 张")
+                    # 可以选择关闭剩余的止损订单
+
+        except Exception as e:
+            logger.error(f"监控止盈订单失败: {e}")
+            import traceback
+            logger.error(f"详细错误: {traceback.format_exc()}")
 
     async def check_and_create_missing_tp_sl(self, symbol: str, current_position: PositionInfo) -> None:
         """检查并为没有止盈止损订单的持仓创建订单"""
@@ -790,42 +891,96 @@ class TradeExecutor(BaseComponent):
             # 记录入场价格作为固定止损基准
             entry_price = order_result.average_price
 
+            # 检查是否启用多级止盈策略
+            multi_level_tps = self._get_multi_level_take_profit_prices(entry_price, current_price, side)
+
+            if multi_level_tps:
+                # 使用多级止盈策略
+                logger.info(f"创建新仓位的多级止盈止损订单: {symbol}")
+                logger.info(f"多级止盈策略 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}")
+
+                # 创建多级止盈订单
+                created_tp_count = 0
+                for tp_level in multi_level_tps:
+                    tp_amount = order_result.filled_amount * tp_level['ratio']
+                    # 确保数量精度符合交易所要求
+                    tp_amount = round(tp_amount, 2)  # 保留2位小数，OKX精度为0.01
+
+                    logger.info(f"创建第{tp_level['level']}级止盈订单: {tp_amount} 张 @ ${tp_level['price']:.2f} ({tp_level['profit_pct']:.0f}%)")
+
+                    tp_side = TradeSide.SELL if side == TradeSide.BUY else TradeSide.BUY
+                    tp_result = await self.order_manager.create_take_profit_order(
+                        symbol=symbol,
+                        side=tp_side,
+                        amount=tp_amount,
+                        take_profit_price=tp_level['price'],
+                        reduce_only=True
+                    )
+
+                    if tp_result.success:
+                        logger.info(f"✓ 第{tp_level['level']}级止盈订单创建成功: ID={tp_result.order_id}")
+                        created_tp_count += 1
+
+                        # 存储止盈订单信息到仓位
+                        current_position = self.position_manager.get_position(symbol)
+                        if current_position:
+                            current_position.tp_orders_info[tp_result.order_id] = {
+                                'level': tp_level['level'],
+                                'amount': tp_amount,
+                                'price': tp_level['price'],
+                                'ratio': tp_level['ratio'],
+                                'profit_pct': tp_level['profit_pct']
+                            }
+                    else:
+                        logger.error(f"✗ 第{tp_level['level']}级止盈订单创建失败: {tp_result.error_message}")
+
+                logger.info(f"多级止盈订单创建完成: 成功创建 {created_tp_count}/{len(multi_level_tps)} 个订单")
+
+            else:
+                # 使用传统单级止盈策略
+                if side == TradeSide.BUY:
+                    # 多头：止盈在上方，止损在下方
+                    take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
+                    stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于入场价（固定）
+                    # 止盈止损订单方向
+                    tp_side = TradeSide.SELL
+                    sl_side = TradeSide.SELL
+                else:
+                    # 空头：止盈在下方，止损在上方
+                    take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
+                    stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于入场价（固定）
+                    # 止盈止损订单方向
+                    tp_side = TradeSide.BUY
+                    sl_side = TradeSide.BUY
+
+                # 实际创建止盈止损订单
+                logger.info(f"创建新仓位的止盈止损订单: {symbol}")
+                logger.info(f"混合策略 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}")
+                logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
+                logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
+
+                # 创建止盈订单
+                tp_result = await self.order_manager.create_take_profit_order(
+                    symbol=symbol,
+                    side=tp_side,
+                    amount=order_result.filled_amount,  # 对新仓位设置止盈
+                    take_profit_price=take_profit,
+                    reduce_only=True
+                )
+
+                if tp_result.success:
+                    logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
+                else:
+                    logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
+
+            # 创建止损订单（无论使用哪种止盈策略，止损都是单一的）
             if side == TradeSide.BUY:
-                # 多头：止盈在上方，止损在下方
-                take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
-                stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于入场价（固定）
-                # 止盈止损订单方向
-                tp_side = TradeSide.SELL
+                stop_loss = entry_price * (1 - stop_loss_pct)
                 sl_side = TradeSide.SELL
             else:
-                # 空头：止盈在下方，止损在上方
-                take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
-                stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于入场价（固定）
-                # 止盈止损订单方向
-                tp_side = TradeSide.BUY
+                stop_loss = entry_price * (1 + stop_loss_pct)
                 sl_side = TradeSide.BUY
 
-            # 实际创建止盈止损订单
-            logger.info(f"创建新仓位的止盈止损订单: {symbol}")
-            logger.info(f"混合策略 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}")
-            logger.info(f"- 止盈: ${take_profit:.2f} (基于当前价 +{take_profit_pct*100:.0f}%)")
-            logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
-
-            # 创建止盈订单
-            tp_result = await self.order_manager.create_take_profit_order(
-                symbol=symbol,
-                side=tp_side,
-                amount=order_result.filled_amount,  # 对新仓位设置止盈
-                take_profit_price=take_profit,
-                reduce_only=True
-            )
-
-            if tp_result.success:
-                logger.info(f"新仓位止盈订单创建成功: {tp_result.order_id}")
-            else:
-                logger.error(f"新仓位止盈订单创建失败: {tp_result.error_message}")
-
-            # 创建止损订单
             sl_result = await self.order_manager.create_stop_order(
                 symbol=symbol,
                 side=sl_side,
