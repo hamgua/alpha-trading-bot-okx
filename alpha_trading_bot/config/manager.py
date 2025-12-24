@@ -114,14 +114,14 @@ class ConfigManager:
         # 普通模式配置
         normal_tp_key = f'{investment_type_prefix}_NORMAL_TP_PERCENT'
         normal_sl_key = f'{investment_type_prefix}_NORMAL_SL_PERCENT'
-        normal_take_profit_percent = float(os.getenv(normal_tp_key, str(int(take_profit_percent * 100)))) / 100
-        normal_stop_loss_percent = float(os.getenv(normal_sl_key, str(int(stop_loss_percent * 100)))) / 100
+        normal_take_profit_percent = float(os.getenv(normal_tp_key, str(take_profit_percent * 100))) / 100
+        normal_stop_loss_percent = float(os.getenv(normal_sl_key, str(stop_loss_percent * 100))) / 100
 
         # 智能模式-固定模式配置
         smart_fixed_tp_key = f'{investment_type_prefix}_SMART_FIXED_TP_PERCENT'
         smart_fixed_sl_key = f'{investment_type_prefix}_SMART_FIXED_SL_PERCENT'
-        smart_fixed_take_profit_percent = float(os.getenv(smart_fixed_tp_key, str(int(take_profit_percent * 100)))) / 100
-        smart_fixed_stop_loss_percent = float(os.getenv(smart_fixed_sl_key, str(int(stop_loss_percent * 100)))) / 100
+        smart_fixed_take_profit_percent = float(os.getenv(smart_fixed_tp_key, str(take_profit_percent * 100))) / 100
+        smart_fixed_stop_loss_percent = float(os.getenv(smart_fixed_sl_key, str(stop_loss_percent * 100))) / 100
 
         # 智能模式-多级模式配置
         smart_multi_levels_key = f'{investment_type_prefix}_SMART_MULTI_TP_LEVELS'
