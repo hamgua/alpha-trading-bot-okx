@@ -481,7 +481,7 @@ MACD: {macd}
 
         try:
             async with self.session.post(
-                'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',
+                'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
                 headers=headers,
                 json=data,
                 timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])

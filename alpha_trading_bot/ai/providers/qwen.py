@@ -16,10 +16,10 @@ logger = logging.getLogger(__name__)
 class QwenProvider(BaseAIProvider):
     """Qwen AI提供商"""
 
-    def __init__(self, api_key: str, model: str = "qwen-turbo"):
+    def __init__(self, api_key: str, model: str = "qwq-plus"):
         super().__init__(api_key, model)
-        self.base_url = "https://dashscope.aliyuncs.com/api/v1"
-        self.timeout = 15.0
+        self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.timeout = 20.0
 
     async def generate_signal(self, prompt: str, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """生成交易信号"""
@@ -38,7 +38,8 @@ class QwenProvider(BaseAIProvider):
                 },
                 'parameters': {
                     'temperature': 0.3,
-                    'max_tokens': 500,
+                    'max_tokens': 1000,  # qwq-plus支持更长的输出
+                    'top_p': 0.95,
                     'result_format': 'message'
                 }
             }
