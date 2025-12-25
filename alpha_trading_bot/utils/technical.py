@@ -427,23 +427,31 @@ class TechnicalIndicators:
                     # 综合趋势评分 (-1 到 1)
                     trend_score = 0
 
-                    # 基于价格变化的趋势（针对加密货币极小幅波动进一步优化）
-                    if price_change > 0.008:  # 上涨超过0.8%（从1.5%进一步降低）
-                        trend_score += 0.4
-                    elif price_change > 0.003:  # 上涨0.3-0.8%（从0.5%进一步降低）
+                    # 基于价格变化的趋势（针对加密货币极小幅波动优化 - 超敏感级别）
+                    if price_change > 0.01:  # 上涨超过1.0% (降低阈值)
+                        trend_score += 0.5
+                    elif price_change > 0.006:  # 上涨0.6-1.0% (降低阈值)
+                        trend_score += 0.35
+                    elif price_change > 0.003:  # 上涨0.3-0.6% (降低阈值)
                         trend_score += 0.25
-                    elif price_change > 0.0005:  # 上涨0.05-0.3%（从0.1%进一步降低）
-                        trend_score += 0.15
-                    elif price_change > 0:     # 微涨0-0.05%（新增超微涨检测）
-                        trend_score += 0.08   # 新增超微涨权重
-                    elif price_change < -0.008:  # 下跌超过0.8%（对称降低）
-                        trend_score -= 0.4
-                    elif price_change < -0.003:  # 下跌0.3-0.8%（对称降低）
+                    elif price_change > 0.001:  # 上涨0.1-0.3% (降低阈值)
+                        trend_score += 0.18  # 提高权重
+                    elif price_change > 0.0005:  # 上涨0.05-0.1%
+                        trend_score += 0.12  # 新增超微涨检测
+                    elif price_change > 0:     # 微涨0-0.05%
+                        trend_score += 0.08
+                    elif price_change < -0.01:  # 下跌超过1.0%
+                        trend_score -= 0.5
+                    elif price_change < -0.006:  # 下跌0.6-1.0%
+                        trend_score -= 0.35
+                    elif price_change < -0.003:  # 下跌0.3-0.6%
                         trend_score -= 0.25
-                    elif price_change < -0.0005:  # 下跌0.05-0.3%（对称降低）
-                        trend_score -= 0.15
-                    elif price_change < 0:     # 微跌0-0.05%（新增超微跌检测）
-                        trend_score -= 0.08   # 新增超微跌权重
+                    elif price_change < -0.001:  # 下跌0.1-0.3%
+                        trend_score -= 0.18
+                    elif price_change < -0.0005:  # 下跌0.05-0.1%
+                        trend_score -= 0.12
+                    elif price_change < 0:     # 微跌0-0.05%
+                        trend_score -= 0.08
 
                     # 基于均线位置的趋势
                     if ma_distance > 0.02:  # 价格在均线上方2%
@@ -470,14 +478,14 @@ class TechnicalIndicators:
                 trend_values = list(trend_scores.values())
                 trend_consensus = np.mean(trend_values)
 
-                # 确定总体趋势方向（针对加密货币小幅波动优化）
-                if trend_consensus > 0.35:  # 从0.45降低到0.35
+                # 确定总体趋势方向（针对加密货币超小幅波动优化 - 超低阈值）
+                if trend_consensus > 0.15:  # 从0.25降低到0.15
                     overall_trend = 'strong_uptrend'
-                elif trend_consensus > 0.15:   # 从0.2降低到0.15
+                elif trend_consensus > 0.03:   # 从0.08降低到0.03
                     overall_trend = 'uptrend'
-                elif trend_consensus < -0.35: # 从-0.45降低到-0.35
+                elif trend_consensus < -0.15: # 从-0.25降低到-0.15
                     overall_trend = 'strong_downtrend'
-                elif trend_consensus < -0.15:  # 从-0.2降低到-0.15
+                elif trend_consensus < -0.03:  # 从-0.08降低到-0.03
                     overall_trend = 'downtrend'
                 else:
                     overall_trend = 'neutral'
