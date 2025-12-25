@@ -104,7 +104,25 @@ class EnhancedLogger:
             self.logger.info(f"上一个K线时间: {last_kline_time}")
         self.logger.info(f"BTC当前价格: ${price:,.2f}")
         self.logger.info(f"数据周期: {period}")
-        self.logger.info(f"价格变化: {change_percent:+.2f}% (基于上一个{period}周期K线)")
+
+        # 改进价格变化显示，包含更多信息
+        if abs(change_percent) > 0:
+            # 根据变化幅度使用不同的表情符号
+            if change_percent > 0:
+                change_symbol = "📈"
+            else:
+                change_symbol = "📉"
+
+            # 计算前一个K线的大致价格（反向计算）
+            try:
+                previous_price = price / (1 + change_percent / 100)
+                self.logger.info(f"{change_symbol} 价格变化: {change_percent:+.3f}% (基于上一个{period}周期K线)")
+                self.logger.info(f"💰 前一个{period}周期价格约: ${previous_price:,.2f} → 当前: ${price:,.2f}")
+            except:
+                # 如果计算出错，只显示百分比
+                self.logger.info(f"{change_symbol} 价格变化: {change_percent:+.3f}% (基于上一个{period}周期K线)")
+        else:
+            self.logger.info(f"➡️  价格变化: {change_percent:+.3f}% (基于上一个{period}周期K线)")
 
     def info_market_analysis(self, atr_volatility: float, trend_strength: float,
                            volatility_level: str, price_change: float):

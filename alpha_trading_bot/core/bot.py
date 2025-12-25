@@ -331,6 +331,35 @@ class TradingBot(BaseComponent):
                     current_price, period, change_percent, last_kline_time
                 )
 
+                # 增强市场数据输出，显示更多详细信息
+                close_prices = market_data.get('close_prices', [])
+                if len(close_prices) >= 2:
+                    previous_price = close_prices[-2]
+                    current_kline_price = close_prices[-1]
+                    self.enhanced_logger.logger.info(f"📊 K线数据详情:")
+                    self.enhanced_logger.logger.info(f"  ⏰ 当前K线收盘价: ${current_kline_price:,.2f}")
+                    self.enhanced_logger.logger.info(f"  ⏰ 前一根K线收盘价: ${previous_price:,.2f}")
+                    self.enhanced_logger.logger.info(f"  📏 价格差值: ${current_kline_price - previous_price:+.2f}")
+
+                    # 计算并显示更精确的变化
+                    actual_change = ((current_kline_price - previous_price) / previous_price * 100) if previous_price > 0 else 0
+                    if abs(actual_change) >= 0.001:  # 只显示有意义的变化
+                        self.enhanced_logger.logger.info(f"  🔍 实际变化率: {actual_change:+.4f}%")
+
+                # 显示最高价和最低价
+                if 'high' in market_data and 'low' in market_data:
+                    high = market_data.get('high', 0)
+                    low = market_data.get('low', 0)
+                    self.enhanced_logger.logger.info(f"📈 24h价格区间:")
+                    self.enhanced_logger.logger.info(f"  🔺 最高价: ${high:,.2f}")
+                    self.enhanced_logger.logger.info(f"  🔻 最低价: ${low:,.2f}")
+                    self.enhanced_logger.logger.info(f"  📊 价格区间: ${high - low:,.2f}")
+
+                    # 计算当前价格在24h区间中的位置
+                    if high > low:
+                        price_position = (current_price - low) / (high - low) * 100
+                        self.enhanced_logger.logger.info(f"  📍 当前价格在24h区间位置: {price_position:.1f}%")
+
                 # 输出详细的成交量信息
                 volume_24h = market_data.get('volume', 0)
                 avg_volume_24h = market_data.get('avg_volume_24h', 0)
