@@ -119,6 +119,9 @@ class AIConfig:
     ai_fusion_weights: Dict[str, float] = None
     ai_fusion_strategy: str = 'weighted'  # consensus/weighted/majority/confidence
     ai_fusion_threshold: float = 0.6
+    # 动态缓存配置
+    enable_dynamic_cache: bool = True  # 是否启用动态缓存
+    dynamic_cache_config: Dict[str, Any] = None  # 动态缓存配置参数
 
 @dataclass
 class NetworkConfig:

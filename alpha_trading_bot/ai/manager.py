@@ -13,6 +13,8 @@ from .client import AIClient
 from .fusion import AIFusion
 from .signals import SignalGenerator
 from .model_selector import model_selector, ModelSelector
+from .dynamic_cache import DynamicCacheManager, cache_manager
+from .cache_monitor import cache_monitor
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ class AIManagerConfig(BaseConfig):
     enable_dynamic_model_selection: bool = True
     default_deepseek_model: str = "deepseek-chat"
     default_kimi_model: str = "moonshot-v1-32k"
+    enable_dynamic_cache: bool = True  # 启用动态缓存
 
 class AIManager(BaseComponent):
     """AI管理器"""
@@ -43,6 +46,8 @@ class AIManager(BaseComponent):
         self.signal_generator = SignalGenerator()
         self.cache: Dict[str, Any] = {}
         self.providers: List[str] = []
+        self.dynamic_cache = cache_manager  # 使用全局动态缓存管理器
+        self.dynamic_cache.config.base_duration = config.cache_duration  # 同步配置
 
     async def initialize(self) -> bool:
         """初始化AI管理器"""
@@ -98,25 +103,68 @@ class AIManager(BaseComponent):
     async def generate_signals(self, market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """生成AI交易信号"""
         try:
-            # 检查缓存
-            cache_key = self._generate_cache_key(market_data)
+            # 检查缓存 - 支持动态缓存和传统缓存
+            if self.config.enable_dynamic_cache:
+                # 使用动态缓存系统
+                cache_key = self.dynamic_cache.generate_cache_key_v2(market_data)
+                atr_percentage = market_data.get('atr_percentage', 0)
+                dynamic_duration = self.dynamic_cache.get_dynamic_cache_duration(atr_percentage)
+
+                logger.info(f"🔄 使用动态缓存系统 - ATR: {atr_percentage:.2f}%, 缓存时间: {dynamic_duration}秒")
+            else:
+                # 使用传统缓存系统
+                cache_key = self._generate_cache_key(market_data)
+                dynamic_duration = self.config.cache_duration
+
+            # 检查缓存是否存在且未过期
             if cache_key in self.cache:
                 cached_result = self.cache[cache_key]
-                if (datetime.now() - cached_result['timestamp']).seconds < self.config.cache_duration:
+                cache_duration = dynamic_duration if self.config.enable_dynamic_cache else self.config.cache_duration
+
+                if (datetime.now() - cached_result['timestamp']).seconds < cache_duration:
                     logger.info("使用缓存的AI信号")
-                    # 如果有缓存的统计信息，直接使用它
-                    if 'success_count' in cached_result:
-                        success_count = cached_result['success_count']
-                        fail_count = cached_result['fail_count']
-                        success_providers = cached_result['success_providers']
-                        total = success_count + fail_count
-                        logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
-                        logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
-                    # 返回信号并标记为缓存结果
-                    signals = cached_result['signals']
-                    for signal in signals:
-                        signal['_from_cache'] = True  # 添加标记表示这是缓存的信号
-                    return signals
+                    self.dynamic_cache.record_cache_hit()  # 记录缓存命中
+                    cache_monitor.record_hit(cache_key, 0.0)  # 记录到性能监控器
+
+                    # 检查是否应该使缓存失效（智能失效机制）
+                    if self.config.enable_dynamic_cache:
+                        should_invalidate, reason = self.dynamic_cache.should_invalidate_cache(market_data, cached_result.get('market_snapshot', {}))
+                        if should_invalidate:
+                            logger.info(f"🔄 智能缓存失效: {reason}")
+                            del self.cache[cache_key]  # 删除失效缓存
+                            self.dynamic_cache.record_cache_eviction()
+                            cache_monitor.record_eviction(cache_key, reason)  # 记录失效到性能监控器
+                        else:
+                            # 如果有缓存的统计信息，直接使用它
+                            if 'success_count' in cached_result:
+                                success_count = cached_result['success_count']
+                                fail_count = cached_result['fail_count']
+                                success_providers = cached_result['success_providers']
+                                total = success_count + fail_count
+                                logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
+                                logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
+                            # 返回信号并标记为缓存结果
+                            signals = cached_result['signals']
+                            for signal in signals:
+                                signal['_from_cache'] = True  # 添加标记表示这是缓存的信号
+                            return signals
+                    else:
+                        # 传统缓存逻辑
+                        if 'success_count' in cached_result:
+                            success_count = cached_result['success_count']
+                            fail_count = cached_result['fail_count']
+                            success_providers = cached_result['success_providers']
+                            total = success_count + fail_count
+                            logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
+                            logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
+                        # 返回信号并标记为缓存结果
+                        signals = cached_result['signals']
+                        for signal in signals:
+                            signal['_from_cache'] = True  # 添加标记表示这是缓存的信号
+                        return signals
+
+            self.dynamic_cache.record_cache_miss()  # 记录缓存未命中
+            cache_monitor.record_miss(cache_key)  # 记录到性能监控器
 
             # 记录当前AI决策模式
             from ..config import load_config
@@ -160,7 +208,7 @@ class AIManager(BaseComponent):
                     success_providers = [provider]
 
             # 缓存结果 - 存储个体信号和最终信号
-            self.cache[cache_key] = {
+            cache_data = {
                 'individual_signals': results,  # 保存个体提供商信号
                 'signals': signals,  # 保存最终信号（可能包含融合信号）
                 'success_count': success_count,
@@ -168,6 +216,12 @@ class AIManager(BaseComponent):
                 'success_providers': success_providers,
                 'timestamp': datetime.now()
             }
+
+            # 如果使用动态缓存，保存市场快照用于智能失效检测
+            if self.config.enable_dynamic_cache and hasattr(self, 'market_snapshot'):
+                cache_data['market_snapshot'] = self.market_snapshot
+
+            self.cache[cache_key] = cache_data
 
             return signals
 
@@ -207,6 +261,10 @@ class AIManager(BaseComponent):
                     logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f}) - {reason}")
                 else:
                     logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+
+                # 记录API调用成本到监控器
+                estimated_cost = 0.001  # 估算每次API调用成本
+                cache_monitor.record_api_call(provider, estimated_cost)
             else:
                 logger.error(f"❌ {provider.upper()} 返回空信号")
 
@@ -255,6 +313,10 @@ class AIManager(BaseComponent):
                                 logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f}) - {reason}")
                             else:
                                 logger.info(f"✅ {provider.upper()} 成功: {action} (信心: {confidence:.2f})")
+
+                            # 记录API调用成本到监控器
+                            estimated_cost = 0.001  # 估算每次API调用成本
+                            cache_monitor.record_api_call(provider, estimated_cost)
                         else:
                             logger.warning(f"⚠️  {provider.upper()} 置信度不足: {confidence:.2f} < {self.config.min_confidence}")
                             fail_count += 1
@@ -270,6 +332,15 @@ class AIManager(BaseComponent):
             total = success_count + fail_count
             logger.info(f"📊 多AI信号获取统计: 成功={success_count}, 失败={fail_count}, 总计={total}")
             logger.info(f"✅ 成功提供商: {success_providers if success_providers else '无'}")
+
+            # 保存市场快照到实例变量（用于智能失效检测）
+            self.market_snapshot = {
+                'price': market_data.get('price', 0),
+                'volume': market_data.get('volume', 0),
+                'atr': market_data.get('atr', 0),
+                'atr_percentage': market_data.get('atr_percentage', 0),
+                'technical_data': market_data.get('technical_data', {})
+            }
 
             # 如果启用了融合，进行信号融合
             # 只要有至少1个成功的信号，就进行融合（部分失败不影响融合决策）
@@ -380,8 +451,13 @@ class AIManager(BaseComponent):
         price = market_data.get('price', 0)
         volume = market_data.get('volume', 0)
 
-        # 将价格四舍五入到最近的100美元，减少缓存键数量
-        price_bucket = round(float(price) / 100) * 100 if price > 0 else 0
+        # 使用动态缓存管理器的分桶策略（如果启用）
+        if self.config.enable_dynamic_cache and hasattr(self, 'dynamic_cache'):
+            # 使用更细粒度的价格分桶
+            price_bucket = self.dynamic_cache.calculate_price_bucket(price, bucket_size=50.0)
+        else:
+            # 将价格四舍五入到最近的100美元，减少缓存键数量
+            price_bucket = round(float(price) / 100) * 100 if price > 0 else 0
 
         # 将成交量四舍五入到最近的合理单位
         if volume > 1000000:
@@ -402,18 +478,33 @@ class AIManager(BaseComponent):
 
     def get_provider_status(self) -> Dict[str, Any]:
         """获取提供商状态"""
+        # 获取缓存监控统计
+        cache_stats = cache_monitor.get_cache_stats()
+        dynamic_cache_stats = self.dynamic_cache.get_cache_stats() if hasattr(self, 'dynamic_cache') else {}
+
         return {
             'available_providers': self.providers,
             'primary_provider': self.config.primary_provider,
             'multi_ai_enabled': self.config.use_multi_ai,
             'fallback_enabled': self.config.fallback_enabled,
-            'cache_size': len(self.cache)
+            'cache_size': len(self.cache),
+            'dynamic_cache_enabled': self.config.enable_dynamic_cache,
+            'cache_hit_rate': cache_stats.get('hit_rate', 0),
+            'dynamic_cache_stats': dynamic_cache_stats
         }
 
     def clear_cache(self) -> None:
         """清除缓存"""
         self.cache.clear()
         logger.info("AI信号缓存已清除")
+
+    def get_cache_report(self) -> Dict[str, Any]:
+        """获取缓存性能报告"""
+        return cache_monitor.generate_report()
+
+    def save_cache_report(self, filename: Optional[str] = None) -> str:
+        """保存缓存性能报告"""
+        return cache_monitor.save_report(filename)
 
     def get_status(self) -> Dict[str, Any]:
         """获取状态"""

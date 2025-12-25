@@ -360,6 +360,38 @@ class TradingBot(BaseComponent):
             # 记录AI提供商信息
             self.enhanced_logger.info_ai_providers(providers, config_providers)
 
+            # 计算技术指标并添加到市场数据
+            try:
+                from ..utils.technical import TechnicalIndicators
+                technical_data = TechnicalIndicators.calculate_all_indicators(market_data)
+                market_data['technical_data'] = technical_data
+
+                # 记录技术指标信息
+                if technical_data:
+                    rsi = technical_data.get('rsi', 0)
+                    macd_hist = technical_data.get('macd_histogram', 0)
+                    adx = technical_data.get('adx', 0)
+                    bb_position = technical_data.get('price_position', 0)
+
+                    self.enhanced_logger.logger.info("📊 技术指标详情:")
+                    self.enhanced_logger.logger.info(f"  📈 RSI: {rsi:.2f}")
+                    self.enhanced_logger.logger.info(f"  📊 MACD柱状图: {macd_hist:.4f}")
+                    self.enhanced_logger.logger.info(f"  🎯 ADX: {adx:.2f}")
+                    self.enhanced_logger.logger.info(f"  📍 布林带位置: {bb_position:.2f}")
+
+                    # 计算ATR百分比用于动态缓存
+                    atr_value = technical_data.get('atr', 0)
+                    current_price = market_data.get('price', 0)
+                    atr_percentage = (atr_value / current_price * 100) if current_price > 0 and atr_value > 0 else 0
+                    market_data['atr_percentage'] = atr_percentage
+
+                    self.enhanced_logger.logger.info(f"  📊 ATR百分比: {atr_percentage:.2f}%")
+
+            except Exception as e:
+                self.enhanced_logger.logger.error(f"计算技术指标失败: {e}")
+                market_data['technical_data'] = {}
+                market_data['atr_percentage'] = 0
+
             # 执行健康检查
             try:
                 from alpha_trading_bot.core.health_check import get_health_check
