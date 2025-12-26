@@ -122,6 +122,9 @@ class AIConfig:
     # 动态缓存配置
     enable_dynamic_cache: bool = True  # 是否启用动态缓存
     dynamic_cache_config: Dict[str, Any] = None  # 动态缓存配置参数
+    # 信号优化配置
+    enable_signal_optimization: bool = True  # 是否启用信号优化
+    signal_optimization_config: Dict[str, Any] = None  # 信号优化配置
 
 @dataclass
 class NetworkConfig:

@@ -15,6 +15,7 @@ from .signals import SignalGenerator
 from .model_selector import model_selector, ModelSelector
 from .dynamic_cache import DynamicCacheManager, cache_manager
 from .cache_monitor import cache_monitor
+from .signal_optimizer import SignalOptimizer
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,7 @@ class AIManager(BaseComponent):
         self.providers: List[str] = []
         self.dynamic_cache = cache_manager  # 使用全局动态缓存管理器
         self.dynamic_cache.config.base_duration = config.cache_duration  # 同步配置
+        self.signal_optimizer = SignalOptimizer()  # 添加信号优化器
 
     async def initialize(self) -> bool:
         """初始化AI管理器"""
@@ -348,6 +350,15 @@ class AIManager(BaseComponent):
                 # 记录部分失败的情况
                 if fail_count > 0:
                     logger.info(f"⚠️  部分提供商失败: {fail_count}/{total}，使用{len(results)}个成功信号进行融合")
+
+                # 在融合前优化信号
+                if self.config.enable_signal_optimization and hasattr(self, 'signal_optimizer') and self.signal_optimizer:
+                    logger.info("🔧 开始信号优化...")
+                    optimized_results = await self._optimize_signals(results, market_data)
+                    if optimized_results:
+                        results = optimized_results
+                        logger.info(f"✅ 信号优化完成，优化了 {len(results)} 个信号")
+
                 from ..config import load_config
                 config = load_config()
 
@@ -505,6 +516,22 @@ class AIManager(BaseComponent):
     def save_cache_report(self, filename: Optional[str] = None) -> str:
         """保存缓存性能报告"""
         return cache_monitor.save_report(filename)
+
+    async def _optimize_signals(self, signals: List[Dict[str, Any]],
+                               market_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """优化AI信号"""
+        try:
+            # 使用信号优化器优化信号
+            optimized_signals = self.signal_optimizer.optimize_signals(signals, market_data)
+
+            # 记录优化统计
+            optimization_stats = self.signal_optimizer.get_optimization_stats()
+            logger.info(f"📊 信号优化统计: {optimization_stats}")
+
+            return optimized_signals
+        except Exception as e:
+            logger.error(f"信号优化失败: {e}")
+            return signals  # 如果优化失败，返回原始信号
 
     def get_status(self) -> Dict[str, Any]:
         """获取状态"""
