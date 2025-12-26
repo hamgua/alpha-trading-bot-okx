@@ -572,7 +572,7 @@ class AIManager(BaseComponent):
 
             # 记录优化统计
             optimization_stats = self.signal_optimizer.get_optimization_stats()
-            logger.info(f"📊 信号优化统计: {optimization_stats}")
+            logger.info(f"📊 信号优化器统计信息（仅用于显示，不影响融合权重）: {optimization_stats}")
 
             return optimized_signals
         except Exception as e:

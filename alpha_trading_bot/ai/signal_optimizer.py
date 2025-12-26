@@ -14,11 +14,18 @@ class SignalOptimizer:
     """AI信号优化器"""
 
     def __init__(self):
-        # 动态权重配置
-        self.provider_weights = {
-            'qwen': 0.6,
-            'deepseek': 0.4
-        }
+        # 从配置文件读取AI融合权重，用于信号优化器的统计信息显示
+        # 注意：这里的provider_weights仅用于统计信息显示，
+        # 不影响实际的AI信号融合。真正的融合权重来自配置文件(.env)中的AI_FUSION_WEIGHTS
+        try:
+            from ..config import load_config
+            config = load_config()
+            # 使用配置文件中的融合权重作为优化器的参考权重
+            self.provider_weights = config.ai.ai_fusion_weights or {'deepseek': 0.6, 'qwen': 0.4}
+        except Exception as e:
+            logger.warning(f"无法从配置文件读取AI融合权重，使用默认值: {e}")
+            # 如果读取失败，使用与配置文件一致的默认值
+            self.provider_weights = {'deepseek': 0.6, 'qwen': 0.4}
         self.performance_history = {
             'qwen': [],
             'deepseek': []
