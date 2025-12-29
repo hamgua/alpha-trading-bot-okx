@@ -87,10 +87,18 @@ class ImprovedCrashDetector:
     def __init__(self):
         # 多时间框架配置（时间窗口: 阈值）
         self.timeframes = {
+            '5m': {'window': 1, 'threshold': 0.008},    # 0.8% for 5min - 早期预警
             '15m': {'window': 1, 'threshold': 0.015},   # 1.5% for 15min
             '1h': {'window': 4, 'threshold': 0.025},    # 2.5% for 1h
             '2h': {'window': 8, 'threshold': 0.030},    # 3.0% for 2h
             '4h': {'window': 16, 'threshold': 0.035},   # 3.5% for 4h
+        }
+
+        # 暴跌预警级别配置
+        self.early_warning_thresholds = {
+            'minor': 0.005,      # 0.5% - 轻微预警
+            'moderate': 0.010,   # 1.0% - 中等预警
+            'severe': 0.015,     # 1.5% - 严重预警
         }
 
         # 币种特异性阈值调整
@@ -159,7 +167,12 @@ class ImprovedCrashDetector:
         if consecutive_crash:
             crash_events.append(consecutive_crash)
 
-        # 4. 加速下跌检测
+        # 4. 早期暴跌预警检测
+        early_warning = self._check_early_warning(symbol, current_price)
+        if early_warning:
+            crash_events.append(early_warning)
+
+        # 5. 加速下跌检测
         acceleration_crash = self._check_acceleration_drop(symbol, current_price)
         if acceleration_crash:
             crash_events.append(acceleration_crash)
@@ -277,6 +290,51 @@ class ImprovedCrashDetector:
                         timestamp=recent_data[-1]['timestamp'],
                         reason=f"加速下跌，总跌幅{total_drop*100:.2f}%"
                     )
+
+        return None
+
+    def _check_early_warning(self, symbol: str, current_price: float) -> Optional[CrashEvent]:
+        """早期暴跌预警检测"""
+        if symbol not in self.price_history or len(self.price_history[symbol]) < 3:
+            return None
+
+        # 获取最近3个价格点
+        recent_data = self.price_history[symbol][-3:]
+
+        # 计算短期跌幅
+        short_term_drop = (current_price - recent_data[0]['price']) / recent_data[0]['price']
+
+        # 检查是否触发早期预警
+        if abs(short_term_drop) > self.early_warning_thresholds['severe']:
+            # 严重预警 - 1.5%跌幅
+            return CrashEvent(
+                level=CrashLevel.HIGH,
+                timeframe='early_warning',
+                price_change=short_term_drop,
+                threshold=self.early_warning_thresholds['severe'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"早期暴跌预警 - 短期跌幅{short_term_drop*100:.2f}%"
+            )
+        elif abs(short_term_drop) > self.early_warning_thresholds['moderate']:
+            # 中等预警 - 1.0%跌幅
+            return CrashEvent(
+                level=CrashLevel.MEDIUM,
+                timeframe='early_warning',
+                price_change=short_term_drop,
+                threshold=self.early_warning_thresholds['moderate'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"早期下跌预警 - 短期跌幅{short_term_drop*100:.2f}%"
+            )
+        elif abs(short_term_drop) > self.early_warning_thresholds['minor']:
+            # 轻微预警 - 0.5%跌幅
+            return CrashEvent(
+                level=CrashLevel.LOW,
+                timeframe='early_warning',
+                price_change=short_term_drop,
+                threshold=self.early_warning_thresholds['minor'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"轻微下跌预警 - 短期跌幅{short_term_drop*100:.2f}%"
+            )
 
         return None
 

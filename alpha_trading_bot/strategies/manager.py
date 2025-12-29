@@ -9,6 +9,7 @@ from datetime import datetime
 
 from ..core.base import BaseComponent, BaseConfig
 from ..core.exceptions import StrategyError
+from .crash_recovery_manager import CrashRecoveryManager
 
 # 全局策略管理器实例
 _strategy_manager: Optional['StrategyManager'] = None
@@ -25,6 +26,8 @@ class StrategyManagerConfig(BaseConfig):
     min_atr_threshold: float = 0.001  # 最小ATR阈值（0.1%）
     max_trades_per_hour: int = 6  # 每小时最大交易次数
     low_liquidity_trade_limit: int = 2  # 低流动性环境下每小时最大交易次数
+    enable_crash_recovery: bool = True  # 启用暴跌恢复策略
+    crash_recovery_config: Optional[Dict] = None  # 暴跌恢复策略配置
 
     """策略管理器"""
 
@@ -421,6 +424,12 @@ class StrategyManager(BaseComponent):
         self.ai_manager = ai_manager  # AI管理器实例
         self.recent_trades: List[datetime] = []  # 记录最近的交易时间
 
+        # 初始化暴跌恢复策略
+        self.crash_recovery_manager = CrashRecoveryManager(
+            enabled=config.enable_crash_recovery,
+            config=config.crash_recovery_config
+        )
+
     async def initialize(self) -> bool:
         """初始化策略管理器"""
         logger.info("正在初始化策略管理器...")
@@ -428,12 +437,23 @@ class StrategyManager(BaseComponent):
         # 加载默认策略
         await self._load_default_strategies()
 
+        # 初始化暴跌恢复策略
+        if self.config.enable_crash_recovery:
+            self.crash_recovery_manager.initialize()
+            logger.info("✅ 暴跌恢复策略已初始化")
+
         self._initialized = True
         return True
 
     async def cleanup(self) -> None:
         """清理资源"""
         self.active_strategies.clear()
+
+        # 清理暴跌恢复策略资源
+        if self.config.enable_crash_recovery and self.crash_recovery_manager:
+            self.crash_recovery_manager.reset()
+
+        logger.info("策略管理器资源已清理")
 
     async def _load_default_strategies(self) -> None:
         """加载默认策略"""
@@ -494,6 +514,17 @@ class StrategyManager(BaseComponent):
             if not frequency_ok:
                 logger.warning(f"交易频率限制，跳过信号生成: {frequency_reason}")
                 return []
+
+            # 处理暴跌恢复策略
+            if self.config.enable_crash_recovery and self.crash_recovery_manager:
+                recovery_signals = self.crash_recovery_manager.process_market_data(market_data)
+                signals.extend(recovery_signals)
+
+                # 如果处于暴跌恢复阶段，优先处理恢复信号
+                recovery_status = self.crash_recovery_manager.get_status()
+                if recovery_status.get('current_phase', {}).get('phase') in ['stage1', 'stage2', 'stage3']:
+                    logger.info(f"当前处于暴跌恢复阶段，优先处理恢复信号：{len(recovery_signals)}个")
+                    # 可以在这里添加逻辑，减少其他信号的权重
 
             # 如果已经提供了AI信号，直接使用它们
             if ai_signals:
@@ -981,7 +1012,33 @@ class StrategyManager(BaseComponent):
             'strategy_results': len(self.strategy_results),
             'strategy_list': self.get_strategy_list()
         })
+
+        # 添加暴跌恢复策略状态
+        if self.config.enable_crash_recovery and self.crash_recovery_manager:
+            base_status['crash_recovery'] = self.crash_recovery_manager.get_status()
+
         return base_status
+
+    def update_position(self, position: Optional[Dict[str, Any]]):
+        """更新当前持仓信息"""
+        # 更新暴跌恢复策略的持仓信息
+        if self.config.enable_crash_recovery and self.crash_recovery_manager:
+            self.crash_recovery_manager.update_position(position)
+            logger.debug(f"📊 更新暴跌恢复策略持仓信息：{position}")
+
+    def get_crash_recovery_status(self) -> Dict[str, Any]:
+        """获取暴跌恢复策略状态"""
+        if not self.config.enable_crash_recovery or not self.crash_recovery_manager:
+            return {'enabled': False}
+
+        return self.crash_recovery_manager.get_status()
+
+    def get_crash_recovery_recommendations(self) -> List[str]:
+        """获取暴跌恢复策略建议"""
+        if not self.config.enable_crash_recovery or not self.crash_recovery_manager:
+            return []
+
+        return self.crash_recovery_manager.get_recommendations()
 
 # 创建策略管理器的工厂函数
 async def create_strategy_manager() -> 'StrategyManager':
