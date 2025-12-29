@@ -222,8 +222,7 @@ class CrashRecoveryManager:
         self.recovery_strategy.reset()
         self.current_position = None
 
-        logger.info(f"📊 暴跌恢复完成，盈亏：{final_pnl:.2f}%，成功率：{
-            self.performance_stats['successful_recoveries'] / self.performance_stats['total_recoveries'] * 100:.1f}%")
+        logger.info(f"📊 暴跌恢复完成，盈亏：{final_pnl:.2f}%，成功率：{self.performance_stats['successful_recoveries'] / self.performance_stats['total_recoveries'] * 100:.1f}%")
 
     def update_position(self, position: Optional[Dict]):
         """更新当前持仓信息"""
