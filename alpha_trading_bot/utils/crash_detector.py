@@ -94,11 +94,42 @@ class ImprovedCrashDetector:
             '4h': {'window': 16, 'threshold': 0.035},   # 3.5% for 4h
         }
 
-        # 暴跌预警级别配置
+        # 暴跌预警级别配置（价格水平感知）
         self.early_warning_thresholds = {
             'minor': 0.005,      # 0.5% - 轻微预警
             'moderate': 0.010,   # 1.0% - 中等预警
             'severe': 0.015,     # 1.5% - 严重预警
+        }
+
+        # 价格水平感知的暴跌检测阈值
+        self.price_level_thresholds = {
+            'high_price': {       # >$50,000 (如BTC高价期)
+                'percentage_multiplier': 0.8,    # 降低百分比阈值敏感度
+                'absolute_threshold': 500,       # $500绝对跌幅
+                'early_warning_multipliers': {
+                    'minor': 0.6,      # 0.3% (0.5% * 0.6)
+                    'moderate': 0.7,   # 0.7% (1.0% * 0.7)
+                    'severe': 0.8      # 1.2% (1.5% * 0.8)
+                }
+            },
+            'medium_price': {      # $10,000-$50,000
+                'percentage_multiplier': 1.0,
+                'absolute_threshold': 200,
+                'early_warning_multipliers': {
+                    'minor': 0.8,
+                    'moderate': 0.9,
+                    'severe': 1.0
+                }
+            },
+            'low_price': {         # <$10,000
+                'percentage_multiplier': 1.2,
+                'absolute_threshold': 100,
+                'early_warning_multipliers': {
+                    'minor': 1.0,
+                    'moderate': 1.0,
+                    'severe': 1.0
+                }
+            }
         }
 
         # 币种特异性阈值调整
@@ -293,8 +324,110 @@ class ImprovedCrashDetector:
 
         return None
 
+    def _get_price_level_config(self, current_price: float) -> Dict:
+        """根据当前价格获取价格水平配置"""
+        if current_price > 50000:
+            return self.price_level_thresholds['high_price']
+        elif current_price > 10000:
+            return self.price_level_thresholds['medium_price']
+        else:
+            return self.price_level_thresholds['low_price']
+
+    def detect_crash_with_price_awareness(self, market_data: Dict, symbol: str = 'BTC/USDT') -> List[CrashEvent]:
+        """价格水平感知的暴跌检测"""
+        crash_events = []
+
+        # 获取基础检测结果
+        base_events = self.detect_crash(market_data, symbol)
+        crash_events.extend(base_events)
+
+        # 价格水平感知增强检测
+        current_price = float(market_data.get('current_price', 0))
+        if current_price <= 0:
+            return crash_events
+
+        price_level_config = self._get_price_level_config(current_price)
+
+        # 1. 绝对跌幅检测（适用于高价资产）
+        if self.price_history.get(symbol) and len(self.price_history[symbol]) >= 2:
+            # 计算从近期高点下跌的绝对金额
+            recent_high = max(data['price'] for data in self.price_history[symbol][-10:])
+            absolute_drop = recent_high - current_price
+
+            if absolute_drop > price_level_config['absolute_threshold']:
+                # 检查是否已经检测过类似的百分比跌幅
+                percentage_drop = absolute_drop / recent_high
+                if not any(e.timeframe == 'absolute_price' for e in crash_events):
+                    crash_events.append(CrashEvent(
+                        level=CrashLevel.HIGH,
+                        timeframe='absolute_price',
+                        price_change=-percentage_drop,
+                        threshold=price_level_config['absolute_threshold'] / recent_high,
+                        timestamp=market_data.get('timestamp', time.time()),
+                        reason=f"绝对跌幅${absolute_drop:.0f}超过阈值${price_level_config['absolute_threshold']}"
+                    ))
+
+        # 2. 高价资产的早期预警增强
+        early_warning_events = self._check_early_warning_with_price_awareness(symbol, current_price, price_level_config)
+        crash_events.extend(early_warning_events)
+
+        return crash_events
+
+    def _check_early_warning_with_price_awareness(self, symbol: str, current_price: float, price_level_config: Dict) -> List[CrashEvent]:
+        """价格水平感知的早期暴跌预警检测"""
+        events = []
+
+        if symbol not in self.price_history or len(self.price_history[symbol]) < 3:
+            return events
+
+        # 获取最近3个价格点
+        recent_data = self.price_history[symbol][-3:]
+
+        # 计算短期跌幅
+        short_term_drop = (current_price - recent_data[0]['price']) / recent_data[0]['price']
+
+        # 根据价格水平调整阈值
+        adjusted_thresholds = {
+            'minor': self.early_warning_thresholds['minor'] * price_level_config['early_warning_multipliers']['minor'],
+            'moderate': self.early_warning_thresholds['moderate'] * price_level_config['early_warning_multipliers']['moderate'],
+            'severe': self.early_warning_thresholds['severe'] * price_level_config['early_warning_multipliers']['severe']
+        }
+
+        # 检查是否触发早期预警（使用调整后的阈值）
+        if abs(short_term_drop) > adjusted_thresholds['severe']:
+            # 严重预警
+            events.append(CrashEvent(
+                level=CrashLevel.HIGH,
+                timeframe='early_warning_price_aware',
+                price_change=short_term_drop,
+                threshold=adjusted_thresholds['severe'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"高价资产早期暴跌预警 - 短期跌幅{short_term_drop*100:.2f}%（价格水平调整）"
+            ))
+        elif abs(short_term_drop) > adjusted_thresholds['moderate']:
+            # 中等预警
+            events.append(CrashEvent(
+                level=CrashLevel.MEDIUM,
+                timeframe='early_warning_price_aware',
+                price_change=short_term_drop,
+                threshold=adjusted_thresholds['moderate'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"高价资产早期下跌预警 - 短期跌幅{short_term_drop*100:.2f}%（价格水平调整）"
+            ))
+        elif abs(short_term_drop) > adjusted_thresholds['minor']:
+            # 轻微预警
+            events.append(CrashEvent(
+                level=CrashLevel.LOW,
+                timeframe='early_warning_price_aware',
+                price_change=short_term_drop,
+                threshold=adjusted_thresholds['minor'],
+                timestamp=recent_data[-1]['timestamp'],
+                reason=f"高价资产轻微下跌预警 - 短期跌幅{short_term_drop*100:.2f}%（价格水平调整）"
+            ))
+
+        return events
+
     def _check_early_warning(self, symbol: str, current_price: float) -> Optional[CrashEvent]:
-        """早期暴跌预警检测"""
         if symbol not in self.price_history or len(self.price_history[symbol]) < 3:
             return None
 

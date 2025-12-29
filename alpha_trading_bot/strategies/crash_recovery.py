@@ -55,6 +55,22 @@ class RecoveryConfig:
     profit_target: float = 0.05              # 止盈目标（5%）
     rsi_overbought_exit: float = 70.0        # RSI超买退出
 
+    # 高价BTC特殊配置（可根据当前价格动态调整）
+    high_price_config: Dict = None
+
+    def __post_init__(self):
+        """初始化高价BTC配置"""
+        if self.high_price_config is None:
+            self.high_price_config = {
+                'price_threshold': 50000,            # $50,000以上视为高价
+                'crash_drop_threshold_adjusted': 0.02,  # 高价时降至2%
+                'stage_interval_periods_adjusted': 2,   # 高价时间隔减至2周期
+                'stage_stop_loss_adjusted': 0.012,      # 高价时降至1.2%
+                'overall_stop_loss_adjusted': 0.018,    # 高价时降至1.8%
+                'absolute_stop_loss': 1000,            # $1000绝对止损
+                'minimum_recovery_wait': 2              # 最少等待2周期
+            }
+
 
 class CrashRecoveryStrategy:
     """暴跌后恢复策略"""
@@ -80,11 +96,19 @@ class CrashRecoveryStrategy:
         """检测是否发生暴跌"""
         try:
             technical_data = market_data.get('technical_data', {})
+            current_price = market_data.get('price', 0)
+
+            # 根据价格水平调整暴跌检测阈值
+            crash_threshold = self.config.crash_drop_threshold
+            if current_price > self.config.high_price_config['price_threshold']:
+                # 高价BTC使用更敏感的阈值
+                crash_threshold = self.config.high_price_config['crash_drop_threshold_adjusted']
+                logger.debug(f"高价BTC检测，使用调整后的阈值：{crash_threshold*100:.1f}%")
 
             # 1. 价格跌幅检测
             price_change = market_data.get('price_change_pct', 0)
-            if price_change < -self.config.crash_drop_threshold * 100:
-                logger.warning(f"暴跌检测：价格跌幅{price_change:.2f}%超过阈值")
+            if price_change < -crash_threshold * 100:
+                logger.warning(f"暴跌检测：价格跌幅{price_change:.2f}%超过阈值{crash_threshold*100:.1f}%")
                 return True
 
             # 2. 连续下跌检测
@@ -116,6 +140,17 @@ class CrashRecoveryStrategy:
             if avg_volume > 0 and volume > avg_volume * self.config.volume_spike_threshold:
                 logger.warning(f"暴跌检测：成交量激增{volume/avg_volume:.1f}倍，可能存在恐慌性抛售")
                 return True
+
+            # 5. 高价BTC绝对跌幅检测
+            if current_price > self.config.high_price_config['price_threshold']:
+                # 对于高价BTC，检查绝对跌幅
+                if self.entry_prices and len(self.entry_prices) > 0:
+                    # 如果有持仓，检查从入场价的绝对跌幅
+                    avg_entry = sum(self.entry_prices) / len(self.entry_prices)
+                    absolute_drop = avg_entry - current_price
+                    if absolute_drop > self.config.high_price_config['absolute_stop_loss']:
+                        logger.warning(f"高价BTC暴跌检测：绝对跌幅${absolute_drop:.0f}超过阈值${self.config.high_price_config['absolute_stop_loss']}")
+                        return True
 
             return False
 
@@ -191,30 +226,43 @@ class CrashRecoveryStrategy:
     def should_enter_stage(self, stage: int, market_data: Dict) -> Tuple[bool, str]:
         """判断是否应该进入某一批次"""
         try:
+            current_price = market_data.get('price', 0)
+
             # 检查是否已经超时
             if self.recovery_start_time:
                 recovery_duration = time.time() - self.recovery_start_time
                 if recovery_duration > self.config.max_recovery_time:
                     return False, "恢复时间已超过最大限制"
 
+            # 根据价格水平调整批次间隔（高价BTC缩短间隔）
+            stage_interval = self.config.stage_interval_periods
+            if current_price > self.config.high_price_config['price_threshold']:
+                stage_interval = self.config.high_price_config['stage_interval_periods_adjusted']
+                logger.debug(f"高价BTC，使用调整后的批次间隔：{stage_interval}个周期")
+
             # 检查批次间隔
             if self.last_stage_time:
-                min_interval = self.config.stage_interval_periods * 900  # 15分钟周期
+                min_interval = stage_interval * 900  # 15分钟周期
                 if time.time() - self.last_stage_time < min_interval:
-                    return False, f"距离上一批次时间不足{self.config.stage_interval_periods}个周期"
+                    return False, f"距离上一批次时间不足{stage_interval}个周期"
 
             # 检查价格不能低于上一批次（金字塔建仓）
             if stage > 0 and self.entry_prices:
-                current_price = market_data.get('price', 0)
                 last_entry_price = self.entry_prices[-1]
                 if current_price >= last_entry_price:
                     return False, f"当前价格{current_price:.2f}不低于上一批次价格{last_entry_price:.2f}"
 
-            # 检查止损条件
-            current_price = market_data.get('price', 0)
+            # 检查止损条件（高价BTC使用更紧的止损）
             if self.entry_prices:
                 avg_entry_price = sum(self.entry_prices) / len(self.entry_prices)
-                stop_loss_price = avg_entry_price * (1 - self.config.stage_stop_loss)
+
+                # 根据价格水平调整止损
+                stage_stop_loss = self.config.stage_stop_loss
+                if current_price > self.config.high_price_config['price_threshold']:
+                    stage_stop_loss = self.config.high_price_config['stage_stop_loss_adjusted']
+                    logger.debug(f"高价BTC，使用调整后的分批止损：{stage_stop_loss*100:.1f}%")
+
+                stop_loss_price = avg_entry_price * (1 - stage_stop_loss)
                 if current_price <= stop_loss_price:
                     return False, f"触发分批止损，止损价{stop_loss_price:.2f}"
 
@@ -237,7 +285,21 @@ class CrashRecoveryStrategy:
             # 2. 整体止损检查
             if self.entry_prices:
                 avg_entry_price = sum(self.entry_prices) / len(self.entry_prices)
-                overall_stop_loss = avg_entry_price * (1 - self.config.overall_stop_loss)
+
+                # 根据价格水平调整整体止损
+                overall_stop_loss_pct = self.config.overall_stop_loss
+                if current_price > self.config.high_price_config['price_threshold']:
+                    overall_stop_loss_pct = self.config.high_price_config['overall_stop_loss_adjusted']
+                    logger.debug(f"高价BTC，使用调整后的整体止损：{overall_stop_loss_pct*100:.1f}%")
+
+                overall_stop_loss = avg_entry_price * (1 - overall_stop_loss_pct)
+
+                # 高价BTC额外检查绝对跌幅
+                if current_price > self.config.high_price_config['price_threshold']:
+                    absolute_loss = avg_entry_price - current_price
+                    if absolute_loss > self.config.high_price_config['absolute_stop_loss']:
+                        return True, f"高价BTC触发绝对止损，损失${absolute_loss:.0f}超过阈值${self.config.high_price_config['absolute_stop_loss']}"
+
                 if current_price <= overall_stop_loss:
                     return True, f"触发整体止损，止损价{overall_stop_loss:.2f}"
 
