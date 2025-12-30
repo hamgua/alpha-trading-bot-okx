@@ -420,9 +420,16 @@ class TradeExecutor(BaseComponent):
                 stop_loss_pct = config.strategies.normal_stop_loss_percent
                 logger.info(f"使用普通模式止损: {stop_loss_pct*100:.1f}%")
             else:
-                # 智能模式：使用固定止损百分比
-                stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
-                logger.info(f"使用智能模式止损: {stop_loss_pct*100:.1f}%")
+                # 智能模式：检查是否启用自适应止损
+                if config.strategies.adaptive_stop_loss_enabled:
+                    # 自适应止损：根据趋势动态选择百分比
+                    # 这里返回基础值，实际趋势判断在追踪止损逻辑中进行
+                    stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
+                    logger.info(f"启用自适应止损，基础止损: {stop_loss_pct*100:.1f}% (将动态调整)")
+                else:
+                    # 智能固定模式
+                    stop_loss_pct = config.strategies.smart_fixed_stop_loss_percent
+                    logger.info(f"使用智能固定模式止损: {stop_loss_pct*100:.1f}%")
         else:
             stop_loss_pct = 0.0
 
@@ -1395,48 +1402,76 @@ class TradeExecutor(BaseComponent):
                 # 追踪止损逻辑：检查是否需要更新止损价格
                 current_sl_price = current_sl['triggerPx']
 
+                # 检查是否启用自适应止损
+                if config.strategies.adaptive_stop_loss_enabled:
+                    logger.info(f"使用自适应止损策略 - 当前价: ${current_price:.2f}, 入场价: ${entry_price:.2f}")
+
+                    if current_position.side == TradeSide.LONG:
+                        # 多头逻辑
+                        if current_price > entry_price:
+                            # 上升趋势：使用较小的止损百分比
+                            adaptive_sl_pct = config.strategies.up_trend_stop_loss
+                            expected_sl_price = current_price * (1 - adaptive_sl_pct)
+                            logger.info(f"上升趋势：使用 {adaptive_sl_pct*100:.1f}% 止损，计算止损价: ${expected_sl_price:.2f}")
+                        else:
+                            # 下降趋势：使用较大的止损百分比
+                            adaptive_sl_pct = config.strategies.down_trend_stop_loss
+                            expected_sl_price = entry_price * (1 - adaptive_sl_pct)
+                            logger.info(f"下降趋势：使用 {adaptive_sl_pct*100:.1f}% 止损，固定止损价: ${expected_sl_price:.2f}")
+                    else:  # SHORT
+                        # 空头逻辑
+                        if current_price < entry_price:
+                            # 下降趋势：使用较小的止损百分比
+                            adaptive_sl_pct = config.strategies.up_trend_stop_loss
+                            expected_sl_price = current_price * (1 + adaptive_sl_pct)
+                            logger.info(f"下降趋势：使用 {adaptive_sl_pct*100:.1f}% 止损，计算止损价: ${expected_sl_price:.2f}")
+                        else:
+                            # 上升趋势：使用较大的止损百分比
+                            adaptive_sl_pct = config.strategies.down_trend_stop_loss
+                            expected_sl_price = entry_price * (1 + adaptive_sl_pct)
+                            logger.info(f"上升趋势：使用 {adaptive_sl_pct*100:.1f}% 止损，固定止损价: ${expected_sl_price:.2f}")
+                else:
+                    # 传统追踪止损逻辑
+                    logger.info("使用传统追踪止损策略")
+                    if current_position.side == TradeSide.LONG:
+                        # 多头：价格上涨超过入场价时追踪止损
+                        if current_price > entry_price:
+                            expected_sl_price = current_price * (1 - stop_loss_pct)
+                        else:
+                            expected_sl_price = entry_price * (1 - stop_loss_pct)
+                    else:  # SHORT
+                        # 空头：价格下跌低于入场价时追踪止损
+                        if current_price < entry_price:
+                            expected_sl_price = current_price * (1 + stop_loss_pct)
+                        else:
+                            expected_sl_price = entry_price * (1 + stop_loss_pct)
+
                 if current_position.side == TradeSide.LONG:
-                    # 多头：价格上涨超过入场价时追踪止损
-                    if current_price > entry_price:
-                        # 计算新的追踪止损价格（基于当前价格）
-                        expected_sl_price = current_price * (1 - stop_loss_pct)
-
-                        # 真正的追踪止损：只上升不下降
-                        # 只有当新的止损价高于当前止损价时才更新
-                        if expected_sl_price > current_sl_price:
-                            # 检查价格差异是否超过阈值（0.1%）
-                            price_diff_pct = (expected_sl_price - current_sl_price) / current_sl_price
-                            if price_diff_pct > 0.001:  # 0.1% 阈值
-                                sl_needs_update = True
-                                logger.info(f"价格上涨，追踪止损上移: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
-                            else:
-                                logger.info(f"价格上涨幅度太小，追踪止损保持: ${current_sl_price:.2f}")
+                    # 多头：只上涨不下降原则
+                    if expected_sl_price > current_sl_price:
+                        # 检查价格差异是否超过阈值（0.1%）
+                        price_diff_pct = (expected_sl_price - current_sl_price) / current_sl_price
+                        if price_diff_pct > 0.001:  # 0.1% 阈值
+                            sl_needs_update = True
+                            logger.info(f"止损上移: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
                         else:
-                            # 新的追踪止损价低于当前止损价，不更新（保持只升不降原则）
-                            logger.info(f"价格回调，追踪止损保持不动: ${current_sl_price:.2f} (新计算价=${expected_sl_price:.2f})")
+                            logger.info(f"价格上涨幅度太小，追踪止损保持: ${current_sl_price:.2f}")
                     else:
-                        logger.info(f"价格未超过入场价，保持固定止损: ${current_sl_price:.2f}")
+                        # 新的止损价低于当前止损价，不更新（保持只升不降原则）
+                        logger.info(f"价格回调，追踪止损保持不动: ${current_sl_price:.2f} (新计算价=${expected_sl_price:.2f})")
                 else:  # SHORT
-                    # 空头：价格下跌低于入场价时追踪止损
-                    if current_price < entry_price:
-                        # 计算新的追踪止损价格（基于当前价格）
-                        expected_sl_price = current_price * (1 + stop_loss_pct)
-
-                        # 真正的追踪止损：只下降不上升（空头逻辑相反）
-                        # 只有当新的止损价低于当前止损价时才更新
-                        if expected_sl_price < current_sl_price:
-                            # 检查价格差异是否超过阈值（0.1%）
-                            price_diff_pct = (current_sl_price - expected_sl_price) / current_sl_price
-                            if price_diff_pct > 0.001:  # 0.1% 阈值
-                                sl_needs_update = True
-                                logger.info(f"价格下跌，追踪止损下移: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
-                            else:
-                                logger.info(f"价格下跌幅度太小，追踪止损保持: ${current_sl_price:.2f}")
+                    # 空头：只下降不上升原则
+                    if expected_sl_price < current_sl_price:
+                        # 检查价格差异是否超过阈值（0.1%）
+                        price_diff_pct = (current_sl_price - expected_sl_price) / current_sl_price
+                        if price_diff_pct > 0.001:  # 0.1% 阈值
+                            sl_needs_update = True
+                            logger.info(f"止损下移: 当前=${current_sl_price:.2f} → 新=${expected_sl_price:.2f}")
                         else:
-                            # 新的追踪止损价高于当前止损价，不更新（保持只降不升原则）
-                            logger.info(f"价格反弹，追踪止损保持不动: ${current_sl_price:.2f} (新计算价=${expected_sl_price:.2f})")
+                            logger.info(f"价格下跌幅度太小，追踪止损保持: ${current_sl_price:.2f}")
                     else:
-                        logger.info(f"价格未低于入场价，保持固定止损: ${current_sl_price:.2f}")
+                        # 新的止损价高于当前止损价，不更新（保持只降不升原则）
+                        logger.info(f"价格反弹，追踪止损保持不动: ${current_sl_price:.2f} (新计算价=${expected_sl_price:.2f})")
             else:
                 # 没有现有止损订单，需要创建
                 sl_needs_update = True
@@ -1599,14 +1634,26 @@ class TradeExecutor(BaseComponent):
                 if side == TradeSide.BUY:
                     # 多头：止盈在上方，止损在下方
                     take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
-                    stop_loss = entry_price * (1 - stop_loss_pct)      # 止损：基于入场价（固定）
+                    # 止损：基于入场价（固定），考虑自适应止损
+                    if config.strategies.adaptive_stop_loss_enabled:
+                        # 新仓位初始使用下降趋势的较大止损百分比
+                        stop_loss = entry_price * (1 - config.strategies.down_trend_stop_loss)
+                        logger.info(f"新仓位初始使用自适应止损（下降趋势）: {config.strategies.down_trend_stop_loss*100:.1f}%")
+                    else:
+                        stop_loss = entry_price * (1 - stop_loss_pct)
                     # 止盈止损订单方向
                     tp_side = TradeSide.SELL
                     sl_side = TradeSide.SELL
                 else:
                     # 空头：止盈在下方，止损在上方
                     take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
-                    stop_loss = entry_price * (1 + stop_loss_pct)      # 止损：基于入场价（固定）
+                    # 止损：基于入场价（固定），考虑自适应止损
+                    if config.strategies.adaptive_stop_loss_enabled:
+                        # 新仓位初始使用上升趋势的较大止损百分比
+                        stop_loss = entry_price * (1 + config.strategies.down_trend_stop_loss)
+                        logger.info(f"新仓位初始使用自适应止损（上升趋势）: {config.strategies.down_trend_stop_loss*100:.1f}%")
+                    else:
+                        stop_loss = entry_price * (1 + stop_loss_pct)
                     # 止盈止损订单方向
                     tp_side = TradeSide.BUY
                     sl_side = TradeSide.BUY
@@ -1635,7 +1682,13 @@ class TradeExecutor(BaseComponent):
                 else:
                     logger.info("止盈已禁用，跳过止盈订单创建")
 
-                logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
+                # 显示止损信息
+                if config.strategies.adaptive_stop_loss_enabled:
+                    # 显示实际使用的止损百分比
+                    actual_sl_pct = abs((stop_loss - entry_price) / entry_price)
+                    logger.info(f"- 止损: ${stop_loss:.2f} (自适应止损 {actual_sl_pct*100:.1f}%)")
+                else:
+                    logger.info(f"- 止损: ${stop_loss:.2f} (基于入场价 -{stop_loss_pct*100:.0f}%)")
 
             # 创建止损订单（无论使用哪种止盈策略，止损都是单一的）
             if side == TradeSide.BUY:

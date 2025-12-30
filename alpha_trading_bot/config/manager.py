@@ -206,6 +206,10 @@ class ConfigManager:
             # 利润锁定配置
             enable_profit_lock=enable_profit_lock,
             profit_lock_threshold=profit_lock_threshold,
+            # 自适应止损配置
+            adaptive_stop_loss_enabled=os.getenv('ADAPTIVE_STOP_LOSS_ENABLED', 'true').lower() == 'true',
+            up_trend_stop_loss=float(os.getenv('UP_TREND_STOP_LOSS', '0.002')),
+            down_trend_stop_loss=float(os.getenv('DOWN_TREND_STOP_LOSS', '0.01')),
             # 止盈策略配置
             profit_taking_strategy='multi_level' if smart_multi_take_profit_levels else 'single_level',
             profit_taking_levels=smart_multi_take_profit_levels
