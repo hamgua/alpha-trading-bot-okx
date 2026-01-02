@@ -651,9 +651,11 @@ MACD: {macd}
 
 【💡 决策要点 - 基于趋势强度的动态评估】
 - 价格相对位置: {price_position:.1f}% (0%=底部, 100%=顶部)
+- 综合价格位置: {composite_price_position:.1f}% (24h:55% + 7d:45%)
 - 技术指标状态: RSI {rsi_status}
 - 波动率水平: {'高' if is_high_volatility else '低' if is_consolidation else '正常'}
 - 趋势强度级别: {'强势' if trend_strength > 0.5 else '中等' if trend_strength > 0.3 else '弱势'}
+- 价格位置因子: 价格越高买入信号越弱，价格越低买入信号越强
 - 动态风控标准:
   * {'强趋势: 价格位置放宽至95%, RSI放宽至75, 单次涨幅>0.8%才考虑' if trend_strength > 0.5 else '中等趋势: 价格位置90%, RSI 70, 单次涨幅>0.6%才考虑' if trend_strength > 0.3 else '弱趋势: 价格位置85%, RSI 65, 单次涨幅>1.0%才考虑'}
 - 建议操作: 基于趋势强度给出明确信号，弱趋势中严格控制买入条件

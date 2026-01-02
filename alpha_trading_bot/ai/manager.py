@@ -305,6 +305,14 @@ class AIManager(BaseComponent):
                     if signal:
                         # 检查置信度阈值
                         confidence = signal.get('confidence', 0)
+
+                        # 应用价格位置因子衰减
+                        if confidence > 0:  # 只有有信心的信号才需要调整
+                            scaled_signal = await self._apply_price_position_scaling(signal, market_data)
+                            if scaled_signal:
+                                signal = scaled_signal
+                                confidence = signal.get('confidence', confidence)
+
                         if confidence >= self.config.min_confidence:
                             signal['provider'] = provider
                             results.append(signal)
@@ -652,3 +660,68 @@ async def cleanup_ai_manager() -> None:
     if _ai_manager_instance is not None:
         await _ai_manager_instance.cleanup()
         _ai_manager_instance = None
+
+    async def _apply_price_position_scaling(self, signal: Dict[str, Any],
+                                          market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """应用价格位置因子缩放
+
+        Args:
+            signal: AI生成的信号
+            market_data: 市场数据
+
+        Returns:
+            缩放后的信号，如果信号被过滤则返回None
+        """
+        try:
+            from .price_position_scaler import PricePositionScaler
+
+            # 获取综合价格位置
+            composite_position = market_data.get('composite_price_position', 50.0)
+
+            # 创建缩放器
+            scaler = PricePositionScaler()
+
+            # 获取详细分析
+            analysis = scaler.get_detailed_analysis(composite_position)
+
+            # 记录价格位置分析
+            logger.info(f"📍 价格位置分析 - 综合位置: {composite_position:.1f}%, 级别: {analysis['level']}")
+            logger.info(f"📍 操作建议: {analysis['recommendation']}")
+
+            # 调整信号置信度
+            original_confidence = signal.get('confidence', 0.5)
+            adjusted_confidence = scaler.calculate_signal_adjustment(original_confidence, composite_position)
+
+            # 调整买入信号阈值
+            if signal.get('signal') == 'BUY':
+                # 获取调整后的阈值
+                adjusted_thresholds = scaler.get_buy_signal_threshold_adjustment(composite_position)
+
+                # 如果置信度低于调整后的阈值，降级信号
+                if adjusted_confidence < adjusted_thresholds['weak_buy']:
+                    # 降级为HOLD
+                    signal['signal'] = 'HOLD'
+                    signal['reason'] = f"{signal.get('reason', '')} [价格位置过高({composite_position:.1f}%), 降级为观望]"
+                    adjusted_confidence = min(adjusted_confidence, 0.5)
+                elif adjusted_confidence < adjusted_thresholds['strong_buy'] and original_confidence >= 0.8:
+                    # 从强买降级为弱买
+                    signal['reason'] = f"{signal.get('reason', '')} [价格位置偏高({composite_position:.1f}%), 降低买入强度]"
+
+                logger.info(f"📍 买入信号调整 - 原始信心: {original_confidence:.2f} → 调整后: {adjusted_confidence:.2f}")
+                logger.info(f"📍 价格位置因子: {analysis['signal_multiplier']:.2f}x")
+
+            # 更新信号
+            signal['confidence'] = adjusted_confidence
+            signal['price_position_analysis'] = analysis
+
+            # 如果是高风险位置，添加额外警告
+            if composite_position > 80:
+                signal['reason'] = f"⚠️ 高风险位置({composite_position:.1f}%) - {signal.get('reason', '')}"
+            elif composite_position < 20:
+                signal['reason'] = f"🔥 低位机会({composite_position:.1f}%) - {signal.get('reason', '')}"
+
+            return signal
+
+        except Exception as e:
+            logger.error(f"价格位置缩放失败: {e}")
+            return signal  # 如果缩放失败，返回原始信号

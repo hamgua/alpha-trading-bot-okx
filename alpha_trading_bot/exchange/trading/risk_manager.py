@@ -113,6 +113,35 @@ class RiskManager(BaseComponent):
                     risk_score += 0.0  # 不增加风险分数
                     logger.debug(f"[风险评估调试] 全HOLD信号，不增加风险分数")
 
+            # 新增：价格位置风险评估
+            composite_position = self._get_composite_price_position(signals, market_data)
+            if composite_position is not None:
+                # 获取价格位置级别
+                from ...ai.price_position_scaler import PricePositionScaler
+                scaler = PricePositionScaler()
+                level = scaler.get_price_position_level(composite_position)
+
+                # 根据价格位置调整风险评分
+                if level in ['extreme_high', 'high']:
+                    # 高位买入风险显著增加
+                    risk_score += 0.3
+                    reasons.append(f"价格位置风险：{level}({composite_position:.1f}%)")
+                    logger.info(f"🚨 价格位置风险：{composite_position:.1f}%处于{level}，风险分数+0.3")
+                elif level == 'moderate_high':
+                    # 偏高位置适度增加风险
+                    risk_score += 0.15
+                    reasons.append(f"价格位置风险：偏高({composite_position:.1f}%)")
+                    logger.info(f"⚠️ 价格位置风险：{composite_position:.1f}%偏高，风险分数+0.15")
+                elif level in ['extreme_low', 'low']:
+                    # 低位买入风险适度降低
+                    risk_score -= 0.1
+                    reasons.append(f"价格位置优势：{level}({composite_position:.1f}%)")
+                    logger.info(f"📈 价格位置优势：{composite_position:.1f}%处于{level}，风险分数-0.1")
+
+                # 记录详细分析
+                recommendation = scaler.get_position_recommendation(composite_position)
+                logger.info(f"📍 价格位置建议: {recommendation}")
+
             # 3. 当日亏损检查
             if self.daily_loss >= self.config.max_daily_loss:
                 return {
@@ -454,3 +483,40 @@ class RiskManager(BaseComponent):
         self.daily_loss = 0.0
         self.consecutive_losses = 0
         logger.info("当日风险统计已重置")
+
+    def _get_composite_price_position(self, signals: List[Dict[str, Any]],
+                                     market_data: Dict[str, Any]) -> Optional[float]:
+        """获取综合价格位置
+
+        Args:
+            signals: AI信号列表
+            market_data: 市场数据
+
+        Returns:
+            综合价格位置百分比，如果没有数据则返回None
+        """
+        try:
+            # 优先从market_data中获取综合价格位置
+            composite_position = market_data.get('composite_price_position')
+            if composite_position is not None:
+                return float(composite_position)
+
+            # 回退方案：从信号中提取价格位置信息
+            for signal in signals:
+                if 'price_position_analysis' in signal:
+                    analysis = signal['price_position_analysis']
+                    if 'price_position' in analysis:
+                        return float(analysis['price_position'])
+
+            # 最后回退：计算当日价格位置
+            price = float(market_data.get('price', 0))
+            daily_high = float(market_data.get('high', price))
+            daily_low = float(market_data.get('low', price))
+
+            if daily_high > daily_low and price > 0:
+                return ((price - daily_low) / (daily_high - daily_low)) * 100
+
+            return None
+        except Exception as e:
+            logger.warning(f"获取综合价格位置失败: {e}")
+            return None
