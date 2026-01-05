@@ -180,7 +180,7 @@ class AIClient:
                 prompt, composite_price_position = self._build_enhanced_prompt(provider, market_data)
             else:
                 # 其他提供商使用标准prompt
-                prompt = self._build_trading_prompt(market_data)
+                prompt, composite_price_position = self._build_trading_prompt(market_data)
 
             # 将综合价格位置添加到市场数据中，供后续使用
             market_data['composite_price_position'] = composite_price_position
@@ -326,8 +326,11 @@ class AIClient:
             # 回退到旧的格式
             old_trend_analysis = market_data.get('trend_analysis', {})
             overall_trend = old_trend_analysis.get('overall', '震荡')
-            trend_strength = old_trend_analysis.get('strength', 'normal')
-            trend_desc = f"{overall_trend} ({trend_strength})"
+            trend_strength_str = old_trend_analysis.get('strength', 'normal')
+            # 将字符串强度转换为数值
+            strength_map = {'strong': 0.7, 'medium': 0.5, 'weak': 0.3, 'normal': 0.5}
+            trend_strength = strength_map.get(trend_strength_str, 0.5)
+            trend_desc = f"{overall_trend} ({trend_strength_str})"
             trend_consensus = 0.0
 
         # 构建技术指标状态（优化阈值）
@@ -513,7 +516,7 @@ MACD: {macd}
     "risk": "风险提示和止损建议"
 }}"""
 
-        return prompt
+        return prompt, composite_price_position
 
     def _build_enhanced_prompt(self, provider: str, market_data: Dict[str, Any]) -> tuple[str, float]:
         """构建增强的AI提示词 - 参考alpha-pilot-bot的先进设计"""
@@ -626,8 +629,11 @@ MACD: {macd}
             # 回退到旧的格式
             old_trend_analysis = market_data.get('trend_analysis', {})
             overall_trend = old_trend_analysis.get('overall', '震荡')
-            trend_strength = old_trend_analysis.get('strength', 'normal')
-            trend_desc = f"{overall_trend} ({trend_strength})"
+            trend_strength_str = old_trend_analysis.get('strength', 'normal')
+            # 将字符串强度转换为数值
+            strength_map = {'strong': 0.7, 'medium': 0.5, 'weak': 0.3, 'normal': 0.5}
+            trend_strength = strength_map.get(trend_strength_str, 0.5)
+            trend_desc = f"{overall_trend} ({trend_strength_str})"
             trend_consensus = 0.0
 
         # 构建技术指标状态（优化阈值）
