@@ -5,7 +5,6 @@
 
 import json
 import numpy as np
-import pandas as pd
 from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime, timedelta
 from dataclasses import dataclass
@@ -377,8 +376,8 @@ class SelfLearningOptimizer:
             'optimal_parameters': self._get_default_parameters(),  # 当前最优参数
             'parameter_space': self.parameter_space,
             'performance_summary': {
-                'avg_win_rate': np.mean([p.win_rate for p in self.performance_history]) if self.performance_history else 0,
-                'avg_return': np.mean([p.avg_return for p in self.performance_history]) if self.performance_history else 0,
+                'avg_win_rate': sum([p.win_rate for p in self.performance_history]) / len(self.performance_history) if self.performance_history else 0,
+                'avg_return': sum([p.avg_return for p in self.performance_history]) / len(self.performance_history) if self.performance_history else 0,
                 'total_profitable_trades': sum([p.profitable_trades for p in self.performance_history])
             }
         }
