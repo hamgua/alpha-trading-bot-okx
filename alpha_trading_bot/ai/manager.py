@@ -17,7 +17,10 @@ from .dynamic_cache import DynamicCacheManager, cache_manager
 from .cache_monitor import cache_monitor
 from .signal_optimizer import SignalOptimizer
 from .buy_signal_optimizer import BuySignalOptimizer
+from .dynamic_signal_tier import dynamic_signal_tier
+from .self_learning_optimizer import self_learning_optimizer
 from dataclasses import dataclass
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -670,7 +673,7 @@ class AIManager(BaseComponent):
 
     async def _apply_price_position_scaling(self, signal: Dict[str, Any],
                                           market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """应用价格位置因子缩放 - 集成低价格位置策略
+        """应用价格位置因子缩放 - 集成自学习优化器
 
         Args:
             signal: AI生成的信号
@@ -682,6 +685,23 @@ class AIManager(BaseComponent):
         try:
             from .price_position_scaler import PricePositionScaler
             from ..strategies.low_price_strategy import LowPriceStrategy
+
+            # 获取当前市场条件用于自学习优化
+            current_market = {
+                'trend_strength': market_data.get('trend_strength', 0.0),
+                'volatility': market_data.get('volatility', 0.0),
+                'volume_ratio': market_data.get('volume_ratio', 1.0),
+                'price_position': market_data.get('composite_price_position', 50.0),
+                'market_state': self._determine_market_state(market_data)
+            }
+
+            # 获取自学习优化的参数
+            optimal_params = self_learning_optimizer.get_optimal_parameters(current_market)
+
+            # 应用优化参数到价格位置缩放器
+            if optimal_params:
+                logger.info(f"🧠 应用自学习优化参数: {optimal_params}")
+                # 这里可以动态调整缩放器的参数
 
             # 获取综合价格位置
             composite_position = market_data.get('composite_price_position', 50.0)
@@ -695,16 +715,60 @@ class AIManager(BaseComponent):
             # 创建缩放器
             scaler = PricePositionScaler()
 
-            # 获取详细分析
-            analysis = scaler.get_detailed_analysis(composite_position)
+            # 获取趋势强度用于动态阈值
+            trend_strength = market_data.get('trend_strength', 0.0)
+
+            # 检查是否突破历史高点
+            current_price = market_data.get('current_price', 0)
+            high_24h = market_data.get('high_24h', 0)
+            volume_ratio = market_data.get('volume_ratio', 1.0)
+
+            # 突破检测
+            breakout_config = scaler.handle_breakout_scenario(
+                current_price, high_24h, volume_ratio, trend_strength
+            )
+
+            # 如果使用突破模式，调整价格位置权重
+            if breakout_config['is_breakout']:
+                logger.info(f"🚀 检测到突破行情 - 突破强度: {breakout_config.get('breakout_strength', 0):.2f}")
+                # 临时降低价格位置的影响权重
+                original_composite_position = composite_position
+                composite_position = composite_position * breakout_config['signal_multiplier']
+                composite_position = min(100.0, max(0.0, composite_position))
+                logger.info(f"📍 价格位置调整: {original_composite_position:.1f}% → {composite_position:.1f}%")
+
+            # 获取详细分析（传入趋势强度）
+            analysis = scaler.get_detailed_analysis(composite_position, trend_strength)
+
+            # 如果突破，更新分析中的级别
+            if breakout_config['is_breakout']:
+                analysis['breakout_mode'] = True
+                analysis['breakout_config'] = breakout_config
 
             # 记录价格位置分析
             logger.info(f"📍 价格位置分析 - 综合位置: {composite_position:.1f}%, 级别: {analysis['level']}")
+            if analysis.get('breakout_mode'):
+                logger.info(f"🚀 突破模式激活 - 价格位置权重降低")
             logger.info(f"📍 操作建议: {analysis['recommendation']}")
 
-            # 调整信号置信度
+            # 调整信号置信度（传入趋势强度）
             original_confidence = signal.get('confidence', 0.5)
-            adjusted_confidence = scaler.calculate_signal_adjustment(original_confidence, composite_position)
+            adjusted_confidence = scaler.calculate_signal_adjustment(original_confidence, composite_position, trend_strength)
+
+            # 应用动态分层信号系统
+            tier_name = dynamic_signal_tier.evaluate_signal_tier(signal, market_data)
+            signal = dynamic_signal_tier.apply_tier_adjustments(signal, tier_name, market_data)
+
+            # 记录分层信息
+            logger.info(f"📊 信号分层: {tier_name} - {dynamic_signal_tier.SIGNAL_TIERS[tier_name]['description']}")
+
+            # 检查是否应覆盖价格位置限制
+            if dynamic_signal_tier.should_override_price_position(tier_name, breakout_config.get('is_breakout', False)):
+                logger.info(f"🎯 分层信号覆盖价格位置限制 - 等级: {tier_name}")
+                # 降低价格位置的影响
+                adjusted_confidence = min(1.0, adjusted_confidence * 1.1)
+                signal['confidence'] = adjusted_confidence
+                signal['reason'] = f"🎯 分层信号覆盖 - {signal.get('reason', '')}"
 
             # 调整买入信号阈值
             if signal.get('signal') == 'BUY':
@@ -734,11 +798,77 @@ class AIManager(BaseComponent):
             elif composite_position < 20:
                 signal['reason'] = f"🔥 低位机会({composite_position:.1f}%) - {signal.get('reason', '')}"
 
+            # 记录信号历史（用于时间衰减）
+            from datetime import datetime
+            signal_id = f"{signal.get('provider', 'unknown')}_{int(datetime.now().timestamp())}"
+            dynamic_signal_tier.record_signal(signal_id, signal, tier_name)
+
+            # 记录交易数据用于自学习（如果是真实交易）
+            if not self.config.test_mode and signal.get('signal') == 'BUY':
+                self._record_trade_for_learning(signal, market_data)
+
             return signal
 
         except Exception as e:
             logger.error(f"价格位置缩放失败: {e}")
             return signal  # 如果缩放失败，返回原始信号
+
+    def _determine_market_state(self, market_data: Dict[str, Any]) -> str:
+        """确定市场状态"""
+        trend_strength = market_data.get('trend_strength', 0.0)
+        volatility = market_data.get('volatility', 0.0)
+
+        if trend_strength > 0.5:
+            return 'bull'
+        elif trend_strength < -0.3:
+            return 'bear'
+        else:
+            return 'sideways'
+
+    def _record_trade_for_learning(self, signal: Dict[str, Any], market_data: Dict[str, Any]):
+        """记录交易数据用于自学习"""
+        try:
+            # 构建交易数据
+            trade_data = {
+                'entry_price': market_data.get('current_price', 0),
+                'exit_price': None,  # 将在平仓时更新
+                'holding_period_hours': 0,  # 将在平仓时更新
+                'market_conditions': {
+                    'state': self._determine_market_state(market_data),
+                    'trend_strength': market_data.get('trend_strength', 0.0),
+                    'volatility': market_data.get('volatility', 0.0),
+                    'volume_ratio': market_data.get('volume_ratio', 1.0),
+                    'price_position': market_data.get('composite_price_position', 50.0)
+                },
+                'parameters_used': {
+                    'signal_confidence': signal.get('confidence', 0.5),
+                    'price_position': market_data.get('composite_price_position', 50.0),
+                    'trend_strength': market_data.get('trend_strength', 0.0)
+                },
+                'signal_id': f"{signal.get('provider', 'unknown')}_{int(datetime.now().timestamp())}",
+                'timestamp': datetime.now().isoformat()
+            }
+
+            # 存储交易数据（这里只是记录入口，实际表现需要在平仓时更新）
+            logger.info(f"🧠 记录交易数据用于自学习 - 信号ID: {trade_data['signal_id']}")
+            # 可以在这里存储到数据库或缓存中
+
+        except Exception as e:
+            logger.error(f"记录交易数据失败: {e}")
+
+    async def update_learning_from_trades(self, trades_data: List[Dict[str, Any]]):
+        """从交易数据更新学习"""
+        try:
+            if len(trades_data) >= 20:  # 至少20笔交易才更新
+                self_learning_optimizer.continuous_learning_update(trades_data)
+                logger.info(f"🧠 自学习优化器已更新 - 分析了{len(trades_data)}笔交易")
+
+                # 导出优化报告
+                report_path = f"data/optimization_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                self_learning_optimizer.export_optimization_report(report_path)
+
+        except Exception as e:
+            logger.error(f"更新自学习失败: {e}")
 
 # 全局AI管理器实例
 _ai_manager_instance: Optional[AIManager] = None
@@ -838,6 +968,15 @@ async def cleanup_ai_manager() -> None:
                 signal['reason'] = f"⚠️ 高风险位置({composite_position:.1f}%) - {signal.get('reason', '')}"
             elif composite_position < 20:
                 signal['reason'] = f"🔥 低位机会({composite_position:.1f}%) - {signal.get('reason', '')}"
+
+            # 记录信号历史（用于时间衰减）
+            from datetime import datetime
+            signal_id = f"{signal.get('provider', 'unknown')}_{int(datetime.now().timestamp())}"
+            dynamic_signal_tier.record_signal(signal_id, signal, tier_name)
+
+            # 记录交易数据用于自学习（如果是真实交易）
+            if not self.config.test_mode and signal.get('signal') == 'BUY':
+                self._record_trade_for_learning(signal, market_data)
 
             return signal
 

@@ -17,7 +17,26 @@ class PricePositionScaler:
         self.NEUTRAL = 55        # 中性 45-55%
         self.MODERATE_HIGH = 65  # 偏高 55-65%
         self.HIGH = 75           # 高位 65-75%
-        self.EXTREME_HIGH = 85   # 极高位 > 75%
+        self.EXTREME_HIGH = 95   # 极高位 > 95% (从85%调整到95%)
+
+        # 动态阈值配置（基于趋势强度）
+        self.DYNAMIC_THRESHOLDS = {
+            'strong_trend': {
+                'extreme_high': 98,  # 强势趋势时极高位阈值放宽至98%
+                'high': 85,          # 高位阈值放宽至85%
+                'extreme_low': 12    # 极低位保持严格
+            },
+            'moderate_trend': {
+                'extreme_high': 95,  # 中等趋势时95%
+                'high': 80,          # 高位80%
+                'extreme_low': 15
+            },
+            'weak_trend': {
+                'extreme_high': 90,  # 弱趋势时保持严格90%
+                'high': 75,          # 高位75%
+                'extreme_low': 20
+            }
+        }
 
         # 信号强度衰减系数
         self.SIGNAL_ATTENUATION = {
@@ -41,8 +60,17 @@ class PricePositionScaler:
             'extreme_high': 2.0    # 极高位 - 极高风险要求
         }
 
-    def get_price_position_level(self, composite_position: float) -> str:
-        """根据综合价格位置获取级别"""
+    def get_price_position_level(self, composite_position: float, trend_strength: float = 0.0) -> str:
+        """根据综合价格位置获取级别 - 支持动态阈值"""
+        # 根据趋势强度选择阈值
+        if trend_strength >= 0.6:
+            thresholds = self.DYNAMIC_THRESHOLDS['strong_trend']
+        elif trend_strength >= 0.3:
+            thresholds = self.DYNAMIC_THRESHOLDS['moderate_trend']
+        else:
+            thresholds = self.DYNAMIC_THRESHOLDS['weak_trend']
+
+        # 使用动态阈值判断级别
         if composite_position < self.EXTREME_LOW:
             return 'extreme_low'
         elif composite_position < self.LOW:
@@ -53,23 +81,28 @@ class PricePositionScaler:
             return 'neutral'
         elif composite_position < self.MODERATE_HIGH:
             return 'moderate_high'
-        elif composite_position < self.HIGH:
+        elif composite_position < thresholds['high']:  # 动态高位阈值
             return 'high'
-        else:
+        elif composite_position < thresholds['extreme_high']:  # 动态极高位阈值
             return 'extreme_high'
+        else:
+            # 超过动态极高位阈值，保持中性处理（避免过度惩罚）
+            return 'high' if trend_strength >= 0.6 else 'extreme_high'
 
     def calculate_signal_adjustment(self, base_confidence: float,
-                                  composite_position: float) -> float:
-        """计算信号调整系数
+                                  composite_position: float,
+                                  trend_strength: float = 0.0) -> float:
+        """计算信号调整系数 - 支持趋势强度
 
         Args:
             base_confidence: 基础置信度 (0.0-1.0)
             composite_position: 综合价格位置 (0.0-100.0)
+            trend_strength: 趋势强度 (0.0-1.0)
 
         Returns:
             调整后的置信度
         """
-        level = self.get_price_position_level(composite_position)
+        level = self.get_price_position_level(composite_position, trend_strength)
         attenuation = self.SIGNAL_ATTENUATION[level]
 
         # 应用衰减系数
@@ -186,9 +219,55 @@ class PricePositionScaler:
         # 确保在合理范围内
         return max(0.0, min(1.0, adjusted_size))
 
-    def get_detailed_analysis(self, composite_position: float) -> Dict:
-        """获取详细分析信息"""
-        level = self.get_price_position_level(composite_position)
+    def handle_breakout_scenario(self, current_price: float, historical_high: float,
+                                volume_ratio: float, trend_strength: float) -> Dict:
+        """处理突破历史高点的场景
+
+        Args:
+            current_price: 当前价格
+            historical_high: 历史最高价（通常使用24h最高价）
+            volume_ratio: 当前成交量/平均成交量比率
+            trend_strength: 趋势强度（0.0-1.0）
+
+        Returns:
+            突破处理配置字典
+        """
+        breakout_threshold = 1.002  # 0.2%突破确认
+        if current_price > historical_high * breakout_threshold:
+            # 价格突破历史高点
+            if volume_ratio > 1.2 and trend_strength > 0.4:
+                # 量能确认 + 趋势确认 = 降低价格位置权重，允许适度追高
+                return {
+                    'is_breakout': True,
+                    'price_position_weight': 0.3,  # 从正常0.55降低
+                    'required_confidence': 0.7,    # 降低置信度要求
+                    'risk_penalty': 0.1,           # 减少风险惩罚
+                    'signal_multiplier': 0.8,      # 减少价格位置惩罚
+                    'breakout_strength': min(1.0, (current_price / historical_high - 1) * 1000)
+                }
+            else:
+                # 突破但缺乏确认 = 谨慎处理
+                return {
+                    'is_breakout': True,
+                    'price_position_weight': 0.7,  # 适度降低权重
+                    'required_confidence': 0.8,
+                    'risk_penalty': 0.2,
+                    'signal_multiplier': 0.9
+                }
+        return {'is_breakout': False}
+
+    def get_dynamic_thresholds(self, trend_strength: float) -> Dict[str, int]:
+        """根据趋势强度获取动态阈值"""
+        if trend_strength >= 0.6:
+            return self.DYNAMIC_THRESHOLDS['strong_trend']
+        elif trend_strength >= 0.3:
+            return self.DYNAMIC_THRESHOLDS['moderate_trend']
+        else:
+            return self.DYNAMIC_THRESHOLDS['weak_trend']
+
+    def get_detailed_analysis(self, composite_position: float, trend_strength: float = 0.0) -> Dict:
+        """获取详细分析信息 - 支持趋势强度"""
+        level = self.get_price_position_level(composite_position, trend_strength)
 
         return {
             'price_position': composite_position,
