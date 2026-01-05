@@ -285,8 +285,9 @@ class TradingBot(BaseComponent):
                 offset_range_minutes = offset_range / 60
                 self.enhanced_logger.logger.info(f"⏰ 等待执行 - 周期: {cycle_minutes}分钟，随机偏移: {offset_minutes:+.1f} 分钟 (范围: ±{offset_range_minutes}分钟)")
 
-                # 计算等待时间
-                wait_seconds = (next_execution_time - now).total_seconds()
+                # 计算等待时间（使用更精确的时间）
+                now_precise = datetime.now()
+                wait_seconds = (next_execution_time - now_precise).total_seconds()
                 if wait_seconds < 0:
                     wait_seconds += 86400
 
@@ -811,9 +812,9 @@ class TradingBot(BaseComponent):
             next_exec_time = self._next_execution_time
             if next_exec_time:
                 next_exec_time_str = next_exec_time.strftime("%Y-%m-%d %H:%M:%S")
-                # 计算等待时间
-                now = datetime.now()
-                wait_seconds = (next_exec_time - now).total_seconds()
+                # 计算等待时间（使用精确时间）
+                now_precise = datetime.now()
+                wait_seconds = (next_exec_time - now_precise).total_seconds()
                 if wait_seconds < 0:
                     wait_seconds += 86400  # 如果跨越午夜，加24小时
 
@@ -824,16 +825,16 @@ class TradingBot(BaseComponent):
                 # 记录周期完成和偏移信息
                 if self.config.random_offset_enabled:
                     # 计算当前偏移（相对于15分钟整点）
-                    current_minute = now.minute
+                    current_minute = now_precise.minute
                     cycle_minutes = self.config.cycle_interval
                     current_base_minute = (current_minute // cycle_minutes) * cycle_minutes
                     next_base_minute = current_base_minute + cycle_minutes
                     if next_base_minute >= 60:
                         next_base_minute = 0
 
-                    base_time = now.replace(minute=next_base_minute, second=0, microsecond=0)
+                    base_time = now_precise.replace(minute=next_base_minute, second=0, microsecond=0)
                     if next_base_minute == 0:
-                        base_time = base_time.replace(hour=(now.hour + 1) % 24)
+                        base_time = base_time.replace(hour=(now_precise.hour + 1) % 24)
 
                     offset_seconds = (next_exec_time - base_time).total_seconds()
                     offset_minutes = offset_seconds / 60
