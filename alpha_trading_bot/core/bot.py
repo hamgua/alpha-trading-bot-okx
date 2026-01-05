@@ -275,8 +275,7 @@ class TradingBot(BaseComponent):
                     new_offset = random.randint(min_positive_offset, min_positive_offset + offset_range)
                     next_execution_time = base_execution_time + timedelta(seconds=new_offset)
                     self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
-                    # 保存这个正向偏移供下次使用
-                    self._last_random_offset = new_offset
+                    # 不保存这个调整后的偏移，下次重新生成随机偏移
 
                 # 记录周期和随机偏移信息
                 offset_minutes = random_offset / 60
@@ -814,6 +813,7 @@ class TradingBot(BaseComponent):
             base_execution_time = now.replace(hour=next_hour, minute=next_minute, second=0, microsecond=0)
 
             # 根据配置决定是否添加随机时间偏移
+            offset_adjusted = False  # 标记是否调整了偏移量
             if self.config.random_offset_enabled:
                 # 添加随机时间偏移（使用配置的偏移范围）
                 offset_range = self.config.random_offset_range  # 默认±180秒（±3分钟）
@@ -828,6 +828,7 @@ class TradingBot(BaseComponent):
                     new_offset = random.randint(min_positive_offset, min_positive_offset + offset_range)
                     next_execution_time = base_execution_time + timedelta(seconds=new_offset)
                     random_offset = new_offset  # 更新随机偏移值
+                    offset_adjusted = True  # 标记已调整
                     self.enhanced_logger.logger.warning(f"随机偏移导致执行时间在过去，已调整为正向偏移 {new_offset}秒")
             else:
                 # 不启用随机偏移，直接使用基准时间
@@ -838,8 +839,9 @@ class TradingBot(BaseComponent):
             if self.config.random_offset_enabled:
                 offset_minutes = random_offset / 60
                 self.enhanced_logger.logger.info(f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range/60:.0f}分钟，周期: {cycle_minutes}分钟)")
-                # 保存随机偏移供下次使用
-                self._last_random_offset = random_offset
+                # 仅当偏移未被调整时才保存，避免保存因时间修正产生的大偏移
+                if not offset_adjusted:
+                    self._last_random_offset = random_offset
             else:
                 self.enhanced_logger.logger.info(f"⏰ 下次执行时间: {next_execution_time.strftime('%Y-%m-%d %H:%M:%S')} (无随机偏移，周期: {cycle_minutes}分钟)")
 
