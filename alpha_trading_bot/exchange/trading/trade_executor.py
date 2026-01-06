@@ -810,23 +810,26 @@ class TradeExecutor(BaseComponent):
 
             for order in existing_algo_orders:
                 # 根据订单价格相对于当前价格判断是止盈还是止损
-                order_price = float(order.get('price', 0))
-                order_type = order.get('type', '')
+                order_price = float(order.price)
+                order_status = order.status.value if order.status else ''
+                order_side = order.side.value if order.side else ''
 
-                if position.side == TradeSide.LONG:
-                    # 多头：价格低于当前价的是止损
-                    if order_price < current_price and order_type in ['stop', 'stop_loss']:
-                        has_sl = True
-                        existing_sl_order = order
-                        current_sl_price = order_price
-                        break
-                else:
-                    # 空头：价格高于当前价的是止损
-                    if order_price > current_price and order_type in ['stop', 'stop_loss']:
-                        has_sl = True
-                        existing_sl_order = order
-                        current_sl_price = order_price
-                        break
+                # 只处理活动的止损订单
+                if order_status in ['open', 'pending']:
+                    if position.side == TradeSide.LONG:
+                        # 多头：价格低于当前价的是止损（卖出方向的止损订单）
+                        if order_price < current_price and order_side == 'sell':
+                            has_sl = True
+                            existing_sl_order = order
+                            current_sl_price = order_price
+                            break
+                    else:
+                        # 空头：价格高于当前价的是止损（买入方向的止损订单）
+                        if order_price > current_price and order_side == 'buy':
+                            has_sl = True
+                            existing_sl_order = order
+                            current_sl_price = order_price
+                            break
 
             # 计算新的止损价格
             new_stop_loss = None
@@ -884,8 +887,8 @@ class TradeExecutor(BaseComponent):
                             logger.info(f"止损价格变动 {price_change_pct*100:.1f}%，达到更新阈值，更新止损订单")
 
                             # 取消现有止损订单
-                            logger.info(f"取消现有止损订单: {existing_sl_order['algoId']}")
-                            await self.order_manager.cancel_algo_order(existing_sl_order['algoId'], symbol)
+                            logger.info(f"取消现有止损订单: {existing_sl_order.order_id}")
+                            await self.order_manager.cancel_algo_order(existing_sl_order.order_id, symbol)
 
                             # 创建新的止损订单
                             sl_result = await self._create_stop_order_safe(
@@ -930,14 +933,17 @@ class TradeExecutor(BaseComponent):
             current_price = await self._get_current_price(symbol)
 
             for order in existing_algo_orders:
-                order_price = float(order.get('price', 0))
-                order_type = order.get('type', '')
+                order_price = float(order.price)
+                order_status = order.status.value if order.status else ''
+                order_side = order.side.value if order.side else ''
 
-                # 根据订单方向和价格判断是否为同类止损订单
-                if ((side == TradeSide.SELL and order_type in ['stop', 'stop_loss'] and order_price < current_price) or
-                    (side == TradeSide.BUY and order_type in ['stop', 'stop_loss'] and order_price > current_price)):
-                    logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.get('algoId')})")
-                    return OrderResult(success=False, error_message="已存在止损订单")
+                # 只检查活动的订单
+                if order_status in ['open', 'pending']:
+                    # 根据订单方向和价格判断是否为同类止损订单
+                    if ((side == TradeSide.SELL and order_side == 'sell' and order_price < current_price) or
+                        (side == TradeSide.BUY and order_side == 'buy' and order_price > current_price)):
+                        logger.info(f"{symbol} 已存在止损订单，跳过创建 (订单ID: {order.order_id})")
+                        return OrderResult(success=False, error_message="已存在止损订单")
 
             # 标记正在创建
             self._creating_orders.add(order_key)
