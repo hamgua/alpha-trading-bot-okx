@@ -1419,15 +1419,17 @@ class TradeExecutor(BaseComponent):
                     # 单级止盈：基于当前价格（动态）
                     new_take_profit = current_price * (1 + take_profit_pct)  # 止盈：基于当前价（动态）
 
-                # 新的止损策略：入场价上下不同处理 - 返回百分比
+                # 新的止损策略：入场价上下不同处理
                 if current_price > entry_price:
                     # 价格高于入场价：使用更紧的0.2%止损 + 追踪止损
                     final_sl_pct = 0.002  # 0.2%
-                    logger.info(f"价格高于入场价，使用0.2%紧止损并追踪")
+                    new_stop_loss = current_price * (1 - final_sl_pct)
+                    logger.info(f"价格高于入场价，使用0.2%紧止损并追踪: ${new_stop_loss:.2f}")
                 else:
                     # 价格低于或等于入场价：使用0.5%固定止损（不追踪）
                     final_sl_pct = 0.005  # 0.5%
-                    logger.info(f"价格低于入场价，使用0.5%固定止损")
+                    new_stop_loss = entry_price * (1 - final_sl_pct)
+                    logger.info(f"价格低于入场价，使用0.5%固定止损: ${new_stop_loss:.2f}")
 
                 tp_side = TradeSide.SELL
                 sl_side = TradeSide.SELL
@@ -1443,15 +1445,17 @@ class TradeExecutor(BaseComponent):
                     # 单级止盈：基于当前价格（动态）
                     new_take_profit = current_price * (1 - take_profit_pct)  # 止盈：基于当前价（动态）
 
-                # 新的止损策略：入场价上下不同处理（空头）- 返回百分比
+                # 新的止损策略：入场价上下不同处理（空头）
                 if current_price < entry_price:
                     # 价格低于入场价（空头盈利）：使用更紧的0.2%止损 + 追踪止损
                     final_sl_pct = 0.002  # 0.2%
-                    logger.info(f"价格低于入场价（空头盈利），使用0.2%紧止损并追踪")
+                    new_stop_loss = current_price * (1 + final_sl_pct)
+                    logger.info(f"价格低于入场价（空头盈利），使用0.2%紧止损并追踪: ${new_stop_loss:.2f}")
                 else:
                     # 价格高于或等于入场价（空头亏损）：使用0.5%固定止损（不追踪）
                     final_sl_pct = 0.005  # 0.5%
-                    logger.info(f"价格高于入场价（空头亏损），使用0.5%固定止损")
+                    new_stop_loss = entry_price * (1 + final_sl_pct)
+                    logger.info(f"价格高于入场价（空头亏损），使用0.5%固定止损: ${new_stop_loss:.2f}")
 
                 tp_side = TradeSide.BUY
                 sl_side = TradeSide.BUY
