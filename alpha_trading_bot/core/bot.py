@@ -54,12 +54,17 @@ class TradingBot(BaseComponent):
     PRICE_CHANGE_DISPLAY_THRESHOLD = 0.001
 
     def __init__(self, config: Optional[BotConfig] = None):
-        """初始化交易机器人"""
-        super().__init__(config or BotConfig(name="AlphaTradingBot"))
+        # 如果没有提供配置，创建默认配置
+        if config is None:
+            config = BotConfig(name="AlphaTradingBot")
+        super().__init__(config)
         self._running = False
         self._start_time = None
         self._last_random_offset = 0  # 存储上一次使用的随机偏移
         self._next_execution_time = None  # 存储下次执行时间
+        self._tp_sl_managed_this_cycle = False  # 标记当前周期是否已管理止盈止损
+        self._managed_positions = set()  # 记录本周期已管理的仓位
+        self._tp_sl_lock = asyncio.Lock()  # 止盈止损操作锁，避免并发冲突
 
     @property
     def enhanced_logger(self):
@@ -127,7 +132,9 @@ class TradingBot(BaseComponent):
             # 初始化风控管理器
             from ..exchange.trading import RiskManager
 
-            self.risk_manager = RiskManager()
+            self.risk_manager = RiskManager(
+                exchange_client=self.trading_engine.exchange_client
+            )
             await self.risk_manager.initialize()
 
             self._initialized = True
@@ -910,7 +917,363 @@ class TradingBot(BaseComponent):
         else:
             self.enhanced_logger.logger.info("⚠️ 风险评估不通过，跳过交易")
 
+        # 统一止盈止损管理入口 - 根据信号类型进行区分处理
+        await self._unified_tp_sl_management(signals, market_data, executed_trades)
+
         return executed_trades
+
+    async def _unified_tp_sl_management(
+        self,
+        signals: List[Dict[str, Any]],
+        market_data: Dict[str, Any],
+        executed_trades: int,
+    ) -> None:
+        """统一的止盈止损管理入口 - 根据信号类型进行区分处理
+
+        Args:
+            signals: 当前周期生成的信号列表
+            market_data: 市场数据
+            executed_trades: 本周期执行的交易数量
+        """
+        # 使用锁保护，避免并发冲突
+        async with self._tp_sl_lock:
+            # 检查是否有HOLD信号
+            has_hold_signal = any(
+                signal.get("signal", "").upper() == "HOLD"
+                or signal.get("type", "").upper() == "HOLD"
+                for signal in signals
+            )
+
+            # 检查是否有BUY信号且执行了交易
+            has_buy_signal_executed = executed_trades > 0 and any(
+                signal.get("signal", "").upper() == "BUY" for signal in signals
+            )
+
+            # 根据信号类型进行不同的处理
+            if has_hold_signal:
+                # HOLD信号：执行独立的止损管理
+                self.enhanced_logger.logger.info("🎯 HOLD信号：执行独立止损管理")
+                await self._handle_hold_signal_position_management(signals, market_data)
+
+            elif has_buy_signal_executed:
+                # BUY信号已执行：跳过止盈止损管理（已在execute_trade中处理）
+                self.enhanced_logger.logger.info(
+                    "🎯 BUY信号已执行：跳过周期性止盈止损管理"
+                )
+                self._tp_sl_managed_this_cycle = True
+
+            else:
+                # 其他情况：执行常规的止盈止损管理
+                if not self._tp_sl_managed_this_cycle:
+                    self.enhanced_logger.logger.info(
+                        "🎯 常规情况：执行周期性止盈止损管理"
+                    )
+                    await self._manage_tp_sl_orders()
+                else:
+                    self.enhanced_logger.logger.info(
+                        "🎯 当前周期已管理过止盈止损，跳过重复管理"
+                    )
+
+    async def _handle_hold_signal_position_management(
+        self, signals: List[Dict[str, Any]], market_data: Dict[str, Any]
+    ) -> bool:
+        """处理HOLD信号的仓位管理和止损调整"""
+        # 检查是否有HOLD信号
+        has_hold_signal = any(
+            signal.get("signal", "").upper() == "HOLD"
+            or signal.get("type", "").upper() == "HOLD"
+            for signal in signals
+        )
+
+        if not has_hold_signal:
+            return False
+
+        self.enhanced_logger.logger.info("🔄 HOLD信号：检查当前持仓和止损订单...")
+
+        try:
+            # 更新仓位信息
+            await self.trading_engine.position_manager.update_position(
+                self.trading_engine.exchange_client, "BTC/USDT:USDT"
+            )
+
+            # 获取当前持仓
+            positions = self.trading_engine.position_manager.get_all_positions()
+            self.enhanced_logger.logger.info(
+                f"📊 HOLD信号检查到 {len(positions)} 个仓位"
+            )
+            if not positions:
+                self.enhanced_logger.logger.info("📊 当前无持仓，HOLD信号无需操作")
+                return True
+
+            current_price = market_data.get("price", 0)
+            if current_price <= 0:
+                self.enhanced_logger.logger.warning(
+                    "⚠️ 无法获取当前价格，跳过HOLD仓位管理"
+                )
+                return True
+
+            # 遍历所有持仓
+            for position in positions:
+                self.enhanced_logger.logger.info(
+                    f"📊 检查仓位: {position.symbol} {position.side.value} {position.amount} 张, 入场价: ${position.entry_price:.2f}"
+                )
+                if position and position.amount != 0:  # 有实际持仓
+                    await self._adjust_stop_loss_for_hold(position, current_price)
+                    self._tp_sl_managed_this_cycle = True  # 标记已管理
+                else:
+                    self.enhanced_logger.logger.info(
+                        f"📊 跳过空仓位: {position.symbol}"
+                    )
+
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"HOLD信号仓位管理异常: {e}")
+            return False
+
+        return has_hold_signal
+
+    async def _adjust_stop_loss_for_hold(
+        self, position: Any, current_price: float
+    ) -> None:
+        """为HOLD信号调整止损订单"""
+        symbol = position.symbol
+        side = position.side
+        entry_price = position.entry_price
+        amount = abs(position.amount)
+
+        # 检查是否已经为这个仓位管理过止损
+        position_key = f"{symbol}_{side.value}"
+        if (
+            hasattr(self, "_managed_positions")
+            and position_key in self._managed_positions
+        ):
+            self.enhanced_logger.logger.info(
+                f"📊 {symbol} 已在本次周期管理过止损，跳过重复操作"
+            )
+            return
+
+        self.enhanced_logger.logger.info(
+            f"📊 检查 {symbol} 持仓止损 - 入场价: ${entry_price:.2f}, 当前价: ${current_price:.2f}"
+        )
+
+        try:
+            # 获取现有的算法订单（包括止损订单）
+            algo_orders = await self.trading_engine.order_manager.fetch_algo_orders(
+                symbol
+            )
+            existing_sl_order = None
+
+            # 收集所有止损订单
+            stop_loss_orders = []
+            for order in algo_orders:
+                # 检查是否为止损订单（通过价格判断，止损订单有触发价格）
+                if hasattr(order, "price") and order.price > 0:
+                    stop_loss_orders.append(order)
+
+            if stop_loss_orders:
+                # 有现有止损订单
+                self.enhanced_logger.logger.info(
+                    f"📊 发现 {len(stop_loss_orders)} 个现有止损订单"
+                )
+
+                # 如果有多个止损订单，先清理所有订单
+                if len(stop_loss_orders) > 1:
+                    self.enhanced_logger.logger.warning(
+                        f"⚠️ 检测到多个止损订单 ({len(stop_loss_orders)}个)，将清理后重新创建"
+                    )
+                    for order in stop_loss_orders:
+                        if hasattr(order, "order_id") and order.order_id:
+                            try:
+                                await (
+                                    self.trading_engine.order_manager.cancel_algo_order(
+                                        order.order_id, symbol
+                                    )
+                                )
+                                self.enhanced_logger.logger.info(
+                                    f"✅ 已取消重复止损订单: {order.order_id}"
+                                )
+                            except Exception as e:
+                                self.enhanced_logger.logger.error(
+                                    f"❌ 取消止损订单失败 {order.order_id}: {e}"
+                                )
+
+                    # 清理后重新获取订单状态
+                    await asyncio.sleep(1.0)  # 等待订单状态同步
+                    algo_orders = (
+                        await self.trading_engine.order_manager.fetch_algo_orders(
+                            symbol
+                        )
+                    )
+                    stop_loss_orders = [
+                        order
+                        for order in algo_orders
+                        if hasattr(order, "price") and order.price > 0
+                    ]
+
+                # 使用最新的止损订单（现在应该只剩一个或零个）
+                if stop_loss_orders:
+                    current_sl_price = stop_loss_orders[0].price
+                    self.enhanced_logger.logger.info(
+                        f"📊 当前止损价: ${current_sl_price:.2f}"
+                    )
+
+                    # 计算新的止损价格
+                    new_sl_price = self._calculate_hold_stop_loss_price(
+                        side.value, entry_price, current_price, current_sl_price
+                    )
+
+                    if (
+                        new_sl_price and abs(new_sl_price - current_sl_price) > 0.01
+                    ):  # 价格变化超过0.01才调整
+                        self.enhanced_logger.logger.info(
+                            f"🔄 调整止损价格: ${current_sl_price:.2f} → ${new_sl_price:.2f}"
+                        )
+
+                        # 取消现有止损订单
+                        if stop_loss_orders[0].order_id:
+                            await self.trading_engine.order_manager.cancel_algo_order(
+                                stop_loss_orders[0].order_id, symbol
+                            )
+
+                        # 创建新的止损订单
+                        await self._create_hold_stop_loss_order(
+                            symbol, side.value, amount, new_sl_price
+                        )
+                        # 标记该仓位已管理，避免重复操作
+                        self._managed_positions.add(position_key)
+
+                        # 添加短暂延迟，确保订单状态同步
+                        await asyncio.sleep(0.5)
+                    else:
+                        self.enhanced_logger.logger.info(
+                            f"✅ {symbol} 止损价格无需调整"
+                        )
+                        # 即使不调整，也标记为已管理
+                        self._managed_positions.add(position_key)
+                else:
+                    # 清理后没有订单了，需要创建新的
+                    self.enhanced_logger.logger.info(
+                        f"📊 清理后无现有止损订单，将创建新的止损订单"
+                    )
+                    default_current_sl_price = 0  # 没有现有订单时，使用0作为基准
+                    new_sl_price = self._calculate_hold_stop_loss_price(
+                        side.value, entry_price, current_price, default_current_sl_price
+                    )
+
+                    if new_sl_price:
+                        self.enhanced_logger.logger.info(
+                            f"🆕 创建新的止损订单: ${new_sl_price:.2f}"
+                        )
+
+                        # 创建新的止损订单
+                        await self._create_hold_stop_loss_order(
+                            symbol, side.value, amount, new_sl_price
+                        )
+                        # 标记该仓位已管理
+                        self._managed_positions.add(position_key)
+
+                        # 添加短暂延迟，确保订单状态同步
+                        await asyncio.sleep(0.5)
+                    else:
+                        self.enhanced_logger.logger.warning(
+                            f"⚠️ 无法计算 {symbol} 的止损价格"
+                        )
+            else:
+                # 没有现有止损订单，直接创建新的
+                self.enhanced_logger.logger.info(
+                    f"📊 {symbol} 没有现有的止损订单，将创建新的止损订单"
+                )
+
+                # 计算止损价格（使用一个默认的当前止损价格来计算）
+                default_current_sl_price = 0  # 没有现有订单时，使用0作为基准
+                new_sl_price = self._calculate_hold_stop_loss_price(
+                    side.value, entry_price, current_price, default_current_sl_price
+                )
+
+                if new_sl_price:
+                    self.enhanced_logger.logger.info(
+                        f"🆕 创建新的止损订单: ${new_sl_price:.2f}"
+                    )
+
+                    # 创建新的止损订单
+                    await self._create_hold_stop_loss_order(
+                        symbol, side.value, amount, new_sl_price
+                    )
+                    # 标记该仓位已管理
+                    self._managed_positions.add(position_key)
+                else:
+                    self.enhanced_logger.logger.warning(
+                        f"⚠️ 无法计算 {symbol} 的止损价格"
+                    )
+
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"调整 {symbol} 止损订单失败: {e}")
+
+    def _calculate_hold_stop_loss_price(
+        self,
+        side: str,
+        entry_price: float,
+        current_price: float,
+        current_sl_price: float,
+    ) -> float | None:
+        """计算HOLD信号的止损价格"""
+        if side.lower() == "long":
+            # 多头持仓
+            if current_price > entry_price:
+                # 盈利状态：上调止损到0.2%利润保护
+                profit_protection = current_price * (1 - 0.002)  # 0.2%利润保护
+                return max(current_sl_price, profit_protection)  # 取更高的止损价
+            else:
+                # 亏损状态：保持固定止损0.5%
+                fixed_stop_loss = entry_price * (1 - 0.005)  # 0.5%固定止损
+                return min(current_sl_price, fixed_stop_loss)  # 取更保守的止损价
+        elif side.lower() == "short":
+            # 空头持仓
+            if current_price < entry_price:
+                # 盈利状态：下调止损到0.2%利润保护
+                profit_protection = current_price * (1 + 0.002)  # 0.2%利润保护
+                return min(current_sl_price, profit_protection)  # 取更低的止损价
+            else:
+                # 亏损状态：保持固定止损0.5%
+                fixed_stop_loss = entry_price * (1 + 0.005)  # 0.5%固定止损
+                return max(current_sl_price, fixed_stop_loss)  # 取更保守的止损价
+
+        return None
+
+    async def _create_hold_stop_loss_order(
+        self, symbol: str, side: str, amount: float, stop_price: float
+    ) -> None:
+        """创建HOLD信号的止损订单"""
+        try:
+            # 根据持仓方向确定止损订单方向
+            if side.lower() == "long":
+                sl_side = "sell"  # 多头止损卖出
+            else:
+                sl_side = "buy"  # 空头止损买入
+
+            # 直接使用订单管理器创建止损订单，避免做空检查
+            from ..exchange.models import TradeSide
+
+            sl_side_enum = TradeSide.BUY if sl_side.lower() == "buy" else TradeSide.SELL
+
+            result = await self.trading_engine.order_manager.create_stop_order(
+                symbol=symbol,
+                side=sl_side_enum,
+                amount=amount,
+                stop_price=stop_price,
+                reduce_only=True,
+            )
+
+            if result.success:
+                self.enhanced_logger.logger.info(
+                    f"✅ 创建HOLD止损订单成功: {symbol} {sl_side.upper()} @ ${stop_price:.2f}"
+                )
+            else:
+                self.enhanced_logger.logger.error(
+                    f"❌ 创建HOLD止损订单失败: {result.error_message}"
+                )
+
+        except Exception as e:
+            self.enhanced_logger.logger.error(f"创建HOLD止损订单异常: {e}")
 
     async def _execute_trades(self, trades: List[Dict[str, Any]]) -> int:
         """执行交易列表，返回成功执行的交易数量"""
@@ -966,7 +1329,7 @@ class TradingBot(BaseComponent):
             f"✅ 交易执行完成，成功执行 {executed_trades}/{len(trades)} 笔交易"
         )
 
-        # 统一处理止盈止损
+        # 统一处理止盈止损（如果没有HOLD信号管理）
         await self._manage_tp_sl_orders()
 
         return executed_trades
@@ -986,8 +1349,15 @@ class TradingBot(BaseComponent):
                 sl_price = price * (1 + self.STOP_LOSS_PERCENTAGE)  # 2% 止损
         return tp_price, sl_price
 
-    async def _manage_tp_sl_orders(self) -> None:
+    async def _manage_tp_sl_orders(self, force: bool = False) -> None:
         """统一处理止盈止损订单"""
+        # 检查当前周期是否已经管理过止盈止损（HOLD信号处理后跳过）
+        if self._tp_sl_managed_this_cycle and not force:
+            self.enhanced_logger.logger.info(
+                "📊 当前周期已管理过止盈止损（由HOLD信号处理），跳过重复检查"
+            )
+            return
+
         self.enhanced_logger.logger.info("📊 更新仓位信息...")
         await self.trading_engine.position_manager.update_position(
             self.trading_engine.exchange_client, "BTC/USDT:USDT"
@@ -1008,6 +1378,7 @@ class TradingBot(BaseComponent):
                         await self.trading_engine.trade_executor.manage_tp_sl_orders(
                             symbol, position
                         )
+                        self._tp_sl_managed_this_cycle = True  # 标记已管理
                     except Exception as e:
                         self.enhanced_logger.logger.error(
                             f"为 {symbol} 检查止盈止损订单失败: {e}"
@@ -1086,6 +1457,8 @@ class TradingBot(BaseComponent):
         start_time = time.time()
         total_signals = 0
         executed_trades = 0
+        self._tp_sl_managed_this_cycle = False  # 重置周期标志
+        self._managed_positions.clear()  # 重置已管理仓位集合
 
         try:
             # 1. 获取和处理市场数据

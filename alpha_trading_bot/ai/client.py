@@ -15,28 +15,34 @@ from ..core.exceptions import AIProviderError, NetworkError, RateLimitError
 
 logger = logging.getLogger(__name__)
 
+
 def api_retry(provider_name: str, timeout_config: dict):
     """API重试装饰器 - 统一的退避策略"""
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
-            max_retries = timeout_config['max_retries']
-            base_delay = timeout_config['retry_base_delay']
+            max_retries = timeout_config["max_retries"]
+            base_delay = timeout_config["retry_base_delay"]
 
             for attempt in range(max_retries):
                 try:
                     # 动态调整超时时间
-                    current_timeout = timeout_config['total_timeout'] * (1 + attempt * 0.2)
+                    current_timeout = timeout_config["total_timeout"] * (
+                        1 + attempt * 0.2
+                    )
 
                     # 创建新的market_data副本，更新超时时间
-                    if 'market_data' in kwargs:
-                        kwargs['timeout_override'] = current_timeout
+                    if "market_data" in kwargs:
+                        kwargs["timeout_override"] = current_timeout
 
                     return await func(*args, **kwargs)
 
                 except RateLimitError as e:
                     # 速率限制 - 指数退避
-                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                    logger.warning(f"{provider_name} API速率限制，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    wait_time = base_delay * (2**attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        f"{provider_name} API速率限制，{wait_time:.1f}秒后重试 (第{attempt + 1}次)"
+                    )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait_time)
                         continue
@@ -45,8 +51,10 @@ def api_retry(provider_name: str, timeout_config: dict):
 
                 except asyncio.TimeoutError as e:
                     # 超时 - 指数退避
-                    wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                    logger.warning(f"{provider_name} API请求超时，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    wait_time = base_delay * (2**attempt) + random.uniform(0, 1)
+                    logger.warning(
+                        f"{provider_name} API请求超时，{wait_time:.1f}秒后重试 (第{attempt + 1}次)"
+                    )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait_time)
                         continue
@@ -56,7 +64,9 @@ def api_retry(provider_name: str, timeout_config: dict):
                 except NetworkError as e:
                     # 网络错误 - 线性退避
                     wait_time = base_delay * (attempt + 1) + random.uniform(0, 0.5)
-                    logger.warning(f"{provider_name} API网络错误，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    logger.warning(
+                        f"{provider_name} API网络错误，{wait_time:.1f}秒后重试 (第{attempt + 1}次)"
+                    )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait_time)
                         continue
@@ -66,7 +76,9 @@ def api_retry(provider_name: str, timeout_config: dict):
                 except Exception as e:
                     # 其他异常 - 线性退避
                     wait_time = base_delay * (attempt + 1) + random.uniform(0, 0.5)
-                    logger.warning(f"{provider_name} API调用失败: {str(e)[:100]}，{wait_time:.1f}秒后重试 (第{attempt + 1}次)")
+                    logger.warning(
+                        f"{provider_name} API调用失败: {str(e)[:100]}，{wait_time:.1f}秒后重试 (第{attempt + 1}次)"
+                    )
                     if attempt < max_retries - 1:
                         await asyncio.sleep(wait_time)
                         continue
@@ -74,8 +86,11 @@ def api_retry(provider_name: str, timeout_config: dict):
                         raise NetworkError(f"{provider_name} API调用失败: {str(e)}")
 
             return None
+
         return wrapper
+
     return decorator
+
 
 class AIClient:
     """AI客户端 - 支持多个AI提供商"""
@@ -83,38 +98,38 @@ class AIClient:
     def __init__(self):
         self.providers = {}
         self.timeout_config = {
-            'deepseek': {
-                'connection_timeout': 10.0,
-                'response_timeout': 20.0,
-                'total_timeout': 35.0,
-                'retry_base_delay': 3.0,
-                'max_retries': 3,
-                'performance_score': 0.75
+            "deepseek": {
+                "connection_timeout": 10.0,
+                "response_timeout": 20.0,
+                "total_timeout": 35.0,
+                "retry_base_delay": 3.0,
+                "max_retries": 3,
+                "performance_score": 0.75,
             },
-            'kimi': {
-                'connection_timeout': 6.0,
-                'response_timeout': 10.0,
-                'total_timeout': 18.0,
-                'retry_base_delay': 2.5,
-                'max_retries': 3,
-                'performance_score': 0.80
+            "kimi": {
+                "connection_timeout": 6.0,
+                "response_timeout": 10.0,
+                "total_timeout": 18.0,
+                "retry_base_delay": 2.5,
+                "max_retries": 3,
+                "performance_score": 0.80,
             },
-            'qwen': {
-                'connection_timeout': 5.0,
-                'response_timeout': 8.0,
-                'total_timeout': 15.0,
-                'retry_base_delay': 2.0,
-                'max_retries': 3,
-                'performance_score': 0.85
+            "qwen": {
+                "connection_timeout": 5.0,
+                "response_timeout": 8.0,
+                "total_timeout": 15.0,
+                "retry_base_delay": 2.0,
+                "max_retries": 3,
+                "performance_score": 0.85,
             },
-            'openai': {
-                'connection_timeout': 10.0,
-                'response_timeout': 15.0,
-                'total_timeout': 25.0,
-                'retry_base_delay': 4.0,
-                'max_retries': 2,
-                'performance_score': 0.70
-            }
+            "openai": {
+                "connection_timeout": 10.0,
+                "response_timeout": 15.0,
+                "total_timeout": 25.0,
+                "retry_base_delay": 4.0,
+                "max_retries": 2,
+                "performance_score": 0.70,
+            },
         }
         self.session = None
 
@@ -128,16 +143,17 @@ class AIClient:
                 limit_per_host=30,
                 ttl_dns_cache=300,
                 use_dns_cache=True,
-                keepalive_timeout=30
+                keepalive_timeout=30,
             )
             self.session = aiohttp.ClientSession(
                 timeout=timeout,
                 connector=connector,
-                headers={'User-Agent': 'AlphaTradingBot/3.0'}
+                headers={"User-Agent": "AlphaTradingBot/3.0"},
             )
 
             # 加载提供商配置
             from ..config import load_config
+
             config = load_config()
             self.providers = config.ai.models
 
@@ -156,7 +172,9 @@ class AIClient:
             self.session = None
             logger.info(f"AI客户端会话已关闭")
 
-    async def generate_signal(self, provider: str, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def generate_signal(
+        self, provider: str, market_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """生成AI信号"""
         try:
             if provider not in self.providers:
@@ -168,31 +186,37 @@ class AIClient:
 
             # 调试：检查market_data结构
             logger.debug(f"生成AI信号 - 提供商: {provider}")
-            logger.debug(f"Market data类型检查 - price: {type(market_data.get('price'))}, "
-                        f"high: {type(market_data.get('high'))}, "
-                        f"low: {type(market_data.get('low'))}, "
-                        f"volume: {type(market_data.get('volume'))}")
+            logger.debug(
+                f"Market data类型检查 - price: {type(market_data.get('price'))}, "
+                f"high: {type(market_data.get('high'))}, "
+                f"low: {type(market_data.get('low'))}, "
+                f"volume: {type(market_data.get('volume'))}"
+            )
 
             # 构建提示词 - 根据提供商选择不同的prompt策略
             composite_price_position = 50.0  # 默认价格位置
-            if provider in ['kimi', 'deepseek']:
+            if provider in ["kimi", "deepseek"]:
                 # 对于高级提供商，使用增强的prompt
-                prompt, composite_price_position = self._build_enhanced_prompt(provider, market_data)
+                prompt, composite_price_position = self._build_enhanced_prompt(
+                    provider, market_data
+                )
             else:
                 # 其他提供商使用标准prompt
-                prompt, composite_price_position = self._build_trading_prompt(market_data)
+                prompt, composite_price_position = self._build_trading_prompt(
+                    market_data
+                )
 
             # 将综合价格位置添加到市场数据中，供后续使用
-            market_data['composite_price_position'] = composite_price_position
+            market_data["composite_price_position"] = composite_price_position
 
             # 根据提供商调用不同的API
-            if provider == 'kimi':
+            if provider == "kimi":
                 return await self._call_kimi(api_key, prompt, market_data)
-            elif provider == 'deepseek':
+            elif provider == "deepseek":
                 return await self._call_deepseek(api_key, prompt, market_data)
-            elif provider == 'qwen':
+            elif provider == "qwen":
                 return await self._call_qwen(api_key, prompt, market_data)
-            elif provider == 'openai':
+            elif provider == "openai":
                 return await self._call_openai(api_key, prompt, market_data)
             else:
                 raise AIProviderError(f"不支持的提供商: {provider}")
@@ -207,22 +231,24 @@ class AIClient:
         """构建增强的交易提示词 - 参考alpha-pilot-bot的先进设计"""
 
         # 基础市场数据
-        price = float(market_data.get('price', 0))
+        price = float(market_data.get("price", 0))
 
         # 使用当日最高最低价格（标量值）
-        daily_high = float(market_data.get('high', price))
-        daily_low = float(market_data.get('low', price))
-        volume = float(market_data.get('volume', 0))
+        daily_high = float(market_data.get("high", price))
+        daily_low = float(market_data.get("low", price))
+        volume = float(market_data.get("volume", 0))
 
         # 24小时价格区间数据
         high_24h = daily_high  # 24小时最高价
-        low_24h = daily_low    # 24小时最低价
+        low_24h = daily_low  # 24小时最低价
         range_24h = high_24h - low_24h  # 24小时价格区间
-        amplitude_24h = (range_24h / price * 100) if price > 0 else 0  # 24小时振幅百分比
+        amplitude_24h = (
+            (range_24h / price * 100) if price > 0 else 0
+        )  # 24小时振幅百分比
 
         # 7日价格区间数据
-        high_7d = float(market_data.get('high_7d', high_24h))  # 7日最高价，回退到24小时
-        low_7d = float(market_data.get('low_7d', low_24h))     # 7日最低价，回退到24小时
+        high_7d = float(market_data.get("high_7d", high_24h))  # 7日最高价，回退到24小时
+        low_7d = float(market_data.get("low_7d", low_24h))  # 7日最低价，回退到24小时
         range_7d = high_7d - low_7d  # 7日价格区间
         amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
 
@@ -243,7 +269,9 @@ class AIClient:
 
         # 综合价格位置（优化权重：24小时55% + 7日45%）
         # 权重逻辑：平衡短期敏感性和中期稳定性
-        composite_price_position = (price_position_24h * 0.55) + (price_position_7d * 0.45)
+        composite_price_position = (price_position_24h * 0.55) + (
+            price_position_7d * 0.45
+        )
 
         # 综合振幅因子分析（结合24小时和7日）
         amplitude_level = "正常"
@@ -255,10 +283,10 @@ class AIClient:
             amplitude_level = "中振幅（正常波动）"
 
         # 计算价格变化
-        price_change_pct = float(market_data.get('price_change_pct', 0))
+        price_change_pct = float(market_data.get("price_change_pct", 0))
 
         # 获取价格历史记录（修复变量定义）
-        price_history = market_data.get('price_history', [])
+        price_history = market_data.get("price_history", [])
         recent_changes = []
         cumulative_change = 0.0
         consecutive_up = 0
@@ -269,12 +297,14 @@ class AIClient:
             recent_changes = price_history[-5:]
             if len(recent_changes) >= 2:
                 # 累积变化（从最早的价格到当前价格）
-                cumulative_change = (price - recent_changes[0]) / recent_changes[0] * 100
+                cumulative_change = (
+                    (price - recent_changes[0]) / recent_changes[0] * 100
+                )
 
             # 统计连续同向变化
-            for i in range(len(recent_changes)-1, 0, -1):
+            for i in range(len(recent_changes) - 1, 0, -1):
                 current = recent_changes[i]
-                previous = recent_changes[i-1]
+                previous = recent_changes[i - 1]
                 change = (current - previous) / previous * 100
 
                 if change > 0:
@@ -287,19 +317,19 @@ class AIClient:
                     break
 
         # 获取技术指标数据（如果有）
-        technical_data = market_data.get('technical_data', {})
-        rsi = float(technical_data.get('rsi', 50))
-        macd = technical_data.get('macd', 'N/A')
-        ma_status = technical_data.get('ma_status', 'N/A')
-        atr_pct = float(technical_data.get('atr_pct', 0))
+        technical_data = market_data.get("technical_data", {})
+        rsi = float(technical_data.get("rsi", 50))
+        macd = technical_data.get("macd", "N/A")
+        ma_status = technical_data.get("ma_status", "N/A")
+        atr_pct = float(technical_data.get("atr_pct", 0))
 
         # 获取趋势分析（从technical_data中获取新的趋势分析）
-        trend_analysis = technical_data.get('trend_analysis', {})
+        trend_analysis = technical_data.get("trend_analysis", {})
         if trend_analysis:
-            overall_trend = trend_analysis.get('overall_trend', 'neutral')
-            trend_strength = trend_analysis.get('trend_strength', 0.0)
-            trend_consensus = trend_analysis.get('trend_consensus', 0.0)
-            trend_details = trend_analysis.get('trend_details', {})
+            overall_trend = trend_analysis.get("overall_trend", "neutral")
+            trend_strength = trend_analysis.get("trend_strength", 0.0)
+            trend_consensus = trend_analysis.get("trend_consensus", 0.0)
+            trend_details = trend_analysis.get("trend_details", {})
 
             # 将趋势强度转换为描述性文字
             if trend_strength > 0.7:
@@ -312,37 +342,45 @@ class AIClient:
                 strength_desc = "弱"
 
             # 将趋势方向转换为中文
-            if overall_trend == 'strong_uptrend':
+            if overall_trend == "strong_uptrend":
                 trend_desc = f"强势上涨 (强度: {strength_desc})"
-            elif overall_trend == 'uptrend':
+            elif overall_trend == "uptrend":
                 trend_desc = f"上涨 (强度: {strength_desc})"
-            elif overall_trend == 'strong_downtrend':
+            elif overall_trend == "strong_downtrend":
                 trend_desc = f"强势下跌 (强度: {strength_desc})"
-            elif overall_trend == 'downtrend':
+            elif overall_trend == "downtrend":
                 trend_desc = f"下跌 (强度: {strength_desc})"
             else:
                 trend_desc = f"震荡 (强度: {strength_desc})"
         else:
             # 回退到旧的格式
-            old_trend_analysis = market_data.get('trend_analysis', {})
-            overall_trend = old_trend_analysis.get('overall', '震荡')
-            trend_strength_str = old_trend_analysis.get('strength', 'normal')
+            old_trend_analysis = market_data.get("trend_analysis", {})
+            overall_trend = old_trend_analysis.get("overall", "震荡")
+            trend_strength_str = old_trend_analysis.get("strength", "normal")
             # 将字符串强度转换为数值
-            strength_map = {'strong': 0.7, 'medium': 0.5, 'weak': 0.3, 'normal': 0.5}
+            strength_map = {"strong": 0.7, "medium": 0.5, "weak": 0.3, "normal": 0.5}
             trend_strength = strength_map.get(trend_strength_str, 0.5)
             trend_desc = f"{overall_trend} ({trend_strength_str})"
             trend_consensus = 0.0
 
         # 构建技术指标状态（优化阈值）
-        rsi_status = "超卖" if rsi < 30 else "偏低" if rsi < 40 else "超买" if rsi > 70 else "正常"
+        rsi_status = (
+            "超卖"
+            if rsi < 30
+            else "偏低"
+            if rsi < 40
+            else "超买"
+            if rsi > 70
+            else "正常"
+        )
 
         # 检测市场状态
         is_high_volatility = atr_pct > 3.0
         is_consolidation = (
-            atr_pct < 1.5 and
-            abs(price_change_pct) < 4 and
-            price_position > 25 and
-            price_position < 75
+            atr_pct < 1.5
+            and abs(price_change_pct) < 4
+            and price_position > 25
+            and price_position < 75
         )
 
         # 构建市场情绪（优化阈值）
@@ -418,38 +456,38 @@ MACD: {macd}
 整体趋势: {trend_desc}
 市场情绪: {sentiment}
 
-【⚡ 关键分析要求】
-1. 趋势检测优化：当趋势强度>0.25时才考虑趋势影响，避免过度敏感
-2. 合理波动识别：0.15%的单次涨幅和0.3%的累积涨幅才视为重要信号
-3. 价格位置优化：当价格从低位（<35%）上涨时，0.2%的涨幅才视为积极信号
-4. 连续变化优化：连续3个周期同向变化且总幅度>0.25%才视为明确趋势
-5. 累积效应调整：5个周期内累计0.5%的涨幅才视为有意义的累积
-6. 突破触发提高：单次涨幅>0.25%或累积涨幅>0.8%才考虑买入信号
+ 【⚡ 关键分析要求】
+ 1. 趋势检测优化：当趋势强度>0.5时才考虑趋势影响，避免过度敏感
+ 2. 合理波动识别：0.8%的单次涨幅和2.0%的累积涨幅才视为重要信号
+ 3. 价格位置优化：当价格从极低位（<20%）上涨时，1.0%的涨幅才视为积极信号
+ 4. 连续变化优化：连续5个周期同向变化且总幅度>1.5%才视为明确趋势
+ 5. 累积效应调整：5个周期内累计3.0%的涨幅才视为有意义的累积
+ 6. 突破触发提高：单次涨幅>1.2%或累积涨幅>3.0%才考虑买入信号
 
 【⚠️ 风险控制】
 {risk_hint}
 
 【💡 决策框架 - 基于趋势强度的动态评估】
-- 强趋势市场（趋势强度>0.5）:
-  - 价格位置80-90%：正常多头特征，不扣分，可正常买入
-  - 价格位置90-95%：需要谨慎，轻微扣分但仍可考虑买入
-  - 价格位置>95%：高风险，显著扣分
-  - RSI 70以下不视为超买，可放宽至75
-  - 单次涨幅>0.25%或累积涨幅>0.5%：强烈买入信号
+ - 强趋势市场（趋势强度>0.7）:
+   - 价格位置<30%：极度低位，可考虑买入但需谨慎
+   - 价格位置30-50%：相对低位，满足其他条件时可买入
+   - 价格位置>80%：高风险，强制HOLD
+   - RSI 65以下才考虑买入
+   - 单次涨幅>1.5%或累积涨幅>3.0%：强烈买入信号
 
-- 中等趋势市场（趋势强度0.3-0.5）:
-  - 价格位置85-90%：需要关注风险
-  - 价格位置>90%：高风险区域
-  - RSI 70为超买线
-  - 单次涨幅>0.2%或累积涨幅>0.5%：可考虑买入
-  - 单次涨幅>0.25%或累积涨幅>0.5%：强烈买入信号
+ - 中等趋势市场（趋势强度0.5-0.7）:
+   - 价格位置<20%：极度低位，可考虑买入
+   - 价格位置>70%：高风险区域，强制HOLD
+   - RSI 60以下才考虑买入
+   - 单次涨幅>1.2%或累积涨幅>2.5%：可考虑买入
+   - 单次涨幅>1.8%或累积涨幅>4.0%：强烈买入信号
 
-- 弱趋势/震荡市场（趋势强度<0.3）:
-  - 价格位置>85%：高风险，强制HOLD或大幅降低信心度
-  - RSI 65即为超买
-  - 严格风控，3个风险因素即强制HOLD
-  - 单次涨幅>0.3%或累积涨幅>0.6%才考虑买入
-  - 必须等待更明确的信号
+ - 弱趋势/震荡市场（趋势强度<0.5）:
+   - 价格位置>60%：高风险，强制HOLD
+   - RSI 55以下才考虑买入
+   - 严格风控，1个风险因素即强制HOLD
+   - 单次涨幅>2.0%或累积涨幅>4.0%才考虑买入
+   - 必须等待更明确的信号，禁止对任何波动过度敏感
 
 【📈 综合价格区间因子（24小时+7日）】
 - 综合价格位置分析（权重：24小时70% + 7日30%）：
@@ -471,19 +509,19 @@ MACD: {macd}
   - 跌破7日最低价：中期弱势信号，更危险
   - 在双重区间内：关注两个区间的支撑/阻力作用
 
-- 特殊状态识别：
-  - 24h和7日都在极低位（均<20%）：强烈关注，可能是底部区域
-  - 24h和7日都在极高位（均>80%）：高度警惕，可能是顶部区域
-  - 24h和7日位置差异大（>30%）：注意时间框架冲突，等待明确信号
+ - 特殊状态识别：
+   - 24h和7日都在极低位（均<20%）：强烈关注，可能是底部区域
+   - 24h和7日都在极高位（均>80%）：高度警惕，可能是顶部区域
+   - 24h和7日位置差异大（>30%）：注意时间框架冲突，等待明确信号
 
-【🎯 特殊信号识别（优化版）】
-- 低位反弹信号：价格位置<35% + 连续3次上涨 + RSI>35且上升 + 趋势强度>0.1
-- 突破确认信号：价格突破当日区间中轨 + 趋势强度>0.25 + 成交量放大
-- 累积效应信号：5个周期内累计涨幅>1.0%且无明显回调 + 趋势确认
-- 超敏感信号：单次0.8%涨幅 + 价格位置<60% + 趋势强度>0.15 = 强烈买入信号
-- 连续微涨信号：连续3周期上涨，总涨幅>0.5% = 买入信号
-- 历史累积信号：累积变化>1.0% + 连续上涨≥3次 + 趋势强度>0.2 = 强烈买入信号
-- 趋势反转信号：下跌趋势中，RSI>40且上升 + 价格突破前高 + 成交量放大
+ 【🎯 特殊信号识别（极严格版）】
+ - 低位反弹信号：价格位置<15% + 连续5次上涨 + RSI>35且上升 + 趋势强度>0.4
+ - 突破确认信号：价格突破当日区间中轨 + 趋势强度>0.6 + 成交量放大
+ - 累积效应信号：5个周期内累计涨幅>4.0%且无明显回调 + 趋势确认
+ - 强力买入信号：单次2.5%涨幅 + 价格位置<30% + 趋势强度>0.5 = 强烈买入信号
+ - 连续上涨信号：连续5周期上涨 + 总涨幅>3.0% = 买入信号
+ - 历史累积信号：累积变化>4.0% + 连续上涨≥5次 + 趋势强度>0.6 = 强烈买入信号
+ - 趋势反转信号：下跌趋势中，RSI>50且上升 + 价格突破前高 + 成交量放大
 
 【🚨 暴跌保护机制】
 - 早期预警：0.5%短期跌幅触发轻微预警，1.0%触发中等预警，1.5%触发严重预警
@@ -518,14 +556,16 @@ MACD: {macd}
 
         return prompt, composite_price_position
 
-    def _build_enhanced_prompt(self, provider: str, market_data: Dict[str, Any]) -> tuple[str, float]:
+    def _build_enhanced_prompt(
+        self, provider: str, market_data: Dict[str, Any]
+    ) -> tuple[str, float]:
         """构建增强的AI提示词 - 参考alpha-pilot-bot的先进设计"""
 
         # 基础市场数据
-        price = float(market_data.get('price', 0))
-        daily_high = float(market_data.get('high', price))
-        daily_low = float(market_data.get('low', price))
-        volume = float(market_data.get('volume', 0))
+        price = float(market_data.get("price", 0))
+        daily_high = float(market_data.get("high", price))
+        daily_low = float(market_data.get("low", price))
+        volume = float(market_data.get("volume", 0))
 
         # 计算价格位置（相对当日高低位置）
         price_position = 50  # 默认中位
@@ -534,13 +574,15 @@ MACD: {macd}
 
         # 24小时价格区间数据
         high_24h = daily_high  # 24小时最高价
-        low_24h = daily_low    # 24小时最低价
+        low_24h = daily_low  # 24小时最低价
         range_24h = high_24h - low_24h  # 24小时价格区间
-        amplitude_24h = (range_24h / price * 100) if price > 0 else 0  # 24小时振幅百分比
+        amplitude_24h = (
+            (range_24h / price * 100) if price > 0 else 0
+        )  # 24小时振幅百分比
 
         # 7日价格区间数据
-        high_7d = float(market_data.get('high_7d', high_24h))  # 7日最高价，回退到24小时
-        low_7d = float(market_data.get('low_7d', low_24h))     # 7日最低价，回退到24小时
+        high_7d = float(market_data.get("high_7d", high_24h))  # 7日最高价，回退到24小时
+        low_7d = float(market_data.get("low_7d", low_24h))  # 7日最低价，回退到24小时
         range_7d = high_7d - low_7d  # 7日价格区间
         amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
 
@@ -555,13 +597,15 @@ MACD: {macd}
             price_position_7d = ((price - low_7d) / (high_7d - low_7d)) * 100
 
         # 综合价格位置（优化权重：24小时55% + 7日45%）
-        composite_price_position = (price_position_24h * 0.55) + (price_position_7d * 0.45)
+        composite_price_position = (price_position_24h * 0.55) + (
+            price_position_7d * 0.45
+        )
 
         # 计算价格变化
-        price_change_pct = float(market_data.get('price_change_pct', 0))
+        price_change_pct = float(market_data.get("price_change_pct", 0))
 
         # 获取价格历史记录（修复变量定义）
-        price_history = market_data.get('price_history', [])
+        price_history = market_data.get("price_history", [])
         recent_changes = []
         cumulative_change = 0.0
         consecutive_up = 0
@@ -572,12 +616,14 @@ MACD: {macd}
             recent_changes = price_history[-5:]
             if len(recent_changes) >= 2:
                 # 累积变化（从最早的价格到当前价格）
-                cumulative_change = (price - recent_changes[0]) / recent_changes[0] * 100
+                cumulative_change = (
+                    (price - recent_changes[0]) / recent_changes[0] * 100
+                )
 
             # 统计连续同向变化
-            for i in range(len(recent_changes)-1, 0, -1):
+            for i in range(len(recent_changes) - 1, 0, -1):
                 current = recent_changes[i]
-                previous = recent_changes[i-1]
+                previous = recent_changes[i - 1]
                 change = (current - previous) / previous * 100
 
                 if change > 0:
@@ -590,19 +636,19 @@ MACD: {macd}
                     break
 
         # 获取技术指标数据（如果有）
-        technical_data = market_data.get('technical_data', {})
-        rsi = float(technical_data.get('rsi', 50))
-        macd = technical_data.get('macd', 'N/A')
-        ma_status = technical_data.get('ma_status', 'N/A')
-        atr_pct = float(technical_data.get('atr_pct', 0))
+        technical_data = market_data.get("technical_data", {})
+        rsi = float(technical_data.get("rsi", 50))
+        macd = technical_data.get("macd", "N/A")
+        ma_status = technical_data.get("ma_status", "N/A")
+        atr_pct = float(technical_data.get("atr_pct", 0))
 
         # 获取趋势分析（从technical_data中获取新的趋势分析）
-        trend_analysis = technical_data.get('trend_analysis', {})
+        trend_analysis = technical_data.get("trend_analysis", {})
         if trend_analysis:
-            overall_trend = trend_analysis.get('overall_trend', 'neutral')
-            trend_strength = trend_analysis.get('trend_strength', 0.0)
-            trend_consensus = trend_analysis.get('trend_consensus', 0.0)
-            trend_details = trend_analysis.get('trend_details', {})
+            overall_trend = trend_analysis.get("overall_trend", "neutral")
+            trend_strength = trend_analysis.get("trend_strength", 0.0)
+            trend_consensus = trend_analysis.get("trend_consensus", 0.0)
+            trend_details = trend_analysis.get("trend_details", {})
 
             # 将趋势强度转换为描述性文字
             if trend_strength > 0.7:
@@ -615,37 +661,45 @@ MACD: {macd}
                 strength_desc = "弱"
 
             # 将趋势方向转换为中文
-            if overall_trend == 'strong_uptrend':
+            if overall_trend == "strong_uptrend":
                 trend_desc = f"强势上涨 (强度: {strength_desc})"
-            elif overall_trend == 'uptrend':
+            elif overall_trend == "uptrend":
                 trend_desc = f"上涨 (强度: {strength_desc})"
-            elif overall_trend == 'strong_downtrend':
+            elif overall_trend == "strong_downtrend":
                 trend_desc = f"强势下跌 (强度: {strength_desc})"
-            elif overall_trend == 'downtrend':
+            elif overall_trend == "downtrend":
                 trend_desc = f"下跌 (强度: {strength_desc})"
             else:
                 trend_desc = f"震荡 (强度: {strength_desc})"
         else:
             # 回退到旧的格式
-            old_trend_analysis = market_data.get('trend_analysis', {})
-            overall_trend = old_trend_analysis.get('overall', '震荡')
-            trend_strength_str = old_trend_analysis.get('strength', 'normal')
+            old_trend_analysis = market_data.get("trend_analysis", {})
+            overall_trend = old_trend_analysis.get("overall", "震荡")
+            trend_strength_str = old_trend_analysis.get("strength", "normal")
             # 将字符串强度转换为数值
-            strength_map = {'strong': 0.7, 'medium': 0.5, 'weak': 0.3, 'normal': 0.5}
+            strength_map = {"strong": 0.7, "medium": 0.5, "weak": 0.3, "normal": 0.5}
             trend_strength = strength_map.get(trend_strength_str, 0.5)
             trend_desc = f"{overall_trend} ({trend_strength_str})"
             trend_consensus = 0.0
 
         # 构建技术指标状态（优化阈值）
-        rsi_status = "超卖" if rsi < 30 else "偏低" if rsi < 40 else "超买" if rsi > 70 else "正常"
+        rsi_status = (
+            "超卖"
+            if rsi < 30
+            else "偏低"
+            if rsi < 40
+            else "超买"
+            if rsi > 70
+            else "正常"
+        )
 
         # 检测市场状态
         is_high_volatility = atr_pct > 3.0
         is_consolidation = (
-            atr_pct < 1.5 and
-            abs(price_change_pct) < 4 and
-            price_position > 25 and
-            price_position < 75
+            atr_pct < 1.5
+            and abs(price_change_pct) < 4
+            and price_position > 25
+            and price_position < 75
         )
 
         # 构建市场情绪（优化阈值）
@@ -690,7 +744,7 @@ MACD: {macd}
 
         # 提供商特定分析框架
         provider_frameworks = {
-            'deepseek': f"""
+            "deepseek": f"""
 【🎯 DEEPSEEK 核心分析框架】
 1. 价格位置分析: 当前处于{price_position:.1f}%位置
 2. 技术形态识别: 寻找突破/反转信号
@@ -699,7 +753,7 @@ MACD: {macd}
 
 交易风格: 波段操作，精准入场
 """,
-            'kimi': f"""
+            "kimi": f"""
 【📈 KIMI 短线分析框架】
 1. 15分钟周期分析
 2. RSI指标: {rsi:.1f} ({rsi_status})
@@ -707,7 +761,7 @@ MACD: {macd}
 4. 支撑阻力: 基于价格位置判断
 
 交易风格: 短线快进快出，严格止损
-"""
+""",
         }
 
         # 获取提供商特定框架
@@ -751,11 +805,11 @@ MACD: {macd}
 - 价格相对位置: {price_position:.1f}% (0%=底部, 100%=顶部)
 - 综合价格位置: {composite_price_position:.1f}% (24h:55% + 7d:45%)
 - 技术指标状态: RSI {rsi_status}
-- 波动率水平: {'高' if is_high_volatility else '低' if is_consolidation else '正常'}
-- 趋势强度级别: {'强势' if trend_strength > 0.5 else '中等' if trend_strength > 0.3 else '弱势'}
+- 波动率水平: {"高" if is_high_volatility else "低" if is_consolidation else "正常"}
+- 趋势强度级别: {"强势" if trend_strength > 0.5 else "中等" if trend_strength > 0.3 else "弱势"}
 - 价格位置因子: 价格越高买入信号越弱，价格越低买入信号越强
 - 动态风控标准:
-  * {'强趋势: 价格位置放宽至95%, RSI放宽至75, 单次涨幅>0.8%才考虑' if trend_strength > 0.5 else '中等趋势: 价格位置90%, RSI 70, 单次涨幅>0.6%才考虑' if trend_strength > 0.3 else '弱趋势: 价格位置85%, RSI 65, 单次涨幅>1.0%才考虑'}
+  * {"强趋势: 价格位置放宽至95%, RSI放宽至75, 单次涨幅>0.8%才考虑" if trend_strength > 0.5 else "中等趋势: 价格位置90%, RSI 70, 单次涨幅>0.6%才考虑" if trend_strength > 0.3 else "弱趋势: 价格位置85%, RSI 65, 单次涨幅>1.0%才考虑"}
 - 建议操作: 基于趋势强度给出明确信号，弱趋势中严格控制买入条件
 
 【🎯 特殊信号识别（优化版）】
@@ -800,50 +854,58 @@ MACD: {macd}
 
         return prompt, composite_price_position
 
-    async def _call_kimi_with_retry(self, api_key: str, prompt: str, market_data: Dict[str, Any], attempt: int = 0) -> Dict[str, Any]:
+    async def _call_kimi_with_retry(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any], attempt: int = 0
+    ) -> Dict[str, Any]:
         """Kimi API调用 - 带重试逻辑"""
-        timeout_config = self.timeout_config['kimi']
-        max_retries = timeout_config['max_retries']
-        base_delay = timeout_config['retry_base_delay']
+        timeout_config = self.timeout_config["kimi"]
+        max_retries = timeout_config["max_retries"]
+        base_delay = timeout_config["retry_base_delay"]
 
         try:
             # 动态超时时间 - 随重试次数增加
-            current_timeout = timeout_config['total_timeout'] * (1 + attempt * 0.2)
+            current_timeout = timeout_config["total_timeout"] * (1 + attempt * 0.2)
 
-            result = await self._call_kimi_impl(api_key, prompt, market_data, current_timeout)
+            result = await self._call_kimi_impl(
+                api_key, prompt, market_data, current_timeout
+            )
             return result
 
         except (RateLimitError, asyncio.TimeoutError, NetworkError) as e:
             if attempt < max_retries - 1:
                 # 指数退避策略
-                wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                logger.warning(f"Kimi API调用失败: {str(e)[:50]}，{wait_time:.1f}秒后重试 (第{attempt + 2}次)")
+                wait_time = base_delay * (2**attempt) + random.uniform(0, 1)
+                logger.warning(
+                    f"Kimi API调用失败: {str(e)[:50]}，{wait_time:.1f}秒后重试 (第{attempt + 2}次)"
+                )
                 await asyncio.sleep(wait_time)
-                return await self._call_kimi_with_retry(api_key, prompt, market_data, attempt + 1)
+                return await self._call_kimi_with_retry(
+                    api_key, prompt, market_data, attempt + 1
+                )
             else:
                 raise NetworkError(f"Kimi API调用失败，已重试{max_retries}次: {str(e)}")
 
-    async def _call_kimi_impl(self, api_key: str, prompt: str, market_data: Dict[str, Any], timeout: float) -> Dict[str, Any]:
+    async def _call_kimi_impl(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any], timeout: float
+    ) -> Dict[str, Any]:
         """Kimi API实际调用实现"""
         headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         }
 
         data = {
-            'model': 'moonshot-v1-32k',
-            'messages': [
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.2,
-            'max_tokens': 800
+            "model": "moonshot-v1-32k",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "max_tokens": 800,
         }
 
         async with self.session.post(
-            'https://api.moonshot.cn/v1/chat/completions',
+            "https://api.moonshot.cn/v1/chat/completions",
             headers=headers,
             json=data,
-            timeout=aiohttp.ClientTimeout(total=timeout)
+            timeout=aiohttp.ClientTimeout(total=timeout),
         ) as response:
             if response.status == 429:
                 raise RateLimitError("Kimi API速率限制")
@@ -851,41 +913,45 @@ MACD: {macd}
                 raise NetworkError(f"Kimi API错误: {response.status}")
 
             result = await response.json()
-            content = result['choices'][0]['message']['content']
+            content = result["choices"][0]["message"]["content"]
 
-            return self._parse_ai_response(content, 'kimi', market_data.get('composite_price_position', 50.0))
+            return self._parse_ai_response(
+                content, "kimi", market_data.get("composite_price_position", 50.0)
+            )
 
-    async def _call_kimi(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _call_kimi(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """调用Kimi API - 带增强重试机制"""
         return await self._call_kimi_with_retry(api_key, prompt, market_data)
 
-    async def _call_deepseek(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _call_deepseek(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """调用DeepSeek API"""
-        timeout_config = self.timeout_config['deepseek']
+        timeout_config = self.timeout_config["deepseek"]
 
         headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         }
 
         data = {
-            'model': 'deepseek-chat',
-            'messages': [
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.2,  # 降低随机性，保持一致性
-            'max_tokens': 600,   # 适度增加，支持更详细分析
-            'top_p': 0.95,       # 限制采样范围
-            'frequency_penalty': 0.1,  # 减少重复
-            'presence_penalty': 0.1    # 鼓励新观点
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,  # 降低随机性，保持一致性
+            "max_tokens": 600,  # 适度增加，支持更详细分析
+            "top_p": 0.95,  # 限制采样范围
+            "frequency_penalty": 0.1,  # 减少重复
+            "presence_penalty": 0.1,  # 鼓励新观点
         }
 
         try:
             async with self.session.post(
-                'https://api.deepseek.com/v1/chat/completions',
+                "https://api.deepseek.com/v1/chat/completions",
                 headers=headers,
                 json=data,
-                timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])
+                timeout=aiohttp.ClientTimeout(total=timeout_config["total_timeout"]),
             ) as response:
                 if response.status == 429:
                     raise RateLimitError("DeepSeek API速率限制")
@@ -893,46 +959,55 @@ MACD: {macd}
                     raise NetworkError(f"DeepSeek API错误: {response.status}")
 
                 result = await response.json()
-                content = result['choices'][0]['message']['content']
+                content = result["choices"][0]["message"]["content"]
 
-                return self._parse_ai_response(content, 'deepseek', market_data.get('composite_price_position', 50.0))
+                return self._parse_ai_response(
+                    content,
+                    "deepseek",
+                    market_data.get("composite_price_position", 50.0),
+                )
 
         except asyncio.TimeoutError:
             raise NetworkError("DeepSeek API请求超时")
         except Exception as e:
             raise NetworkError(f"DeepSeek API调用失败: {e}")
 
-    async def _call_qwen(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _call_qwen(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """调用Qwen API"""
-        timeout_config = self.timeout_config['qwen']
+        timeout_config = self.timeout_config["qwen"]
 
         headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         }
 
         data = {
-            'model': 'qwen-plus',  # 使用修复后的模型
-            'input': {
-                'messages': [
-                    {'role': 'system', 'content': '你是一个专业的加密货币交易分析师，擅长技术分析和市场预测。请基于提供的市场数据给出准确的交易建议。'},
-                    {'role': 'user', 'content': prompt}
+            "model": "qwen-plus",  # 使用修复后的模型
+            "input": {
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "你是一个专业的加密货币交易分析师，擅长技术分析和市场预测。请基于提供的市场数据给出准确的交易建议。",
+                    },
+                    {"role": "user", "content": prompt},
                 ]
             },
-            'parameters': {
-                'temperature': 0.3,
-                'max_tokens': 500,
-                'top_p': 0.95,
-                'result_format': 'message'
-            }
+            "parameters": {
+                "temperature": 0.3,
+                "max_tokens": 500,
+                "top_p": 0.95,
+                "result_format": "message",
+            },
         }
 
         try:
             async with self.session.post(
-                'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation',  # 使用原生端点
+                "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",  # 使用原生端点
                 headers=headers,
                 json=data,
-                timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])
+                timeout=aiohttp.ClientTimeout(total=timeout_config["total_timeout"]),
             ) as response:
                 if response.status == 429:
                     raise RateLimitError("Qwen API速率限制")
@@ -940,40 +1015,42 @@ MACD: {macd}
                     raise NetworkError(f"Qwen API错误: {response.status}")
 
                 result = await response.json()
-                message = result['output']['choices'][0]['message']
-                content = message.get('content', '')
+                message = result["output"]["choices"][0]["message"]
+                content = message.get("content", "")
 
-                return self._parse_ai_response(content, 'qwen', market_data.get('composite_price_position', 50.0))
+                return self._parse_ai_response(
+                    content, "qwen", market_data.get("composite_price_position", 50.0)
+                )
 
         except asyncio.TimeoutError:
             raise NetworkError("Qwen API请求超时")
         except Exception as e:
             raise NetworkError(f"Qwen API调用失败: {e}")
 
-    async def _call_openai(self, api_key: str, prompt: str, market_data: Dict[str, Any]) -> Dict[str, Any]:
+    async def _call_openai(
+        self, api_key: str, prompt: str, market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """调用OpenAI API"""
-        timeout_config = self.timeout_config['openai']
+        timeout_config = self.timeout_config["openai"]
 
         headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
         }
 
         data = {
-            'model': 'gpt-3.5-turbo',
-            'messages': [
-                {'role': 'user', 'content': prompt}
-            ],
-            'temperature': 0.3,
-            'max_tokens': 500
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 500,
         }
 
         try:
             async with self.session.post(
-                'https://api.openai.com/v1/chat/completions',
+                "https://api.openai.com/v1/chat/completions",
                 headers=headers,
                 json=data,
-                timeout=aiohttp.ClientTimeout(total=timeout_config['total_timeout'])
+                timeout=aiohttp.ClientTimeout(total=timeout_config["total_timeout"]),
             ) as response:
                 if response.status == 429:
                     raise RateLimitError("OpenAI API速率限制")
@@ -981,16 +1058,20 @@ MACD: {macd}
                     raise NetworkError(f"OpenAI API错误: {response.status}")
 
                 result = await response.json()
-                content = result['choices'][0]['message']['content']
+                content = result["choices"][0]["message"]["content"]
 
-                return self._parse_ai_response(content, 'openai', market_data.get('composite_price_position', 50.0))
+                return self._parse_ai_response(
+                    content, "openai", market_data.get("composite_price_position", 50.0)
+                )
 
         except asyncio.TimeoutError:
             raise NetworkError("OpenAI API请求超时")
         except Exception as e:
             raise NetworkError(f"OpenAI API调用失败: {e}")
 
-    def _parse_ai_response(self, content: str, provider: str, composite_price_position: float = 50.0) -> Dict[str, Any]:
+    def _parse_ai_response(
+        self, content: str, provider: str, composite_price_position: float = 50.0
+    ) -> Dict[str, Any]:
         """解析AI响应"""
         try:
             # 尝试提取JSON
@@ -998,67 +1079,67 @@ MACD: {macd}
             import re
 
             # 查找JSON内容
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
             if json_match:
                 json_str = json_match.group()
                 ai_data = json.loads(json_str)
 
                 # 验证必需字段
-                signal = ai_data.get('signal', 'HOLD').upper()
-                confidence = float(ai_data.get('confidence', 0.5))
-                reason = ai_data.get('reason', f'{provider} AI分析')
-                holding_time = ai_data.get('holding_time', '15分钟')
+                signal = ai_data.get("signal", "HOLD").upper()
+                confidence = float(ai_data.get("confidence", 0.5))
+                reason = ai_data.get("reason", f"{provider} AI分析")
+                holding_time = ai_data.get("holding_time", "15分钟")
 
                 # 验证信号有效性
-                if signal not in ['BUY', 'SELL', 'HOLD']:
-                    signal = 'HOLD'
+                if signal not in ["BUY", "SELL", "HOLD"]:
+                    signal = "HOLD"
 
                 # 验证置信度范围
                 confidence = max(0.0, min(1.0, confidence))
 
                 return {
-                    'signal': signal,
-                    'confidence': confidence,
-                    'reason': reason,
-                    'holding_time': holding_time,
-                    'timestamp': datetime.now().isoformat(),
-                    'provider': provider,
-                    'raw_response': content,
-                    'composite_price_position': composite_price_position
+                    "signal": signal,
+                    "confidence": confidence,
+                    "reason": reason,
+                    "holding_time": holding_time,
+                    "timestamp": datetime.now().isoformat(),
+                    "provider": provider,
+                    "raw_response": content,
+                    "composite_price_position": composite_price_position,
                 }
             else:
                 # 如果没有JSON，尝试解析文本
                 content_lower = content.lower()
-                if 'buy' in content_lower:
-                    signal = 'BUY'
+                if "buy" in content_lower:
+                    signal = "BUY"
                     confidence = 0.7
-                elif 'sell' in content_lower:
-                    signal = 'SELL'
+                elif "sell" in content_lower:
+                    signal = "SELL"
                     confidence = 0.7
                 else:
-                    signal = 'HOLD'
+                    signal = "HOLD"
                     confidence = 0.5
 
                 return {
-                    'signal': signal,
-                    'confidence': confidence,
-                    'reason': f'{provider} AI建议: {content[:100]}...',
-                    'holding_time': '15分钟',
-                    'timestamp': datetime.now().isoformat(),
-                    'provider': provider,
-                    'raw_response': content,
-                    'composite_price_position': composite_price_position
+                    "signal": signal,
+                    "confidence": confidence,
+                    "reason": f"{provider} AI建议: {content[:100]}...",
+                    "holding_time": "15分钟",
+                    "timestamp": datetime.now().isoformat(),
+                    "provider": provider,
+                    "raw_response": content,
+                    "composite_price_position": composite_price_position,
                 }
 
         except Exception as e:
             logger.error(f"解析AI响应失败: {e}")
             return {
-                'signal': 'HOLD',
-                'confidence': 0.3,
-                'reason': f'解析AI响应失败: {str(e)}',
-                'holding_time': '15分钟',
-                'timestamp': datetime.now().isoformat(),
-                'provider': provider,
-                'raw_response': content,
-                'composite_price_position': composite_price_position
+                "signal": "HOLD",
+                "confidence": 0.3,
+                "reason": f"解析AI响应失败: {str(e)}",
+                "holding_time": "15分钟",
+                "timestamp": datetime.now().isoformat(),
+                "provider": provider,
+                "raw_response": content,
+                "composite_price_position": composite_price_position,
             }

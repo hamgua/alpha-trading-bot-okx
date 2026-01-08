@@ -13,8 +13,10 @@ from .dynamic_position_sizing import DynamicPositionSizing
 
 logger = logging.getLogger(__name__)
 
+
 class RiskManagerConfig(BaseConfig):
     """风险管理器配置"""
+
     max_daily_loss: float = 100.0
     max_position_risk: float = 0.05
     max_consecutive_losses: int = 3
@@ -22,14 +24,18 @@ class RiskManagerConfig(BaseConfig):
     enable_ai_risk_assessment: bool = True
     enable_market_risk_monitoring: bool = True
 
+
 class RiskManager(BaseComponent):
     """风险管理器 - 多维度风险评估"""
 
-    def __init__(self, config: Optional[RiskManagerConfig] = None):
+    def __init__(
+        self, config: Optional[RiskManagerConfig] = None, exchange_client=None
+    ):
         # 如果没有提供配置，创建默认配置
         if config is None:
             config = RiskManagerConfig(name="RiskManager")
         super().__init__(config)
+        self.exchange_client = exchange_client  # 交易所客户端
         self.daily_loss = 0.0
         self.consecutive_losses = 0
         self.last_loss_time = None
@@ -55,19 +61,23 @@ class RiskManager(BaseComponent):
         """清理资源"""
         pass
 
-    async def assess_risk(self, signals: list, current_price: float = 0, balance: Any = None, market_data: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def assess_risk(
+        self,
+        signals: list,
+        current_price: float = 0,
+        balance: Any = None,
+        market_data: Dict[str, Any] = None,
+    ) -> Dict[str, Any]:
         """评估交易风险（兼容策略管理器调用的接口）"""
         # 存储余额信息供后续使用
         self._current_balance = balance
-        logger.info(f"[风险管理器] 收到余额信息 - total: {balance.total if balance else 'None'}, free: {balance.free if balance else 'None'}")
+        logger.info(
+            f"[风险管理器] 收到余额信息 - total: {balance.total if balance else 'None'}, free: {balance.free if balance else 'None'}"
+        )
         try:
             # 如果没有信号，返回默认允许交易
             if not signals:
-                return {
-                    'can_trade': True,
-                    'reason': '无交易信号',
-                    'risk_score': 0.0
-                }
+                return {"can_trade": True, "reason": "无交易信号", "risk_score": 0.0}
 
             # 简化实现：基于信号数量和质量评估风险
             risk_score = 0.0
@@ -76,6 +86,7 @@ class RiskManager(BaseComponent):
             # 获取当前价格（如果没有提供）
             if current_price == 0:
                 from ...config import load_config
+
                 config = load_config()
                 # 这里应该获取实时价格，简化实现使用默认值
                 current_price = 85000  # 默认价格
@@ -87,24 +98,40 @@ class RiskManager(BaseComponent):
 
             # 2. 信号一致性风险
             # 支持大小写不敏感的信号类型检查
-            buy_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'BUY')
-            sell_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'SELL')
-            hold_signals = sum(1 for s in signals if str(s.get('signal', '')).upper() == 'HOLD')
+            buy_signals = sum(
+                1 for s in signals if str(s.get("signal", "")).upper() == "BUY"
+            )
+            sell_signals = sum(
+                1 for s in signals if str(s.get("signal", "")).upper() == "SELL"
+            )
+            hold_signals = sum(
+                1 for s in signals if str(s.get("signal", "")).upper() == "HOLD"
+            )
 
             # 也检查'type'字段，因为信号可能使用'type'而不是'signal'
             if buy_signals == 0 and sell_signals == 0 and hold_signals == 0:
-                buy_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'BUY')
-                sell_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'SELL')
-                hold_signals = sum(1 for s in signals if str(s.get('type', '')).upper() == 'HOLD')
+                buy_signals = sum(
+                    1 for s in signals if str(s.get("type", "")).upper() == "BUY"
+                )
+                sell_signals = sum(
+                    1 for s in signals if str(s.get("type", "")).upper() == "SELL"
+                )
+                hold_signals = sum(
+                    1 for s in signals if str(s.get("type", "")).upper() == "HOLD"
+                )
 
             total_signals = len(signals)
 
             # 添加调试日志 - 查看信号实际内容
             logger.debug(f"[风险评估调试] 信号详情: {signals}")
-            logger.debug(f"[风险评估调试] 信号统计 - BUY: {buy_signals}, SELL: {sell_signals}, HOLD: {hold_signals}, 总计: {total_signals}")
+            logger.debug(
+                f"[风险评估调试] 信号统计 - BUY: {buy_signals}, SELL: {sell_signals}, HOLD: {hold_signals}, 总计: {total_signals}"
+            )
 
             if total_signals > 0:
-                max_consensus = max(buy_signals, sell_signals, hold_signals) / total_signals
+                max_consensus = (
+                    max(buy_signals, sell_signals, hold_signals) / total_signals
+                )
                 logger.debug(f"[风险评估调试] 最大一致性比例: {max_consensus}")
 
                 # 调整阈值：对于100%一致的信号，不应视为"一致性不足"
@@ -119,32 +146,41 @@ class RiskManager(BaseComponent):
 
             # 新增：价格位置风险评估
             if market_data is not None:
-                composite_position = self._get_composite_price_position(signals, market_data)
+                composite_position = self._get_composite_price_position(
+                    signals, market_data
+                )
             else:
                 composite_position = None
 
             if composite_position is not None:
                 # 获取价格位置级别
                 from ...ai.price_position_scaler import PricePositionScaler
+
                 scaler = PricePositionScaler()
                 level = scaler.get_price_position_level(composite_position)
 
                 # 根据价格位置调整风险评分
-                if level in ['extreme_high', 'high']:
+                if level in ["extreme_high", "high"]:
                     # 高位买入风险显著增加
                     risk_score += 0.3
                     reasons.append(f"价格位置风险：{level}({composite_position:.1f}%)")
-                    logger.info(f"🚨 价格位置风险：{composite_position:.1f}%处于{level}，风险分数+0.3")
-                elif level == 'moderate_high':
+                    logger.info(
+                        f"🚨 价格位置风险：{composite_position:.1f}%处于{level}，风险分数+0.3"
+                    )
+                elif level == "moderate_high":
                     # 偏高位置适度增加风险
                     risk_score += 0.15
                     reasons.append(f"价格位置风险：偏高({composite_position:.1f}%)")
-                    logger.info(f"⚠️ 价格位置风险：{composite_position:.1f}%偏高，风险分数+0.15")
-                elif level in ['extreme_low', 'low']:
+                    logger.info(
+                        f"⚠️ 价格位置风险：{composite_position:.1f}%偏高，风险分数+0.15"
+                    )
+                elif level in ["extreme_low", "low"]:
                     # 低位买入风险适度降低
                     risk_score -= 0.1
                     reasons.append(f"价格位置优势：{level}({composite_position:.1f}%)")
-                    logger.info(f"📈 价格位置优势：{composite_position:.1f}%处于{level}，风险分数-0.1")
+                    logger.info(
+                        f"📈 价格位置优势：{composite_position:.1f}%处于{level}，风险分数-0.1"
+                    )
 
                 # 记录详细分析
                 recommendation = scaler.get_position_recommendation(composite_position)
@@ -153,17 +189,17 @@ class RiskManager(BaseComponent):
             # 3. 当日亏损检查
             if self.daily_loss >= self.config.max_daily_loss:
                 return {
-                    'can_trade': False,
-                    'reason': f"当日亏损已达上限: {self.daily_loss:.2f} USDT",
-                    'risk_score': 1.0
+                    "can_trade": False,
+                    "reason": f"当日亏损已达上限: {self.daily_loss:.2f} USDT",
+                    "risk_score": 1.0,
                 }
 
             # 4. 连续亏损检查
             if self.consecutive_losses >= self.config.max_consecutive_losses:
                 return {
-                    'can_trade': False,
-                    'reason': f"连续亏损次数过多: {self.consecutive_losses}",
-                    'risk_score': 1.0
+                    "can_trade": False,
+                    "reason": f"连续亏损次数过多: {self.consecutive_losses}",
+                    "risk_score": 1.0,
                 }
 
             # 综合评估
@@ -185,22 +221,27 @@ class RiskManager(BaseComponent):
             if can_trade:
                 for signal in signals:
                     # 获取信号类型
-                    signal_type = signal.get('signal', signal.get('type', 'HOLD')).upper()
-                    if signal_type in ['BUY', 'SELL']:
+                    signal_type = signal.get(
+                        "signal", signal.get("type", "HOLD")
+                    ).upper()
+                    if signal_type in ["BUY", "SELL"]:
                         # 验证交易数量，确保满足最小交易量要求
-                        symbol = signal.get('symbol', 'BTC/USDT:USDT')
+                        symbol = signal.get("symbol", "BTC/USDT:USDT")
 
                         # 如果有余额信息，根据余额和杠杆计算最优交易数量
-                        if self._current_balance and signal_type == 'BUY':  # 只允许做多
-                            logger.info(f"[风险管理器] 检测到买入信号和余额信息，开始动态计算交易数量")
+                        if self._current_balance and signal_type == "BUY":  # 只允许做多
+                            logger.info(
+                                f"[风险管理器] 检测到买入信号和余额信息，开始动态计算交易数量"
+                            )
                             try:
                                 # 获取合约大小
                                 contract_size = 0.01  # BTC/USDT:USDT默认合约大小
-                                if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                                if symbol in ["BTC/USDT:USDT", "BTC-USDT-SWAP"]:
                                     contract_size = 0.01
 
                                 # 从配置获取杠杆倍数
                                 from ...config import load_config
+
                                 config = load_config()
                                 leverage = config.trading.leverage
 
@@ -211,169 +252,220 @@ class RiskManager(BaseComponent):
 
                                 # 提前计算最小交易所需的保证金
                                 min_contracts = 0.01  # OKX最小0.01张（不是1张）
-                                min_required_margin = (min_contracts * contract_size * current_price) / leverage
+                                min_required_margin = (
+                                    min_contracts * contract_size * current_price
+                                ) / leverage
 
                                 # 检查余额是否足够最小交易
                                 if usable_balance < min_required_margin:
                                     logger.warning(f"可用余额不足最小交易要求")
-                                    logger.warning(f"  当前可用余额: {usable_balance:.4f} USDT")
-                                    logger.warning(f"  最小交易需要: {min_required_margin:.4f} USDT")
-                                    logger.warning(f"  缺少: {min_required_margin - usable_balance:.4f} USDT")
-                                    logger.warning(f"  建议: 增加账户余额或减少杠杆倍数")
+                                    logger.warning(
+                                        f"  当前可用余额: {usable_balance:.4f} USDT"
+                                    )
+                                    logger.warning(
+                                        f"  最小交易需要: {min_required_margin:.4f} USDT"
+                                    )
+                                    logger.warning(
+                                        f"  缺少: {min_required_margin - usable_balance:.4f} USDT"
+                                    )
+                                    logger.warning(
+                                        f"  建议: 增加账户余额或减少杠杆倍数"
+                                    )
 
                                 # 使用动态仓位管理器计算最优仓位
                                 try:
                                     # 获取市场数据和技术指标
                                     from ...utils.technical import TechnicalIndicators
+
                                     tech_indicators = TechnicalIndicators()
 
                                     # 获取ATR数据
-                                    recent_data = self.exchange_client.get_ohlcv(symbol, '15m', limit=20)
+                                    recent_data = self.exchange_client.get_ohlcv(
+                                        symbol, "15m", limit=20
+                                    )
                                     if recent_data and len(recent_data) >= 14:
-                                        high_low_data = [(d[2], d[3]) for d in recent_data]
-                                        atr_14 = tech_indicators.calculate_atr(high_low_data, period=14)
+                                        high_low_data = [
+                                            (d[2], d[3]) for d in recent_data
+                                        ]
+                                        atr_14 = tech_indicators.calculate_atr(
+                                            high_low_data, period=14
+                                        )
 
                                         # 计算信号强度和置信度
-                                        signal_strength = signal.get('confidence', 0.5)  # 从信号中获取
-                                        confidence = signal.get('confidence', 0.5)
+                                        signal_strength = signal.get(
+                                            "confidence", 0.5
+                                        )  # 从信号中获取
+                                        confidence = signal.get("confidence", 0.5)
 
                                         # 确定风险等级
                                         risk_level = self._determine_risk_level(signal)
 
                                         # 确定市场波动率
-                                        market_volatility = self._determine_market_volatility(recent_data)
+                                        market_volatility = (
+                                            self._determine_market_volatility(
+                                                recent_data
+                                            )
+                                        )
 
                                         # 使用动态仓位管理器计算仓位
-                                        position_result = self.position_sizer.calculate_position_size(
-                                            account_balance=available_balance,
-                                            current_price=current_price,
-                                            atr_14=atr_14,
-                                            signal_strength=signal_strength,
-                                            confidence=confidence,
-                                            market_volatility=market_volatility,
-                                            risk_level=risk_level,
-                                            symbol=symbol.replace('/USDT', ''),
-                                            max_risk_per_trade=0.02
+                                        position_result = (
+                                            self.position_sizer.calculate_position_size(
+                                                account_balance=available_balance,
+                                                current_price=current_price,
+                                                atr_14=atr_14,
+                                                signal_strength=signal_strength,
+                                                confidence=confidence,
+                                                market_volatility=market_volatility,
+                                                risk_level=risk_level,
+                                                symbol=symbol.replace("/USDT", ""),
+                                                max_risk_per_trade=0.02,
+                                            )
                                         )
 
                                         # 获取建议的合约数量
-                                        amount = position_result['contracts']
-                                        logger.info(f"动态仓位管理器计算结果: {position_result}")
+                                        amount = position_result["contracts"]
+                                        logger.info(
+                                            f"动态仓位管理器计算结果: {position_result}"
+                                        )
 
                                     else:
                                         # 数据不足，使用基础计算
                                         raise ValueError("市场数据不足")
 
                                 except Exception as e:
-                                    logger.error(f"动态仓位计算失败: {e}，回退到基础计算")
+                                    logger.error(
+                                        f"动态仓位计算失败: {e}，回退到基础计算"
+                                    )
 
                                     # 回退到基础仓位计算
                                     # 计算可交易的最大张数
-                                    max_contracts = (usable_balance * leverage) / (contract_size * current_price)
+                                    max_contracts = (usable_balance * leverage) / (
+                                        contract_size * current_price
+                                    )
 
                                     if max_contracts < min_contracts:
-                                        logger.warning(f"计算的交易数量小于最小交易量要求，使用最小值: {min_contracts}")
+                                        logger.warning(
+                                            f"计算的交易数量小于最小交易量要求，使用最小值: {min_contracts}"
+                                        )
                                         amount = min_contracts
                                     else:
                                         amount = round(max_contracts, 4)
 
                                     # 计算实际使用的保证金
-                                    actual_margin = (amount * contract_size * current_price) / leverage
-                                    logger.info(f"基础仓位计算 - 可用余额: {available_balance:.4f} USDT, "
-                                              f"杠杆: {leverage}x, 合约数量: {amount}, 保证金: {actual_margin:.4f} USDT")
+                                    actual_margin = (
+                                        amount * contract_size * current_price
+                                    ) / leverage
+                                    logger.info(
+                                        f"基础仓位计算 - 可用余额: {available_balance:.4f} USDT, "
+                                        f"杠杆: {leverage}x, 合约数量: {amount}, 保证金: {actual_margin:.4f} USDT"
+                                    )
 
                             except Exception as e:
-                                logger.error(f"根据余额计算交易数量失败: {e}，使用默认数量1张")
+                                logger.error(
+                                    f"根据余额计算交易数量失败: {e}，使用默认数量1张"
+                                )
                                 amount = 1.0
 
                             # 添加辅助方法
-                            def _determine_risk_level(self, signal: Dict[str, Any]) -> str:
+                            def _determine_risk_level(
+                                self, signal: Dict[str, Any]
+                            ) -> str:
                                 """根据信号确定风险等级"""
-                                confidence = signal.get('confidence', 0.5)
+                                confidence = signal.get("confidence", 0.5)
 
                                 if confidence > 0.8:
-                                    return 'low'
+                                    return "low"
                                 elif confidence > 0.6:
-                                    return 'medium'
+                                    return "medium"
                                 elif confidence > 0.4:
-                                    return 'high'
+                                    return "high"
                                 else:
-                                    return 'very_high'
+                                    return "very_high"
 
-                            def _determine_market_volatility(self, ohlcv_data: list) -> str:
+                            def _determine_market_volatility(
+                                self, ohlcv_data: list
+                            ) -> str:
                                 """根据历史数据确定市场波动率"""
                                 if len(ohlcv_data) < 5:
-                                    return 'normal'
+                                    return "normal"
 
                                 # 计算价格变化
                                 price_changes = []
                                 for i in range(1, len(ohlcv_data)):
-                                    change = abs((ohlcv_data[i][4] - ohlcv_data[i-1][4]) / ohlcv_data[i-1][4])
+                                    change = abs(
+                                        (ohlcv_data[i][4] - ohlcv_data[i - 1][4])
+                                        / ohlcv_data[i - 1][4]
+                                    )
                                     price_changes.append(change)
 
                                 avg_change = sum(price_changes) / len(price_changes)
 
                                 # 根据平均变化判断波动率
                                 if avg_change < 0.001:  # 0.1%
-                                    return 'very_low'
+                                    return "very_low"
                                 elif avg_change < 0.002:  # 0.2%
-                                    return 'low'
+                                    return "low"
                                 elif avg_change < 0.005:  # 0.5%
-                                    return 'normal'
-                                elif avg_change < 0.01:   # 1%
-                                    return 'high'
+                                    return "normal"
+                                elif avg_change < 0.01:  # 1%
+                                    return "high"
                                 else:
-                                    return 'very_high'
+                                    return "very_high"
                         else:
                             # 没有余额信息或不是买入信号，使用默认数量
-                            amount = signal.get('size', 1.0)  # 默认交易量1张
+                            amount = signal.get("size", 1.0)  # 默认交易量1张
 
                             # 验证最小交易量要求
-                            if symbol in ['BTC/USDT:USDT', 'BTC-USDT-SWAP']:
+                            if symbol in ["BTC/USDT:USDT", "BTC-USDT-SWAP"]:
                                 min_contracts = 0.01  # OKX最小0.01张
                                 if amount < min_contracts:
-                                    logger.warning(f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张")
+                                    logger.warning(
+                                        f"交易数量 {amount} 张小于最小要求 {min_contracts} 张，调整为 {min_contracts} 张"
+                                    )
                                     amount = min_contracts
 
                         trade_request = {
-                            'symbol': signal.get('symbol', 'BTC/USDT:USDT'),
-                            'side': 'buy' if signal_type == 'BUY' else 'sell',
-                            'amount': amount,
-                            'type': 'market',
-                            'price': signal.get('price') or current_price,  # 使用当前价格如果信号中没有价格
-                            'current_price': current_price,
-                            'reason': signal.get('reason', 'AI信号'),
-                            'confidence': signal.get('confidence', 0.5),
-                            'signal_source': signal.get('source', 'unknown')
+                            "symbol": signal.get("symbol", "BTC/USDT:USDT"),
+                            "side": "buy" if signal_type == "BUY" else "sell",
+                            "amount": amount,
+                            "type": "market",
+                            "price": signal.get("price")
+                            or current_price,  # 使用当前价格如果信号中没有价格
+                            "current_price": current_price,
+                            "reason": signal.get("reason", "AI信号"),
+                            "confidence": signal.get("confidence", 0.5),
+                            "signal_source": signal.get("source", "unknown"),
                         }
                         trades.append(trade_request)
 
             return {
-                'can_trade': can_trade,
-                'reason': reason,
-                'risk_score': risk_score,
-                'risk_level': risk_level,
-                'daily_loss': self.daily_loss,
-                'consecutive_losses': self.consecutive_losses,
-                'trades': trades  # 添加交易列表
+                "can_trade": can_trade,
+                "reason": reason,
+                "risk_score": risk_score,
+                "risk_level": risk_level,
+                "daily_loss": self.daily_loss,
+                "consecutive_losses": self.consecutive_losses,
+                "trades": trades,  # 添加交易列表
             }
 
         except Exception as e:
             logger.error(f"风险评估失败: {e}")
             return {
-                'can_trade': False,
-                'reason': f"风险评估异常: {str(e)}",
-                'risk_score': 1.0,
-                'risk_level': 'critical'
+                "can_trade": False,
+                "reason": f"风险评估异常: {str(e)}",
+                "risk_score": 1.0,
+                "risk_level": "critical",
             }
 
-    async def assess_trade_risk(self, trade_request: Dict[str, Any]) -> RiskAssessmentResult:
+    async def assess_trade_risk(
+        self, trade_request: Dict[str, Any]
+    ) -> RiskAssessmentResult:
         """评估交易风险"""
         try:
-            symbol = trade_request['symbol']
-            amount = trade_request['amount']
-            side = trade_request['side']
-            current_price = trade_request.get('current_price', 0)
+            symbol = trade_request["symbol"]
+            amount = trade_request["amount"]
+            side = trade_request["side"]
+            current_price = trade_request.get("current_price", 0)
 
             risk_score = 0.0
             risk_reasons = []
@@ -382,18 +474,20 @@ class RiskManager(BaseComponent):
             if self.daily_loss >= self.config.max_daily_loss:
                 return RiskAssessmentResult(
                     can_execute=False,
-                    reason=f"当日亏损已达上限: {self.daily_loss:.2f} USDT"
+                    reason=f"当日亏损已达上限: {self.daily_loss:.2f} USDT",
                 )
 
             # 2. 检查连续亏损次数
             if self.consecutive_losses >= self.config.max_consecutive_losses:
                 return RiskAssessmentResult(
                     can_execute=False,
-                    reason=f"连续亏损次数过多: {self.consecutive_losses}"
+                    reason=f"连续亏损次数过多: {self.consecutive_losses}",
                 )
 
             # 3. 检查仓位风险
-            position_risk = await self._assess_position_risk(symbol, amount, current_price)
+            position_risk = await self._assess_position_risk(
+                symbol, amount, current_price
+            )
             if position_risk > self.config.max_position_risk:
                 risk_score += 0.3
                 risk_reasons.append(f"仓位风险过高: {position_risk:.2%}")
@@ -422,7 +516,7 @@ class RiskManager(BaseComponent):
                     daily_loss=self.daily_loss,
                     position_risk=position_risk,
                     market_risk=self.market_risk_score,
-                    ai_confidence=ai_confidence
+                    ai_confidence=ai_confidence,
                 )
 
             # 通过风险评估
@@ -433,22 +527,24 @@ class RiskManager(BaseComponent):
                 daily_loss=self.daily_loss,
                 position_risk=position_risk,
                 market_risk=self.market_risk_score,
-                ai_confidence=ai_confidence
+                ai_confidence=ai_confidence,
             )
 
         except Exception as e:
             logger.error(f"风险评估异常: {e}")
             return RiskAssessmentResult(
-                can_execute=False,
-                reason=f"风险评估异常: {str(e)}"
+                can_execute=False, reason=f"风险评估异常: {str(e)}"
             )
 
-    async def _assess_position_risk(self, symbol: str, amount: float, current_price: float) -> float:
+    async def _assess_position_risk(
+        self, symbol: str, amount: float, current_price: float
+    ) -> float:
         """评估仓位风险"""
         try:
             # 这里应该获取当前仓位信息
             # 简化实现：基于交易金额和账户余额计算风险
             from ...config import load_config
+
             config = load_config()
 
             max_position_size = config.trading.max_position_size
@@ -486,8 +582,8 @@ class RiskManager(BaseComponent):
     async def update_trade_result(self, trade_result: Dict[str, Any]) -> None:
         """更新交易结果（用于风险统计）"""
         try:
-            pnl = trade_result.get('pnl', 0)
-            timestamp = trade_result.get('timestamp', datetime.now())
+            pnl = trade_result.get("pnl", 0)
+            timestamp = trade_result.get("timestamp", datetime.now())
 
             # 更新当日盈亏
             if self._is_today(timestamp):
@@ -532,25 +628,29 @@ class RiskManager(BaseComponent):
     def get_risk_metrics(self) -> Dict[str, Any]:
         """获取风险指标"""
         return {
-            'daily_loss': self.daily_loss,
-            'consecutive_losses': self.consecutive_losses,
-            'market_risk_score': self.market_risk_score,
-            'position_risk_score': self.position_risk_score,
-            'total_trades': len(self.trade_history),
-            'profitable_trades': len([t for t in self.trade_history if t.get('pnl', 0) > 0]),
-            'loss_trades': len([t for t in self.trade_history if t.get('pnl', 0) < 0])
+            "daily_loss": self.daily_loss,
+            "consecutive_losses": self.consecutive_losses,
+            "market_risk_score": self.market_risk_score,
+            "position_risk_score": self.position_risk_score,
+            "total_trades": len(self.trade_history),
+            "profitable_trades": len(
+                [t for t in self.trade_history if t.get("pnl", 0) > 0]
+            ),
+            "loss_trades": len([t for t in self.trade_history if t.get("pnl", 0) < 0]),
         }
 
     def get_status(self) -> Dict[str, Any]:
         """获取状态"""
         base_status = super().get_status()
-        base_status.update({
-            'daily_loss': self.daily_loss,
-            'consecutive_losses': self.consecutive_losses,
-            'market_risk_score': self.market_risk_score,
-            'position_risk_score': self.position_risk_score,
-            'risk_metrics': self.get_risk_metrics()
-        })
+        base_status.update(
+            {
+                "daily_loss": self.daily_loss,
+                "consecutive_losses": self.consecutive_losses,
+                "market_risk_score": self.market_risk_score,
+                "position_risk_score": self.position_risk_score,
+                "risk_metrics": self.get_risk_metrics(),
+            }
+        )
         return base_status
 
     async def emergency_stop(self) -> None:
@@ -566,8 +666,9 @@ class RiskManager(BaseComponent):
         self.consecutive_losses = 0
         logger.info("当日风险统计已重置")
 
-    def _get_composite_price_position(self, signals: List[Dict[str, Any]],
-                                     market_data: Dict[str, Any]) -> Optional[float]:
+    def _get_composite_price_position(
+        self, signals: List[Dict[str, Any]], market_data: Dict[str, Any]
+    ) -> Optional[float]:
         """获取综合价格位置
 
         Args:
@@ -579,21 +680,21 @@ class RiskManager(BaseComponent):
         """
         try:
             # 优先从market_data中获取综合价格位置
-            composite_position = market_data.get('composite_price_position')
+            composite_position = market_data.get("composite_price_position")
             if composite_position is not None:
                 return float(composite_position)
 
             # 回退方案：从信号中提取价格位置信息
             for signal in signals:
-                if 'price_position_analysis' in signal:
-                    analysis = signal['price_position_analysis']
-                    if 'price_position' in analysis:
-                        return float(analysis['price_position'])
+                if "price_position_analysis" in signal:
+                    analysis = signal["price_position_analysis"]
+                    if "price_position" in analysis:
+                        return float(analysis["price_position"])
 
             # 最后回退：计算当日价格位置
-            price = float(market_data.get('price', 0))
-            daily_high = float(market_data.get('high', price))
-            daily_low = float(market_data.get('low', price))
+            price = float(market_data.get("price", 0))
+            daily_high = float(market_data.get("high", price))
+            daily_low = float(market_data.get("low", price))
 
             if daily_high > daily_low and price > 0:
                 return ((price - daily_low) / (daily_high - daily_low)) * 100

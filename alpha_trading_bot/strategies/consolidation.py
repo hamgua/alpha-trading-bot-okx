@@ -51,7 +51,7 @@ class ConsolidationDetector:
 
     def detect_consolidation(self, market_data: Dict[str, Any], symbol: str = 'BTC/USDT') -> Tuple[bool, str, float]:
         """
-        检测市场是否处于横盘状态
+        检测市场是否处于横盘状态 - 添加趋势感知
 
         Args:
             market_data: 市场数据，包含价格、成交量等信息
@@ -66,6 +66,17 @@ class ConsolidationDetector:
 
             # 动态参数调整：根据市场波动率调整阈值
             params = self._adjust_params_by_volatility(market_data, params)
+
+            # 检查趋势强度 - 新增
+            trend_direction = market_data.get('trend_direction', 'neutral')
+            trend_strength = market_data.get('trend_strength', 'normal')
+
+            # 在强势趋势中提高检测阈值或禁用
+            if trend_strength in ['strong', 'extreme']:
+                # 在强势趋势中，横盘检测应该更困难
+                params['atr_threshold'] = params['atr_threshold'] * 0.7  # 收紧ATR阈值
+                params['adx_threshold'] = params['adx_threshold'] * 1.2  # 提高ADX要求
+                logger.info(f"检测到{trend_strength}趋势，提高横盘检测难度")
 
             # 1. 基础数据检查
             if not self._validate_market_data(market_data):
@@ -91,9 +102,20 @@ class ConsolidationDetector:
                 volume_score * 0.25  # 增加成交量权重至25%
             )
 
-            # 7. 生成结果
-            # 调整阈值：从0.7降低到0.5，适应低波动市场环境
-            is_consolidation = final_score > 0.5
+            # 7. 趋势感知调整 - 新增
+            if trend_strength in ['strong', 'extreme']:
+                # 在强势趋势中，降低横盘评分
+                final_score = final_score * 0.7
+                logger.info(f"{trend_strength}趋势下，横盘评分调整为{final_score:.2f}")
+
+            # 8. 生成结果
+            # 根据趋势强度调整阈值
+            if trend_strength in ['strong', 'extreme']:
+                threshold = 0.7  # 强势趋势需要更高评分
+            else:
+                threshold = 0.5  # 正常阈值
+
+            is_consolidation = final_score > threshold
             confidence = min(final_score, 0.95)
             reason = self._generate_reason(final_score, consolidation_score, technical_score, volatility_score)
 

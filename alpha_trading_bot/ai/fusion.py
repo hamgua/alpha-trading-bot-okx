@@ -330,6 +330,15 @@ class AIFusion:
 
                 corrected_signals.append(signal)
 
+            # 应用最大置信度限制，防止过度自信
+            for signal in corrected_signals:
+                if signal.get('confidence', 0) > 0.85:
+                    original_conf = signal['confidence']
+                    signal['confidence'] = 0.85
+                    signal['original_confidence'] = original_conf
+                    signal['confidence_capped'] = '超过最大置信度限制'
+                    logger.debug(f"置信度限制：{original_conf:.2f} -> 0.85")
+
             return corrected_signals
 
         except Exception as e:
