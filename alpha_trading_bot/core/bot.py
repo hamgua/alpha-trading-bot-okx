@@ -551,8 +551,23 @@ class TradingBot(BaseComponent):
         # 执行健康检查
         await self._perform_health_check(market_data, execution_time)
 
-        # 生成AI信号
-        ai_signals = await self.ai_manager.generate_signals(market_data)
+        # 生成AI信号 - 确保不重复调用
+        # 添加标志防止重复调用
+        if hasattr(self, "_ai_signals_generated") and self._ai_signals_generated:
+            self.enhanced_logger.logger.warning(
+                "⚠️ 检测到重复的AI信号获取请求，使用已生成的信号"
+            )
+            ai_signals = getattr(self, "_cached_ai_signals", [])
+        else:
+            self.enhanced_logger.logger.debug("开始生成AI信号...")
+            ai_signals = await self.ai_manager.generate_signals(market_data)
+            self.enhanced_logger.logger.debug(
+                f"AI信号生成完成，数量: {len(ai_signals)}"
+            )
+
+            # 缓存信号并设置标志
+            self._ai_signals_generated = True
+            self._cached_ai_signals = ai_signals
 
         # 记录AI信号详情
         self._log_ai_signals(ai_signals, providers, config_providers)
@@ -1436,6 +1451,10 @@ class TradingBot(BaseComponent):
                 self.enhanced_logger.logger.info(
                     f"⏰ 周期完成 - 下次执行偏移: {offset_minutes:+.1f} 分钟 (随机范围: ±{self.config.random_offset_range / 60:.0f}分钟，周期: {cycle_minutes}分钟)"
                 )
+
+                # 重置AI信号生成标志，为下个周期做准备
+                self._ai_signals_generated = False
+                self._cached_ai_signals = []
         else:
             next_exec_time_str = "未知"
             wait_time = "未知"
