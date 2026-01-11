@@ -200,27 +200,28 @@ class DynamicStopLoss:
         symbol: str,
     ) -> float:
         """计算最终止损价格"""
-        # 现在price_position_stop直接是基于价格位置的止损百分比
-        # 使用这个百分比作为最终止损
         if position_side == "long":
-            stop_loss_price = entry_price * (1 - price_position_stop)
-
-            # 确保止损价格不超过当前价格（防止立即触发）
-            if stop_loss_price >= current_price:
-                # 调整止损到当前价格下方
-                stop_loss_price = current_price * 0.995  # 当前价下方0.5%
-                logger.warning(f"止损价格调整: 原止损价过高，调整到当前价下方0.5%")
+            # 多头持仓
+            if current_price > entry_price:
+                # 当前价格 > 入场价：止损 = 当前价格 × 0.998
+                stop_loss_price = current_price * (1 - price_position_stop)
+            else:
+                # 当前价格 ≤ 入场价：止损 = 入场价格 × 0.995
+                stop_loss_price = entry_price * (1 - 0.005)  # 0.5%固定止损
 
         else:  # 空头
-            stop_loss_price = entry_price * (1 + price_position_stop)
-
-            # 确保止损价格不低于当前价格
-            if stop_loss_price <= current_price:
-                stop_loss_price = current_price * 1.005  # 当前价上方0.5%
+            # 空头持仓
+            if current_price < entry_price:
+                # 当前价格 < 入场价：止损 = 当前价格 × 1.002
+                stop_loss_price = current_price * (1 + price_position_stop)
+            else:
+                # 当前价格 ≥ 入场价：止损 = 入场价格 × 1.005
+                stop_loss_price = entry_price * (1 + 0.005)  # 0.5%固定止损
 
         logger.info(
-            f"最终止损计算: 入场价={entry_price:.2f}, "
-            f"位置止损={price_position_stop:.2%}"
+            f"最终止损计算: 入场价={entry_price:.2f}, 现在价格={current_price:.2f}, "
+            f"{'现在价格>入场价格' if current_price > entry_price else '现在价格≤入场价格'}，"
+            f"所以止损价格位置={price_position_stop:.2%}"
         )
 
         return round(stop_loss_price, 2)
