@@ -19,6 +19,7 @@ from .signal_optimizer import SignalOptimizer
 from .buy_signal_optimizer import BuySignalOptimizer
 from .dynamic_signal_tier import dynamic_signal_tier
 from .self_learning_optimizer import self_learning_optimizer
+from ..utils.price_calculator import PriceCalculator
 from .signal_generator import AISignalGenerator
 from .cache_manager import AICacheManager
 from .fusion_engine import AIFusionEngine
@@ -688,10 +689,11 @@ class AIManager(BaseComponent):
                 }
 
             # 计算价格位置（0-1）
-            if high > low:
-                price_position = (current_price - low) / (high - low)
-            else:
-                price_position = 0.5
+            # 使用统一的价格位置计算器
+            price_position_result = PriceCalculator.calculate_price_position(
+                current_price=current_price, daily_high=high, daily_low=low
+            )
+            price_position = price_position_result.daily_position / 100  # 转换为0-1范围
 
             # 生成信号
             if price_position > 0.8:

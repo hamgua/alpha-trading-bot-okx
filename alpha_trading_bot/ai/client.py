@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 
 from ..core.exceptions import AIProviderError, NetworkError, RateLimitError
+from ..utils.price_calculator import PriceCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -252,26 +253,22 @@ class AIClient:
         range_7d = high_7d - low_7d  # 7日价格区间
         amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
 
-        # 计算价格位置（相对当日高低位置）
-        price_position = 50  # 默认中位
-        if daily_high > daily_low:
-            price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
-
-        # 24小时价格位置因子
-        price_position_24h = 50  # 默认中位
-        if high_24h > low_24h:
-            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
-
-        # 7日价格位置因子
-        price_position_7d = 50  # 默认中位
-        if high_7d > low_7d:
-            price_position_7d = ((price - low_7d) / (high_7d - low_7d)) * 100
-
-        # 综合价格位置（优化权重：24小时55% + 7日45%）
-        # 权重逻辑：平衡短期敏感性和中期稳定性
-        composite_price_position = (price_position_24h * 0.55) + (
-            price_position_7d * 0.45
+        # 使用统一的价格位置计算器
+        price_position_result = PriceCalculator.calculate_price_position(
+            current_price=price,
+            daily_high=daily_high,
+            daily_low=daily_low,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            high_7d=high_7d,
+            low_7d=low_7d,
         )
+
+        # 向后兼容：保持原有变量名
+        price_position = price_position_result.daily_position
+        price_position_24h = price_position_result.position_24h
+        price_position_7d = price_position_result.position_7d
+        composite_price_position = price_position_result.composite_position
 
         # 综合振幅因子分析（结合24小时和7日）
         amplitude_level = "正常"
@@ -586,20 +583,22 @@ MACD: {macd}
         range_7d = high_7d - low_7d  # 7日价格区间
         amplitude_7d = (range_7d / price * 100) if price > 0 else 0  # 7日振幅百分比
 
-        # 24小时价格位置因子
-        price_position_24h = 50  # 默认中位
-        if high_24h > low_24h:
-            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
-
-        # 7日价格位置因子
-        price_position_7d = 50  # 默认中位
-        if high_7d > low_7d:
-            price_position_7d = ((price - low_7d) / (high_7d - low_7d)) * 100
-
-        # 综合价格位置（优化权重：24小时55% + 7日45%）
-        composite_price_position = (price_position_24h * 0.55) + (
-            price_position_7d * 0.45
+        # 使用统一的价格位置计算器
+        price_position_result = PriceCalculator.calculate_price_position(
+            current_price=price,
+            daily_high=daily_high,
+            daily_low=daily_low,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            high_7d=high_7d,
+            low_7d=low_7d,
         )
+
+        # 向后兼容：保持原有变量名
+        price_position = price_position_result.daily_position
+        price_position_24h = price_position_result.position_24h
+        price_position_7d = price_position_result.position_7d
+        composite_price_position = price_position_result.composite_position
 
         # 计算价格变化
         price_change_pct = float(market_data.get("price_change_pct", 0))

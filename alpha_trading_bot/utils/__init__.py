@@ -10,6 +10,11 @@ from .price_position import (
     calculate_price_position,
     calculate_price_position_from_market_data,
 )
+from .price_calculator import (
+    PriceCalculator,
+    PricePosition,
+    StopLossCalculation,
+)
 from .technical_cache import (
     TechnicalIndicatorsCache,
     CachedTechnicalIndicators,
@@ -30,6 +35,10 @@ __all__ = [
     "PricePositionResult",
     "calculate_price_position",
     "calculate_price_position_from_market_data",
+    # 统一价格计算器
+    "PriceCalculator",
+    "PricePosition",
+    "StopLossCalculation",
     # 技术指标缓存
     "TechnicalIndicatorsCache",
     "CachedTechnicalIndicators",

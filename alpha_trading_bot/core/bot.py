@@ -19,6 +19,7 @@ from .monitor import (
     collect_metrics_periodically,
     monitor_performance,
 )
+from ..utils.price_calculator import PriceCalculator
 
 
 @dataclass
@@ -475,7 +476,11 @@ class TradingBot(BaseComponent):
             self.enhanced_logger.logger.info(f"  📊 价格区间: ${high - low:,.2f}")
 
             if high > low:
-                price_position = (current_price - low) / (high - low) * 100
+                # 使用统一的价格位置计算器
+                price_position_result = PriceCalculator.calculate_price_position(
+                    current_price=current_price, daily_high=high, daily_low=low
+                )
+                price_position = price_position_result.daily_position
                 self.enhanced_logger.logger.info(
                     f"  📍 当前价格在24h区间位置: {price_position:.1f}%"
                 )
@@ -490,7 +495,11 @@ class TradingBot(BaseComponent):
             self.enhanced_logger.logger.info(f"  📊 价格区间: ${high_7d - low_7d:,.2f}")
 
             if high_7d > low_7d:
-                price_position_7d = (current_price - low_7d) / (high_7d - low_7d) * 100
+                # 使用统一的价格位置计算器
+                price_position_result_7d = PriceCalculator.calculate_price_position(
+                    current_price=current_price, daily_high=high_7d, daily_low=low_7d
+                )
+                price_position_7d = price_position_result_7d.daily_position
                 self.enhanced_logger.logger.info(
                     f"  📍 当前价格在7天区间位置: {price_position_7d:.1f}%"
                 )
@@ -726,10 +735,9 @@ class TradingBot(BaseComponent):
                 # 计算ATR百分比用于动态缓存
                 atr_value = technical_data.get("atr", 0)
                 current_price = market_data.get("price", 0)
-                atr_percentage = (
-                    (atr_value / current_price * 100)
-                    if current_price > 0 and atr_value > 0
-                    else 0
+                # 使用统一的ATR百分比计算器
+                atr_percentage = PriceCalculator.calculate_atr_percentage(
+                    atr_value, current_price
                 )
                 market_data["atr_percentage"] = atr_percentage
 

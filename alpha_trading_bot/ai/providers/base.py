@@ -4,6 +4,8 @@ AI提供商基类
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from ...utils.price_calculator import PriceCalculator
+
 
 class BaseAIProvider(ABC):
     """AI提供商基类"""
@@ -15,7 +17,9 @@ class BaseAIProvider(ABC):
         self.max_retries = 3
 
     @abstractmethod
-    async def generate_signal(self, prompt: str, market_data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    async def generate_signal(
+        self, prompt: str, market_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
         """生成交易信号"""
         pass
 
@@ -32,10 +36,10 @@ class BaseAIProvider(ABC):
         """构建增强的基础提示词 - 与主prompt保持一致性"""
 
         # 基础市场数据
-        price = float(market_data.get('price', 0))
-        daily_high = float(market_data.get('high', price))
-        daily_low = float(market_data.get('low', price))
-        volume = float(market_data.get('volume', 0))
+        price = float(market_data.get("price", 0))
+        daily_high = float(market_data.get("high", price))
+        daily_low = float(market_data.get("low", price))
+        volume = float(market_data.get("volume", 0))
 
         # 24小时价格区间数据
         high_24h = daily_high
@@ -43,20 +47,23 @@ class BaseAIProvider(ABC):
         range_24h = high_24h - low_24h
         amplitude_24h = (range_24h / price * 100) if price > 0 else 0
 
-        # 计算价格位置（当日区间）
-        price_position = 50
-        if daily_high > daily_low:
-            price_position = ((price - daily_low) / (daily_high - daily_low)) * 100
+        # 使用统一的价格位置计算器
+        price_position_result = PriceCalculator.calculate_price_position(
+            current_price=price,
+            daily_high=daily_high,
+            daily_low=daily_low,
+            high_24h=high_24h,
+            low_24h=low_24h,
+        )
 
-        # 24小时价格位置因子
-        price_position_24h = 50
-        if high_24h > low_24h:
-            price_position_24h = ((price - low_24h) / (high_24h - low_24h)) * 100
+        # 向后兼容：保持原有变量名
+        price_position = price_position_result.daily_position
+        price_position_24h = price_position_result.position_24h
 
         # 获取技术指标
-        technical_data = market_data.get('technical_data', {})
-        rsi = float(technical_data.get('rsi', 50))
-        atr_pct = float(technical_data.get('atr_pct', 0))
+        technical_data = market_data.get("technical_data", {})
+        rsi = float(technical_data.get("rsi", 50))
+        atr_pct = float(technical_data.get("atr_pct", 0))
 
         # 构建基础分析
         rsi_status = "超卖" if rsi < 35 else "超买" if rsi > 70 else "正常"

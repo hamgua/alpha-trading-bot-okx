@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from ..core.base import BaseComponent, BaseConfig
 from ..core.exceptions import TradingBotException
+from ..utils.price_calculator import PriceCalculator
 from .client import ExchangeClient
 from .models import (
     OrderResult,
@@ -568,8 +569,9 @@ class TradingEngine(BaseComponent):
 
             # 计算ATR相关指标用于详细输出
             current_price = float(ticker.last) if ticker.last else 0
-            atr_percentage = (
-                (atr_value / current_price * 100) if current_price > 0 else 0
+            # 使用统一的ATR百分比计算器
+            atr_percentage = PriceCalculator.calculate_atr_percentage(
+                atr_value, current_price
             )
 
             logger.info(

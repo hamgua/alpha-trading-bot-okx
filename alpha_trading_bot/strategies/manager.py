@@ -12,6 +12,7 @@ from ..core.exceptions import StrategyError
 from .crash_recovery_manager import CrashRecoveryManager
 from .market_regime_detector import MarketRegimeDetector
 from .adaptive_strategy import AdaptiveStrategy
+from ..utils.price_calculator import PriceCalculator
 
 # 全局策略管理器实例
 _strategy_manager: Optional["StrategyManager"] = None
@@ -1168,7 +1169,13 @@ class StrategyManager(BaseComponent):
                     )
                 else:
                     # 回退到传统方法
-                    price_position = (price - low) / (high - low)
+                    # 使用统一的价格位置计算器
+                    price_position_result = PriceCalculator.calculate_price_position(
+                        current_price=price, daily_high=high, daily_low=low
+                    )
+                    price_position = (
+                        price_position_result.daily_position / 100
+                    )  # 转换为0-1范围
 
                 # 获取自适应策略参数（如果启用）
                 if self.enable_adaptive_strategy and hasattr(self, "adaptive_strategy"):
