@@ -30,7 +30,7 @@ class BotConfig(BaseConfig):
     max_position_size: float = 0.01
     leverage: int = 10
     test_mode: bool = True
-    cycle_interval: int = 15  # 分钟（从配置文件中读取，默认15分钟）
+    cycle_minutes: int = 15  # 分钟（从配置文件中读取，默认15分钟）
     random_offset_enabled: bool = True  # 是否启用随机时间偏移
     random_offset_range: int = 180  # 随机偏移范围（秒），默认±3分钟
 
@@ -291,7 +291,7 @@ class TradingBot(BaseComponent):
             )
 
         # 添加调试信息
-        cycle_minutes = self.config.cycle_interval
+        cycle_minutes = self.config.cycle_minutes
         self.enhanced_logger.logger.debug(
             f"进入交易循环，等待下一个{cycle_minutes}分钟周期（含随机偏移）..."
         )
@@ -305,7 +305,7 @@ class TradingBot(BaseComponent):
                 # 计算下次执行时间（在交易循环之前）
                 now = datetime.now()
                 cycle_minutes = (
-                    self.config.cycle_interval
+                    self.config.cycle_minutes
                 )  # 从配置读取周期（默认15分钟）
 
                 # 计算下一个周期的基础时间（更可靠的方法）
@@ -1596,7 +1596,7 @@ class TradingBot(BaseComponent):
             if self.config.random_offset_enabled:
                 # 计算当前偏移（相对于15分钟整点）
                 current_minute = now_precise.minute
-                cycle_minutes = self.config.cycle_interval
+                cycle_minutes = self.config.cycle_minutes
                 current_base_minute = (current_minute // cycle_minutes) * cycle_minutes
                 next_base_minute = current_base_minute + cycle_minutes
                 if next_base_minute >= 60:

@@ -83,44 +83,51 @@ class PriceMonitor(BaseComponent):
             return False
 
     async def _initialize_price_history(self):
-        """初始化价格历史记录"""
-        exchange_client = None
+        """初始化价格历史记录 - 轻量级实现"""
         try:
-            # 从交易所获取最近的价格数据用于初始化
-            from alpha_trading_bot.exchange.client import ExchangeClient
+            # 使用ccxt直接获取OHLCV数据，避免ExchangeClient初始化
+            import ccxt.async_support as ccxt
 
-            exchange_client = ExchangeClient()
+            exchange = ccxt.okx(
+                {
+                    "enableRateLimit": True,
+                    "timeout": 10000,
+                }
+            )
 
-            if await exchange_client.initialize():
-                # 获取最近1小时的数据用于初始化
-                ohlcv_data = await exchange_client.fetch_ohlcv(
-                    "BTC/USDT:USDT", "1m", limit=60
-                )
+            try:
+                # 获取最近1小时的1分钟K线数据
+                ohlcv_data = await exchange.fetch_ohlcv("BTC/USDT:USDT", "1m", limit=60)
 
                 if ohlcv_data:
                     for candle in ohlcv_data[-20:]:  # 只保留最近20分钟
                         self.price_history.append(
                             {
                                 "timestamp": datetime.fromtimestamp(candle[0] / 1000),
-                                "open": candle[1],
-                                "high": candle[2],
-                                "low": candle[3],
-                                "close": candle[4],
-                                "volume": candle[5],
+                                "open": float(candle[1])
+                                if candle[1] is not None
+                                else 0,
+                                "high": float(candle[2])
+                                if candle[2] is not None
+                                else 0,
+                                "low": float(candle[3]) if candle[3] is not None else 0,
+                                "close": float(candle[4])
+                                if candle[4] is not None
+                                else 0,
+                                "volume": float(candle[5])
+                                if candle[5] is not None
+                                else 0,
                             }
                         )
 
                     logger.info(
                         f"已初始化价格历史记录: {len(self.price_history)} 个数据点"
                     )
+            finally:
+                await exchange.close()
 
         except Exception as e:
             logger.warning(f"初始化价格历史失败，使用空历史: {e}")
-
-        finally:
-            # 确保清理资源
-            if exchange_client:
-                await exchange_client.cleanup()
 
     async def start_monitoring(self):
         """启动价格监控"""
@@ -240,25 +247,33 @@ class PriceMonitor(BaseComponent):
             logger.error(f"价格变化检查异常: {e}")
 
     async def _get_current_price(self) -> Optional[float]:
-        """获取当前价格"""
-        exchange_client = None
+        """获取当前价格 - 轻量级实现，避免初始化交易功能"""
         try:
-            from alpha_trading_bot.exchange.client import ExchangeClient
+            # 使用ccxt的异步版本获取价格
+            import ccxt.async_support as ccxt
 
-            exchange_client = ExchangeClient()
+            exchange = ccxt.okx(
+                {
+                    "enableRateLimit": True,
+                    "timeout": 10000,
+                    # 不设置API密钥，只用于公开数据获取
+                }
+            )
 
-            if await exchange_client.initialize():
-                ticker = await exchange_client.fetch_ticker("BTC/USDT:USDT")
-                if ticker and hasattr(ticker, "last") and ticker.last:
-                    return float(ticker.last)
+            ticker = await exchange.fetch_ticker("BTC/USDT:USDT")
+            await exchange.close()
+
+            if ticker and "last" in ticker:
+                last_price = ticker["last"]
+                if last_price is not None:
+                    try:
+                        return float(last_price)
+                    except (ValueError, TypeError):
+                        logger.warning(f"价格数据类型错误: {type(last_price)}")
+                        return None
 
         except Exception as e:
             logger.error(f"获取当前价格失败: {e}")
-
-        finally:
-            # 确保清理资源
-            if exchange_client:
-                await exchange_client.cleanup()
 
         return None
 
@@ -341,63 +356,15 @@ class PriceMonitor(BaseComponent):
             logger.error(f"快速AI检查失败: {e}")
 
     async def _get_market_context(self) -> Dict[str, Any]:
-        """获取市场上下文"""
-        exchange_client = None
-        try:
-            from alpha_trading_bot.exchange.client import ExchangeClient
-
-            exchange_client = ExchangeClient()
-
-            context = {
-                "timestamp": datetime.now(),
-                "price": None,
-                "rsi": None,
-                "macd": None,
-                "volume": None,
-            }
-
-            if await exchange_client.initialize():
-                # 获取当前价格
-                ticker = await exchange_client.fetch_ticker("BTC/USDT:USDT")
-                if ticker:
-                    context["price"] = getattr(ticker, "last", None)
-                    context["volume"] = getattr(ticker, "volume", None)
-
-                # 获取技术指标（简化版）
-                try:
-                    ohlcv_data = await exchange_client.fetch_ohlcv(
-                        "BTC/USDT:USDT", "1m", limit=20
-                    )
-                    if ohlcv_data and len(ohlcv_data) >= 14:
-                        # 简单的RSI估算
-                        closes = [d[4] for d in ohlcv_data]
-                        if len(closes) >= 14:
-                            gains = [
-                                max(0, closes[i] - closes[i - 1])
-                                for i in range(1, len(closes))
-                            ]
-                            losses = [
-                                max(0, closes[i - 1] - closes[i])
-                                for i in range(1, len(closes))
-                            ]
-                            avg_gain = sum(gains[-14:]) / 14
-                            avg_loss = sum(losses[-14:]) / 14
-                            if avg_loss != 0:
-                                rs = avg_gain / avg_loss
-                                context["rsi"] = 100 - (100 / (1 + rs))
-                except Exception as e:
-                    logger.debug(f"获取技术指标失败: {e}")
-
-            return context
-
-        except Exception as e:
-            logger.error(f"获取市场上下文失败: {e}")
-            return {}
-
-        finally:
-            # 确保清理资源
-            if exchange_client:
-                await exchange_client.cleanup()
+        """获取市场上下文 - 第一阶段简化版"""
+        # 第一阶段只返回基本信息，不获取复杂技术指标
+        return {
+            "timestamp": datetime.now(),
+            "price": await self._get_current_price(),
+            "rsi": None,
+            "macd": None,
+            "volume": None,
+        }
 
     async def _quick_ai_analysis(
         self, event: PriceChangeEvent, market_context: Dict[str, Any]
