@@ -437,6 +437,27 @@ class AIManager(BaseComponent):
                         )
 
                         if confidence >= dynamic_threshold:
+                            # 强化AI信号一致性检查 - 如果分析文本包含等待建议，降低置信度
+                            analysis_text = (
+                                signal.get("reason", "").lower()
+                                + signal.get("analysis_text", "").lower()
+                            )
+                            if any(
+                                keyword in analysis_text
+                                for keyword in [
+                                    "建议等待",
+                                    "继续观察",
+                                    "等待更明确",
+                                    "缺乏确认",
+                                    "继续等待",
+                                    "观察等待",
+                                ]
+                            ):
+                                signal["confidence"] *= 0.5
+                                if signal["confidence"] < 0.6:
+                                    signal["signal"] = "HOLD"
+                                    signal["reason"] = "AI分析建议等待，信号降级为观望"
+
                             signal["provider"] = provider
                             results.append(signal)
                             success_count += 1

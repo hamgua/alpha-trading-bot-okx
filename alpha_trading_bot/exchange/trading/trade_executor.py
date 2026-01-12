@@ -700,9 +700,9 @@ class TradeExecutor(BaseComponent):
             return 0
 
     async def _wait_for_order_fill(
-        self, order_result: OrderResult, timeout: int = 30
+        self, order_result: OrderResult, timeout: int = 60
     ) -> Optional[OrderResult]:
-        """等待订单成交"""
+        """等待订单成交 - 改进版本：超时后检查持仓状态"""
         try:
             start_time = datetime.now()
             order_id = order_result.order_id
@@ -725,7 +725,32 @@ class TradeExecutor(BaseComponent):
                 # 等待1秒后重试
                 await asyncio.sleep(1)
 
-            logger.warning(f"订单成交超时: {order_id}")
+            # 订单成交超时 - 检查持仓状态
+            logger.warning(f"订单成交超时: {order_id}，检查持仓状态...")
+            try:
+                # 检查持仓状态，如果有持仓说明订单可能已成交
+                current_position = await self.position_manager.update_position(symbol)
+                if current_position and current_position.size > 0:
+                    logger.info(
+                        f"发现持仓，订单可能已成交但未及时更新: {symbol} {current_position.size}"
+                    )
+                    # 构造一个模拟的OrderResult
+                    return OrderResult(
+                        success=True,
+                        order_id=order_id,
+                        symbol=symbol,
+                        side=order_result.side,
+                        amount=current_position.size,
+                        filled_amount=current_position.size,
+                        average_price=current_position.avg_price,
+                        fee=0.0,  # 无法获取，设为0
+                        status="closed",
+                    )
+                else:
+                    logger.warning(f"订单超时且无持仓，确认订单失败: {order_id}")
+            except Exception as pos_e:
+                logger.error(f"检查持仓状态异常: {pos_e}")
+
             return None
 
         except Exception as e:

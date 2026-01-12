@@ -301,22 +301,28 @@ class IntelligentSignalFilter:
                     reasons.append("✅ 有多头，卖出信号转为平仓信号")
                     recommended_action = "SELL"  # 保持SELL操作
 
-        # 8. 趋势方向确认 (0-10分)
+        # 8. 趋势方向确认 (0-10分) - 增强趋势判断权重
         trend_strength = market_data.get("trend_strength", 0)
         trend_direction = market_data.get("trend_direction", "neutral")
 
         if signal_type == "BUY":
             if trend_direction == "up" and abs(trend_strength) > 0.3:
-                score += 10
+                score += 15  # 增强上升趋势权重
                 reasons.append(f"✅ 上升趋势 (强度={trend_strength:.2f})")
-            elif trend_direction == "down" and abs(trend_strength) > 0.5:
-                score -= 15
-                reasons.append(
-                    f"❌ 强烈下跌趋势，不适合买入 (强度={trend_strength:.2f})"
-                )
-                passed = False
-                recommended_action = "HOLD"
-                cooldown_minutes = 60  # 下跌趋势建议1小时冷却
+            elif trend_direction == "down":
+                if abs(trend_strength) > 0.5:
+                    score -= 25  # 增强下跌趋势惩罚
+                    reasons.append(
+                        f"❌ 强烈下跌趋势，不适合买入 (强度={trend_strength:.2f})"
+                    )
+                    passed = False
+                    recommended_action = "HOLD"
+                    cooldown_minutes = 90  # 下跌趋势建议1.5小时冷却
+                else:
+                    score -= 10  # 轻微下跌趋势也给予惩罚
+                    reasons.append(
+                        f"⚠️ 下跌趋势，不建议买入 (强度={trend_strength:.2f})"
+                    )
             elif trend_direction == "neutral":
                 score += 0
                 reasons.append("⚠️ 趋势不明，需要其他指标确认")
@@ -325,16 +331,27 @@ class IntelligentSignalFilter:
         # 确保评分在0-100范围内
         score = max(0, min(100, score))
 
-        # 根据评分确定是否通过
-        if passed and score >= 60:
-            passed = True
-            recommended_action = signal_type
-        elif passed and score >= 40:
-            passed = True
-            recommended_action = "HOLD"  # 低质量信号转为观望
+        # 根据评分确定是否通过 - 提高BUY信号质量阈值
+        if signal_type == "BUY":
+            # BUY信号需要更高的质量要求
+            min_buy_score = 60  # 提高BUY信号最低评分
+            if passed and score >= min_buy_score:
+                passed = True
+                recommended_action = signal_type
+            else:
+                passed = False
+                recommended_action = "HOLD"  # BUY信号质量不足转为观望
         else:
-            passed = False
-            recommended_action = "SKIP"
+            # 其他信号使用原有逻辑
+            if passed and score >= 60:
+                passed = True
+                recommended_action = signal_type
+            elif passed and score >= 40:
+                passed = True
+                recommended_action = "HOLD"  # 低质量信号转为观望
+            else:
+                passed = False
+                recommended_action = "SKIP"
 
         # 更新信号历史
         if signal_type in ["BUY", "SELL"]:

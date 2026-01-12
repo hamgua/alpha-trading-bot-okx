@@ -1476,6 +1476,34 @@ class StrategyManager(BaseComponent):
                 }
 
             # 如果没有当前投资类型的信号，选择所有信号中置信度最高的
+            # 完善多信号源冲突处理：当AI建议HOLD时，降低策略信号的优先级
+            ai_signals = [s for s in signals if s.get("source") == "ai"]
+            strategy_signals = [s for s in signals if s.get("source") != "ai"]
+
+            # 检查是否有AI信号建议HOLD且置信度高
+            ai_hold_signals = [
+                s
+                for s in ai_signals
+                if s.get("type", "").upper() == "HOLD" and s.get("confidence", 0) > 0.8
+            ]
+
+            if ai_hold_signals:
+                # AI建议HOLD，降低策略信号的置信度权重
+                logger.info("AI建议HOLD，降低策略信号优先级")
+                for signal in strategy_signals:
+                    signal["confidence"] *= 0.7  # 降低30%的置信度
+
+                # 如果AI HOLD信号足够强，优先选择它
+                best_ai_hold = max(
+                    ai_hold_signals, key=lambda x: x.get("confidence", 0)
+                )
+                return {
+                    "selected_signal": best_ai_hold,
+                    "alternatives": signals[:2],  # 备选方案
+                    "selection_reason": "AI强烈建议观望，忽略策略信号",
+                }
+
+            # 正常选择最高置信度信号
             signals.sort(key=lambda x: x.get("confidence", 0), reverse=True)
             best_signal = signals[0]
             return {
