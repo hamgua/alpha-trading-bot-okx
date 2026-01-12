@@ -100,7 +100,7 @@ class TradeExecutor(BaseComponent):
                 }
 
                 # 优化订单执行
-                optimized_order = await self._cost_optimizer.optimize_order_execution(
+                optimized_order = self._cost_optimizer.optimize_order_execution(
                     symbol, side.value.lower(), amount, market_data, account_info
                 )
 
