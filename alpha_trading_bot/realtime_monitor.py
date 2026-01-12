@@ -37,6 +37,7 @@ class QuickSignalRecord:
     market_context: Dict[str, Any]
 
 
+@dataclass
 class PriceMonitorConfig(BaseConfig):
     """价格监控配置"""
 
@@ -45,9 +46,6 @@ class PriceMonitorConfig(BaseConfig):
     enable_ai_check: bool = False  # 第一阶段不启用AI检查
     max_records_per_day: int = 1000  # 每天最多记录数
     enable_logging: bool = True
-
-    def __init__(self, name: str = "PriceMonitor", **kwargs):
-        super().__init__(name=name, **kwargs)
 
 
 class PriceMonitor(BaseComponent):
@@ -244,8 +242,8 @@ class PriceMonitor(BaseComponent):
 
             if await exchange_client.initialize():
                 ticker = await exchange_client.fetch_ticker("BTC/USDT:USDT")
-                if ticker and ticker.get("last"):
-                    return float(ticker["last"])
+                if ticker and hasattr(ticker, "last") and ticker.last:
+                    return float(ticker.last)
 
         except Exception as e:
             logger.error(f"获取当前价格失败: {e}")
@@ -349,8 +347,8 @@ class PriceMonitor(BaseComponent):
                 # 获取当前价格
                 ticker = await exchange_client.fetch_ticker("BTC/USDT:USDT")
                 if ticker:
-                    context["price"] = ticker.get("last")
-                    context["volume"] = ticker.get("volume")
+                    context["price"] = getattr(ticker, "last", None)
+                    context["volume"] = getattr(ticker, "volume", None)
 
                 # 获取技术指标（简化版）
                 try:
