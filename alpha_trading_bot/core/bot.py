@@ -138,6 +138,13 @@ class TradingBot(BaseComponent):
             )
             await self.risk_manager.initialize()
 
+            # 初始化价格监控器（第一阶段：记录触发信号）
+            from ..realtime_monitor import price_monitor
+
+            self.price_monitor = price_monitor
+            await self.price_monitor.initialize()
+            await self.price_monitor.start_monitoring()
+
             self._initialized = True
             self.enhanced_logger.logger.info("交易机器人初始化成功")
             return True
@@ -259,6 +266,8 @@ class TradingBot(BaseComponent):
             await self.ai_manager.cleanup()
         if hasattr(self, "data_manager"):
             await self.data_manager.cleanup()
+        if hasattr(self, "price_monitor"):
+            await self.price_monitor.cleanup()
 
     async def start(self) -> None:
         """启动机器人"""
