@@ -84,6 +84,7 @@ class PriceMonitor(BaseComponent):
 
     async def _initialize_price_history(self):
         """初始化价格历史记录"""
+        exchange_client = None
         try:
             # 从交易所获取最近的价格数据用于初始化
             from alpha_trading_bot.exchange.client import ExchangeClient
@@ -115,6 +116,11 @@ class PriceMonitor(BaseComponent):
 
         except Exception as e:
             logger.warning(f"初始化价格历史失败，使用空历史: {e}")
+
+        finally:
+            # 确保清理资源
+            if exchange_client:
+                await exchange_client.cleanup()
 
     async def start_monitoring(self):
         """启动价格监控"""
@@ -235,6 +241,7 @@ class PriceMonitor(BaseComponent):
 
     async def _get_current_price(self) -> Optional[float]:
         """获取当前价格"""
+        exchange_client = None
         try:
             from alpha_trading_bot.exchange.client import ExchangeClient
 
@@ -247,6 +254,11 @@ class PriceMonitor(BaseComponent):
 
         except Exception as e:
             logger.error(f"获取当前价格失败: {e}")
+
+        finally:
+            # 确保清理资源
+            if exchange_client:
+                await exchange_client.cleanup()
 
         return None
 
@@ -330,6 +342,7 @@ class PriceMonitor(BaseComponent):
 
     async def _get_market_context(self) -> Dict[str, Any]:
         """获取市场上下文"""
+        exchange_client = None
         try:
             from alpha_trading_bot.exchange.client import ExchangeClient
 
@@ -380,6 +393,11 @@ class PriceMonitor(BaseComponent):
         except Exception as e:
             logger.error(f"获取市场上下文失败: {e}")
             return {}
+
+        finally:
+            # 确保清理资源
+            if exchange_client:
+                await exchange_client.cleanup()
 
     async def _quick_ai_analysis(
         self, event: PriceChangeEvent, market_context: Dict[str, Any]
