@@ -12,6 +12,7 @@ from ..utils import get_logger
 
 logger = get_logger(__name__)
 
+
 class TradingBotAPI:
     """交易机器人API客户端"""
 
@@ -19,7 +20,12 @@ class TradingBotAPI:
         self.bots: Dict[str, TradingBot] = {}
         self.logger = logger
 
-    async def create_bot(self, bot_id: str, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> TradingBot:
+    async def create_bot(
+        self,
+        bot_id: str,
+        name: Optional[str] = None,
+        config: Optional[Dict[str, Any]] = None,
+    ) -> TradingBot:
         """创建交易机器人"""
         if bot_id in self.bots:
             raise ValueError(f"机器人 {bot_id} 已存在")
@@ -28,10 +34,10 @@ class TradingBotAPI:
         bot_config = BotConfig(
             name=name or f"Bot-{bot_id}",
             trading_enabled=True,
-            max_position_size=config.get('max_position_size', 0.01) if config else 0.01,
-            leverage=config.get('leverage', 10) if config else 10,
-            test_mode=config.get('test_mode', True) if config else True,
-            cycle_interval=config.get('cycle_interval', 15) if config else 15
+            max_position_size=config.get("max_position_size", 0.01) if config else 0.01,
+            leverage=config.get("leverage", 10) if config else 10,
+            test_mode=config.get("test_mode", True) if config else True,
+            cycle_minutes=config.get("cycle_interval", 15) if config else 15,
         )
 
         # 创建机器人
@@ -54,7 +60,7 @@ class TradingBotAPI:
             raise ValueError(f"机器人 {bot_id} 不存在")
 
         bot = self.bots[bot_id]
-        if bot.is_initialized() and not getattr(bot, '_running', False):
+        if bot.is_initialized() and not getattr(bot, "_running", False):
             await bot.start()
             self.logger.info(f"机器人 {bot_id} 已启动")
         else:
@@ -66,7 +72,7 @@ class TradingBotAPI:
             raise ValueError(f"机器人 {bot_id} 不存在")
 
         bot = self.bots[bot_id]
-        if getattr(bot, '_running', False):
+        if getattr(bot, "_running", False):
             await bot.stop()
             self.logger.info(f"机器人 {bot_id} 已停止")
 
@@ -83,13 +89,15 @@ class TradingBotAPI:
         bots = []
         for bot_id, bot in self.bots.items():
             status = bot.get_status()
-            bots.append({
-                'bot_id': bot_id,
-                'name': status['name'],
-                'running': status.get('running', False),
-                'initialized': status['initialized'],
-                'uptime': status['uptime']
-            })
+            bots.append(
+                {
+                    "bot_id": bot_id,
+                    "name": status["name"],
+                    "running": status.get("running", False),
+                    "initialized": status["initialized"],
+                    "uptime": status["uptime"],
+                }
+            )
         return bots
 
     async def delete_bot(self, bot_id: str) -> None:
@@ -100,7 +108,7 @@ class TradingBotAPI:
         bot = self.bots[bot_id]
 
         # 停止机器人
-        if getattr(bot, '_running', False):
+        if getattr(bot, "_running", False):
             await bot.stop()
 
         # 清理资源
@@ -111,8 +119,10 @@ class TradingBotAPI:
 
         self.logger.info(f"机器人 {bot_id} 已删除")
 
+
 # 创建全局API实例
 _api_instance = None
+
 
 async def get_api() -> TradingBotAPI:
     """获取API实例（单例）"""

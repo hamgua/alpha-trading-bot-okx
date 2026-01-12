@@ -15,10 +15,9 @@ logger = get_logger(__name__)
 # 全局机器人数组
 _bots: Dict[str, TradingBot] = {}
 
+
 async def create_bot(
-    bot_id: str,
-    name: Optional[str] = None,
-    config: Optional[Dict[str, Any]] = None
+    bot_id: str, name: Optional[str] = None, config: Optional[Dict[str, Any]] = None
 ) -> TradingBot:
     """
     创建交易机器人
@@ -41,12 +40,22 @@ async def create_bot(
     bot_config = BotConfig(
         name=name or f"Bot-{bot_id}",
         trading_enabled=True,
-        max_position_size=config.get('max_position_size', 0.01) if config else 0.01,
-        leverage=config.get('leverage', 10) if config else 10,
-        test_mode=config.get('test_mode', True) if config else True,
-        cycle_interval=config.get('cycle_interval', config_manager.trading.cycle_minutes) if config else config_manager.trading.cycle_minutes,
-        random_offset_enabled=config.get('random_offset_enabled', config_manager.trading.random_offset_enabled) if config else config_manager.trading.random_offset_enabled,
-        random_offset_range=config.get('random_offset_range', config_manager.trading.random_offset_range) if config else config_manager.trading.random_offset_range
+        max_position_size=config.get("max_position_size", 0.01) if config else 0.01,
+        leverage=config.get("leverage", 10) if config else 10,
+        test_mode=config.get("test_mode", True) if config else True,
+        cycle_minutes=config.get("cycle_interval", config_manager.trading.cycle_minutes)
+        if config
+        else config_manager.trading.cycle_minutes,
+        random_offset_enabled=config.get(
+            "random_offset_enabled", config_manager.trading.random_offset_enabled
+        )
+        if config
+        else config_manager.trading.random_offset_enabled,
+        random_offset_range=config.get(
+            "random_offset_range", config_manager.trading.random_offset_range
+        )
+        if config
+        else config_manager.trading.random_offset_range,
     )
 
     # 创建机器人
@@ -63,6 +72,7 @@ async def create_bot(
     logger.info(f"机器人 {bot_id} 创建成功")
     return bot
 
+
 async def start_bot(bot_id: str) -> None:
     """
     启动机器人
@@ -74,11 +84,12 @@ async def start_bot(bot_id: str) -> None:
         raise ValueError(f"机器人 {bot_id} 不存在")
 
     bot = _bots[bot_id]
-    if bot.is_initialized() and not getattr(bot, '_running', False):
+    if bot.is_initialized() and not getattr(bot, "_running", False):
         await bot.start()
         logger.info(f"机器人 {bot_id} 已启动")
     else:
         raise RuntimeError("机器人无法启动")
+
 
 async def stop_bot(bot_id: str) -> None:
     """
@@ -91,13 +102,14 @@ async def stop_bot(bot_id: str) -> None:
         raise ValueError(f"机器人 {bot_id} 不存在")
 
     bot = _bots[bot_id]
-    if getattr(bot, '_running', False):
+    if getattr(bot, "_running", False):
         await bot.stop()
         logger.info(f"机器人 {bot_id} 已停止")
 
     # 清理资源
     await bot.cleanup()
     logger.info(f"机器人 {bot_id} 资源已清理")
+
 
 async def get_bot_status(bot_id: str) -> Dict[str, Any]:
     """
@@ -115,6 +127,7 @@ async def get_bot_status(bot_id: str) -> Dict[str, Any]:
     bot = _bots[bot_id]
     return bot.get_status()
 
+
 async def list_bots() -> List[Dict[str, Any]]:
     """
     列出所有机器人
@@ -125,14 +138,17 @@ async def list_bots() -> List[Dict[str, Any]]:
     bots = []
     for bot_id, bot in _bots.items():
         status = bot.get_status()
-        bots.append({
-            'bot_id': bot_id,
-            'name': status['name'],
-            'running': status.get('running', False),
-            'initialized': status['initialized'],
-            'uptime': status['uptime']
-        })
+        bots.append(
+            {
+                "bot_id": bot_id,
+                "name": status["name"],
+                "running": status.get("running", False),
+                "initialized": status["initialized"],
+                "uptime": status["uptime"],
+            }
+        )
     return bots
+
 
 async def delete_bot(bot_id: str) -> None:
     """
@@ -147,7 +163,7 @@ async def delete_bot(bot_id: str) -> None:
     bot = _bots[bot_id]
 
     # 停止机器人
-    if getattr(bot, '_running', False):
+    if getattr(bot, "_running", False):
         await bot.stop()
 
     # 清理资源
@@ -158,26 +174,32 @@ async def delete_bot(bot_id: str) -> None:
 
     logger.info(f"机器人 {bot_id} 已删除")
 
+
 # 同步包装函数（便于非async环境使用）
 def create_bot_sync(*args, **kwargs) -> TradingBot:
     """同步版本的create_bot"""
     return asyncio.run(create_bot(*args, **kwargs))
 
+
 def start_bot_sync(bot_id: str) -> None:
     """同步版本的start_bot"""
     asyncio.run(start_bot(bot_id))
+
 
 def stop_bot_sync(bot_id: str) -> None:
     """同步版本的stop_bot"""
     asyncio.run(stop_bot(bot_id))
 
+
 def get_bot_status_sync(bot_id: str) -> Dict[str, Any]:
     """同步版本的get_bot_status"""
     return asyncio.run(get_bot_status(bot_id))
 
+
 def list_bots_sync() -> List[Dict[str, Any]]:
     """同步版本的list_bots"""
     return asyncio.run(list_bots())
+
 
 def delete_bot_sync(bot_id: str) -> None:
     """同步版本的delete_bot"""
