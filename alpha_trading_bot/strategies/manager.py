@@ -209,23 +209,33 @@ class StrategyManager(BaseComponent):
     def _calculate_volume_score(
         self, current_volume: float, avg_volume: float, price: float
     ) -> float:
-        """计算成交量评分 (0-100) - 优化版"""
+        """计算成交量评分 (0-100) - 修复版：优先使用 avg_volume 判断"""
         try:
-            # 处理零成交量的特殊情况
+            # 如果当前成交量为0但有平均成交量，使用平均成交量来估算
+            if current_volume == 0 and avg_volume > 0:
+                # 使用 avg_volume 来计算相对比例
+                # 由于 current_volume 是当前K线的成交量（周期刚开始时为0），
+                # 而 avg_volume 是历史平均成交量，应该用 avg_volume 来估算评分
+                logger.info(
+                    f"当前K线成交量为0，使用历史平均成交量估算: {avg_volume:.2f}"
+                )
+                # 基于 avg_volume 给予基础评分
+                if avg_volume >= 100:
+                    return 60  # 有正常的历史成交量，给予中等评分
+                elif avg_volume >= 50:
+                    return 50
+                else:
+                    return 40
+
+            # 处理零成交量的特殊情况（没有历史数据时）
             if current_volume == 0:
                 # 检查是否是新周期刚开始（时间接近整点/半点）
                 current_minute = datetime.now().minute
-                if current_minute % 15 <= 2:  # 新15分钟周期刚开始2分钟内
+                if current_minute % 15 <= 5:  # 新15分钟周期刚开始5分钟内（原为2分钟）
                     logger.info("当前处于新15分钟周期初期，成交量为0属于正常现象")
                     return 60  # 给予中等评分，避免过度敏感
                 else:
                     logger.warning("当前成交量为0且不在新周期初期")
-                    # 如果有平均成交量数据，说明系统有交易活动，给予基础评分
-                    if avg_volume > 0:
-                        logger.info(
-                            f"有平均成交量数据({avg_volume:.2f})，给予基础流动性评分"
-                        )
-                        return 40  # 基于历史数据给予基础评分
                     return 0
 
             if avg_volume <= 0:

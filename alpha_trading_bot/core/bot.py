@@ -629,15 +629,65 @@ class TradingBot(BaseComponent):
                         f"✅ 信号通过过滤: {signal['signal']} (评分: {filter_result.score:.1f})"
                     )
                 else:
-                    rejection_reasons = [
-                        r for r in filter_result.reasons if "❌" in r or "⚠️" in r
-                    ]
-                    reason_text = (
-                        rejection_reasons[0] if rejection_reasons else "未通过质量过滤"
-                    )
-                    self.enhanced_logger.logger.info(
-                        f"❌ 信号被过滤: {signal['signal']} - {reason_text}"
-                    )
+                    # 🆕 特殊处理HOLD信号：HOLD信号只要置信度 > 0.40就应该通过
+                    original_signal_type = signal.get("signal", "").upper()
+                    is_hold_signal = original_signal_type == "HOLD"
+                    hold_confidence = signal.get("confidence", 0)
+
+                    if is_hold_signal and hold_confidence > 0.40:
+                        # HOLD信号直接通过，不经过过滤器
+                        filtered_signals.append(signal)
+                        self.enhanced_logger.logger.info(
+                            f"✅ HOLD信号直接通过: 置信度={hold_confidence:.2f}"
+                        )
+                    elif original_signal_type in ["BUY", "SELL", "LONG", "SHORT"]:
+                        # 只有BUY/SELL/LONG/SHORT才检查是否应该降级
+                        should_downgrade = (
+                            filter_result.score >= 40  # 基础质量OK，可以降级保留
+                            and filter_result.passed is False  # 但未通过严格过滤
+                        )
+
+                        if should_downgrade:
+                            # 降级为HOLD，保留信号用于止损更新
+                            original_signal = signal["signal"]
+                            signal["signal"] = "HOLD"
+                            signal["type"] = "HOLD"
+                            signal["downgraded_from"] = original_signal
+                            signal["filter_score"] = filter_result.score
+                            signal["filter_confidence"] = filter_result.confidence_level
+                            signal["filter_reasons"] = filter_result.reasons
+                            signal["is_downgraded"] = True
+                            filtered_signals.append(signal)
+                            self.enhanced_logger.logger.info(
+                                f"🔄 信号降级: {original_signal} → HOLD (评分: {filter_result.score:.1f}) - "
+                                f"将执行持仓止损更新，但不会执行新交易"
+                            )
+                        else:
+                            # 真正过滤掉的信号
+                            rejection_reasons = [
+                                r for r in filter_result.reasons if r.startswith("❌")
+                            ]
+                            reason_text = (
+                                rejection_reasons[0]
+                                if rejection_reasons
+                                else "未通过质量过滤"
+                            )
+                            self.enhanced_logger.logger.info(
+                                f"❌ 信号被过滤: {signal['signal']} - {reason_text}"
+                            )
+                    else:
+                        # 其他类型信号（如未知类型）按原逻辑处理
+                        rejection_reasons = [
+                            r for r in filter_result.reasons if r.startswith("❌")
+                        ]
+                        reason_text = (
+                            rejection_reasons[0]
+                            if rejection_reasons
+                            else "未通过质量过滤"
+                        )
+                        self.enhanced_logger.logger.info(
+                            f"❌ 信号被过滤: {signal['signal']} - {reason_text}"
+                        )
 
             ai_signals = filtered_signals
 
@@ -906,57 +956,49 @@ class TradingBot(BaseComponent):
             else:
                 self.enhanced_logger.info_ai_parallel_request(providers)
 
-                # 记录信号统计
-                individual_signals = [
-                    s for s in ai_signals if s.get("provider") != "fusion"
+                # 记录融合后的信号统计（ai_signals只包含融合信号）
+                # 检查是否有融合信号
+                fusion_signals = [
+                    s for s in ai_signals if s.get("provider") == "fusion"
                 ]
-                success_count = len(
-                    [
-                        s
-                        for s in individual_signals
-                        if s.get("confidence", 0) >= self.CONFIDENCE_THRESHOLD_LOW
-                    ]
-                )
-                fail_count = len(
-                    [
-                        s
-                        for s in individual_signals
-                        if s.get("confidence", 0) < self.CONFIDENCE_THRESHOLD_LOW
-                    ]
-                )
 
-                self.enhanced_logger.info_ai_fusion_stats(
-                    success_count,
-                    fail_count,
-                    providers,
-                    [s.get("provider", "unknown") for s in individual_signals],
-                )
-
-                # 记录信号统计
-                individual_signals = [
-                    s for s in ai_signals if s.get("provider") != "fusion"
-                ]
-                success_count = len(
-                    [
-                        s
-                        for s in individual_signals
-                        if s.get("confidence", 0) >= self.CONFIDENCE_THRESHOLD_LOW
+                if fusion_signals:
+                    # 有融合信号，显示融合结果
+                    fusion_signal = fusion_signals[0]
+                    self.enhanced_logger.logger.info(
+                        f"🔮 融合结果: {fusion_signal.get('signal', 'HOLD')} (置信度: {fusion_signal.get('confidence', 0):.2f})"
+                    )
+                    self.enhanced_logger.logger.info(
+                        f"📊 融合信号来源: {providers}, 融合策略: {fusion_signal.get('fusion_strategy', 'unknown')}"
+                    )
+                else:
+                    # 无融合信号（异常情况），显示原始信号统计
+                    individual_signals = [
+                        s for s in ai_signals if s.get("provider") != "fusion"
                     ]
-                )
-                fail_count = len(
-                    [
-                        s
-                        for s in individual_signals
-                        if s.get("confidence", 0) < self.CONFIDENCE_THRESHOLD_LOW
-                    ]
-                )
-
-                self.enhanced_logger.info_ai_fusion_stats(
-                    success_count,
-                    fail_count,
-                    providers,
-                    [s.get("provider", "unknown") for s in individual_signals],
-                )
+                    if individual_signals:
+                        success_count = len(
+                            [
+                                s
+                                for s in individual_signals
+                                if s.get("confidence", 0)
+                                >= self.CONFIDENCE_THRESHOLD_LOW
+                            ]
+                        )
+                        fail_count = len(
+                            [
+                                s
+                                for s in individual_signals
+                                if s.get("confidence", 0)
+                                < self.CONFIDENCE_THRESHOLD_LOW
+                            ]
+                        )
+                        self.enhanced_logger.info_ai_fusion_stats(
+                            success_count,
+                            fail_count,
+                            providers,
+                            [s.get("provider", "unknown") for s in individual_signals],
+                        )
 
             # 如果有多个信号，进行融合分析（缓存信号也需要分析）
             if len(ai_signals) > 1:
