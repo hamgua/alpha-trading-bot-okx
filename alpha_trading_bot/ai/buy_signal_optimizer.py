@@ -97,11 +97,23 @@ class BuySignalOptimizer:
         self.buy_signal_history = []
         self.recent_buy_signals = []  # 最近30分钟的BUY信号
 
+    def _calculate_recent_trend(self, close_prices: List[float]) -> int:
+        """计算近期趋势方向"""
+        if len(close_prices) < 2:
+            return 0
+        increases = 0
+        for i in range(1, len(close_prices)):
+            if close_prices[i] > close_prices[i - 1]:
+                increases += 1
+            elif close_prices[i] < close_prices[i - 1]:
+                increases -= 1
+        return increases
+
     def _get_trend_level(self, trend_strength: float) -> str:
         """根据趋势强度返回趋势级别"""
-        if trend_strength > 0.5:
+        if trend_strength > 0.6:  # 0.5 -> 0.6 放宽阈值
             return "strong_trend"
-        elif trend_strength > 0.3:
+        elif trend_strength > 0.25:  # 0.3 -> 0.25 放宽阈值
             return "medium_trend"
         else:
             return "weak_trend"
@@ -463,12 +475,12 @@ class BuySignalOptimizer:
         optimized = signal.copy()
         reason = signal.get("reason", "")
 
+        # 获取price_position用于多个检查
+        technical_data = market_data.get("technical_data", {})
+        price_position = technical_data.get("price_position", 0.5)
+
         # 1. 平衡过度谨慎的BUY信号
         if "建议谨慎" in reason or "风险" in reason:
-            # 检查是否确实有高风险
-            technical_data = market_data.get("technical_data", {})
-            price_position = technical_data.get("price_position", 0.5)
-
             if price_position < 0.4:  # 实际处于低位
                 # 降低谨慎程度
                 current_confidence = optimized.get(

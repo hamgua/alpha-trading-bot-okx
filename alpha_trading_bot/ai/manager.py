@@ -1105,6 +1105,23 @@ class AIManager(BaseComponent):
                 trend_confirmed = False
                 trend_reasons.append(f"24h跌幅过大({price_change_24h:.1f}%)")
 
+            # 🚀 关键优化：强趋势时减少价格位置影响
+            # 当趋势强度 > 0.6 且趋势方向为上涨时，减少价格位置的负面影响
+            if (
+                trend_strength_numeric >= 0.6
+                and trend_direction == "up"
+                and composite_position > 80
+            ):
+                # 强上涨趋势中，价格位置权重降低50%
+                original_position = composite_position
+                composite_position = min(
+                    80.0,  # 最高按80%处理
+                    composite_position * 0.5,
+                )  # 降低价格位置的计算权重
+                logger.info(
+                    f"🚀 强趋势价格位置调整: {original_position:.1f}% → {composite_position:.1f}% (趋势强度: {trend_strength_numeric:.2f}, 趋势方向: {trend_direction})"
+                )
+
             # 调整信号置信度（传入趋势强度）
             original_confidence = signal.get("confidence", 0.5)
             adjusted_confidence = scaler.calculate_signal_adjustment(

@@ -15,9 +15,11 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class ParameterPerformance:
     """参数性能记录"""
+
     parameter_name: str
     parameter_value: float
     win_rate: float
@@ -28,14 +30,17 @@ class ParameterPerformance:
     profitable_trades: int
     avg_holding_period: float
 
+
 @dataclass
 class MarketCondition:
     """市场条件"""
+
     trend_strength: float
     volatility: float
     volume_ratio: float
     price_position: float
     market_state: str  # bull, bear, sideways
+
 
 class SelfLearningOptimizer:
     """自学习参数优化器"""
@@ -55,19 +60,19 @@ class SelfLearningOptimizer:
     def _initialize_parameter_space(self) -> Dict[str, Any]:
         """初始化参数空间"""
         return {
-            'price_position_thresholds': {
-                'extreme_high': {'min': 85, 'max': 99, 'step': 1},
-                'high': {'min': 70, 'max': 90, 'step': 1},
-                'extreme_low': {'min': 5, 'max': 25, 'step': 1}
+            "price_position_thresholds": {
+                "extreme_high": {"min": 85, "max": 99, "step": 1},
+                "high": {"min": 70, "max": 90, "step": 1},
+                "extreme_low": {"min": 5, "max": 25, "step": 1},
             },
-            'signal_attenuation': {
-                'extreme_high': {'min': 0.3, 'max': 0.8, 'step': 0.05},
-                'high': {'min': 0.5, 'max': 0.9, 'step': 0.05},
-                'extreme_low': {'min': 1.2, 'max': 1.5, 'step': 0.05}
+            "signal_attenuation": {
+                "extreme_high": {"min": 0.3, "max": 0.8, "step": 0.05},
+                "high": {"min": 0.5, "max": 0.9, "step": 0.05},
+                "extreme_low": {"min": 1.2, "max": 1.5, "step": 0.05},
             },
-            'breakout_threshold': {'min': 1.001, 'max': 1.005, 'step': 0.0005},
-            'volume_confirmation': {'min': 1.0, 'max': 1.5, 'step': 0.1},
-            'trend_strength_threshold': {'min': 0.3, 'max': 0.7, 'step': 0.05}
+            "breakout_threshold": {"min": 1.001, "max": 1.005, "step": 0.0005},
+            "volume_confirmation": {"min": 1.0, "max": 1.5, "step": 0.1},
+            "trend_strength_threshold": {"min": 0.3, "max": 0.7, "step": 0.05},
         }
 
     def _create_database(self):
@@ -78,7 +83,7 @@ class SelfLearningOptimizer:
         cursor = conn.cursor()
 
         # 参数性能表
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS parameter_performance (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT,
@@ -96,10 +101,10 @@ class SelfLearningOptimizer:
                 volatility REAL,
                 volume_ratio REAL
             )
-        ''')
+        """)
 
         # 市场状态表
-        cursor.execute('''
+        cursor.execute("""
             CREATE TABLE IF NOT EXISTS market_conditions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT,
@@ -109,7 +114,7 @@ class SelfLearningOptimizer:
                 price_position REAL,
                 market_state TEXT
             )
-        ''')
+        """)
 
         conn.commit()
         conn.close()
@@ -120,45 +125,50 @@ class SelfLearningOptimizer:
         cursor = conn.cursor()
 
         # 提取交易数据
-        entry_price = trade_data['entry_price']
-        exit_price = trade_data['exit_price']
-        holding_period = trade_data['holding_period_hours']
-        market_conditions = trade_data['market_conditions']
-        parameters_used = trade_data['parameters_used']
+        entry_price = trade_data["entry_price"]
+        exit_price = trade_data["exit_price"]
+        holding_period = trade_data["holding_period_hours"]
+        market_conditions = trade_data["market_conditions"]
+        parameters_used = trade_data["parameters_used"]
 
         # 计算收益
         return_pct = (exit_price - entry_price) / entry_price * 100
 
         # 记录到性能表
         for param_name, param_value in parameters_used.items():
-            cursor.execute('''
+            cursor.execute(
+                """
                 INSERT INTO parameter_performance (
                     timestamp, parameter_name, parameter_value, market_state,
                     win_rate, avg_return, max_drawdown, sharpe_ratio,
                     total_trades, profitable_trades, avg_holding_period,
                     trend_strength, volatility, volume_ratio
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                datetime.now().isoformat(),
-                param_name,
-                param_value,
-                market_conditions['state'],
-                1.0 if return_pct > 0 else 0.0,  # 简化版胜率
-                return_pct,
-                0.0,  # 最大回撤需要更复杂计算
-                0.0,  # 夏普比率需要基准
-                1,
-                1 if return_pct > 0 else 0,
-                holding_period,
-                market_conditions['trend_strength'],
-                market_conditions['volatility'],
-                market_conditions['volume_ratio']
-            ))
+            """,
+                (
+                    datetime.now().isoformat(),
+                    param_name,
+                    param_value,
+                    market_conditions["state"],
+                    1.0 if return_pct > 0 else 0.0,  # 简化版胜率
+                    return_pct,
+                    0.0,  # 最大回撤需要更复杂计算
+                    0.0,  # 夏普比率需要基准
+                    1,
+                    1 if return_pct > 0 else 0,
+                    holding_period,
+                    market_conditions["trend_strength"],
+                    market_conditions["volatility"],
+                    market_conditions["volume_ratio"],
+                ),
+            )
 
         conn.commit()
         conn.close()
 
-    def analyze_parameter_performance(self, market_state: str = None) -> Dict[str, ParameterPerformance]:
+    def analyze_parameter_performance(
+        self, market_state: str = None
+    ) -> Dict[str, ParameterPerformance]:
         """分析参数表现"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -171,7 +181,8 @@ class SelfLearningOptimizer:
             params = [market_state]
 
         # 查询参数表现
-        cursor.execute(f'''
+        cursor.execute(
+            f"""
             SELECT parameter_name, parameter_value,
                    AVG(win_rate) as avg_win_rate,
                    AVG(avg_return) as avg_return,
@@ -184,7 +195,9 @@ class SelfLearningOptimizer:
             GROUP BY parameter_name, parameter_value
             HAVING COUNT(*) >= ?
             ORDER BY avg_win_rate DESC, avg_return DESC
-        ''', params + [self.min_samples])
+        """,
+            params + [self.min_samples],
+        )
 
         results = {}
         for row in cursor.fetchall():
@@ -197,7 +210,7 @@ class SelfLearningOptimizer:
                 sharpe_ratio=0.0,  # 简化版
                 total_trades=row[5],
                 profitable_trades=row[6],
-                avg_holding_period=row[7]
+                avg_holding_period=row[7],
             )
             key = f"{row[0]}_{row[1]}"
             results[key] = param_perf
@@ -205,7 +218,9 @@ class SelfLearningOptimizer:
         conn.close()
         return results
 
-    def get_optimal_parameters(self, current_market: MarketCondition) -> Dict[str, float]:
+    def get_optimal_parameters(
+        self, current_market: MarketCondition
+    ) -> Dict[str, float]:
         """获取当前市场条件下的最优参数"""
         # 分析相似市场条件下的参数表现
         similar_conditions = self._find_similar_market_conditions(current_market)
@@ -216,7 +231,9 @@ class SelfLearningOptimizer:
 
         # 获取最优参数
         optimal_params = {}
-        performance_data = self.analyze_parameter_performance(current_market.market_state)
+        performance_data = self.analyze_parameter_performance(
+            current_market.market_state
+        )
 
         for param_name in self.parameter_space.keys():
             if isinstance(self.parameter_space[param_name], dict):
@@ -225,7 +242,7 @@ class SelfLearningOptimizer:
                     best_value = self._find_best_parameter_value(
                         f"{param_name}.{sub_param}",
                         performance_data,
-                        similar_conditions
+                        similar_conditions,
                     )
                     if param_name not in optimal_params:
                         optimal_params[param_name] = {}
@@ -233,58 +250,94 @@ class SelfLearningOptimizer:
             else:
                 # 简单参数
                 best_value = self._find_best_parameter_value(
-                    param_name,
-                    performance_data,
-                    similar_conditions
+                    param_name, performance_data, similar_conditions
                 )
                 optimal_params[param_name] = best_value
 
         logger.info(f"自学习优化器 - 最优参数: {optimal_params}")
         return optimal_params
 
-    def _find_similar_market_conditions(self, current_market: MarketCondition) -> List[Dict[str, Any]]:
-        """找到相似的市场条件"""
+    def _find_similar_market_conditions(
+        self, current_market: MarketCondition
+    ) -> List[Dict[str, Any]]:
+        """找到相似的市场条件 - 优化版：增强强趋势识别"""
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
-        # 查询相似的市场条件
-        cursor.execute('''
-            SELECT * FROM market_conditions
-            WHERE ABS(trend_strength - ?) < 0.2
-            AND ABS(volatility - ?) < 0.1
-            AND ABS(volume_ratio - ?) < 0.3
-            AND market_state = ?
-            ORDER BY timestamp DESC
-            LIMIT 100
-        ''', (
-            current_market.trend_strength,
-            current_market.volatility,
-            current_market.volume_ratio,
-            current_market.market_state
-        ))
+        # 特殊处理：如果是强上涨趋势，扩大搜索范围
+        is_strong_bull = (
+            current_market.trend_strength >= 0.6
+            and current_market.market_state == "bull"
+        )
+
+        if is_strong_bull:
+            # 强上涨趋势时，扩大相似条件的搜索范围
+            logger.info(
+                f"🔍 检测到强上涨趋势(强度: {current_market.trend_strength:.2f})，扩大搜索范围"
+            )
+            cursor.execute(
+                """
+                SELECT * FROM market_conditions
+                WHERE ABS(trend_strength - ?) < 0.3
+                AND ABS(volatility - ?) < 0.15
+                AND ABS(volume_ratio - ?) < 0.4
+                AND (market_state = ? OR market_state = 'bull')
+                ORDER BY timestamp DESC
+                LIMIT 150
+            """,
+                (
+                    current_market.trend_strength,
+                    current_market.volatility,
+                    current_market.volume_ratio,
+                    current_market.market_state,
+                ),
+            )
+        else:
+            # 标准查询
+            cursor.execute(
+                """
+                SELECT * FROM market_conditions
+                WHERE ABS(trend_strength - ?) < 0.2
+                AND ABS(volatility - ?) < 0.1
+                AND ABS(volume_ratio - ?) < 0.3
+                AND market_state = ?
+                ORDER BY timestamp DESC
+                LIMIT 100
+            """,
+                (
+                    current_market.trend_strength,
+                    current_market.volatility,
+                    current_market.volume_ratio,
+                    current_market.market_state,
+                ),
+            )
 
         results = []
         for row in cursor.fetchall():
-            results.append({
-                'timestamp': row[1],
-                'trend_strength': row[2],
-                'volatility': row[3],
-                'volume_ratio': row[4],
-                'price_position': row[5],
-                'market_state': row[6]
-            })
+            results.append(
+                {
+                    "timestamp": row[1],
+                    "trend_strength": row[2],
+                    "volatility": row[3],
+                    "volume_ratio": row[4],
+                    "price_position": row[5],
+                    "market_state": row[6],
+                }
+            )
 
         conn.close()
         return results
 
-    def _find_best_parameter_value(self, param_name: str,
-                                  performance_data: Dict[str, ParameterPerformance],
-                                  similar_conditions: List[Dict[str, Any]]) -> float:
+    def _find_best_parameter_value(
+        self,
+        param_name: str,
+        performance_data: Dict[str, ParameterPerformance],
+        similar_conditions: List[Dict[str, Any]],
+    ) -> float:
         """找到最优参数值"""
         # 筛选相关参数
         relevant_params = {
-            k: v for k, v in performance_data.items()
-            if k.startswith(param_name)
+            k: v for k, v in performance_data.items() if k.startswith(param_name)
         }
 
         if not relevant_params:
@@ -295,31 +348,31 @@ class SelfLearningOptimizer:
         sorted_params = sorted(
             relevant_params.items(),
             key=lambda x: (x[1].win_rate, x[1].avg_return),
-            reverse=True
+            reverse=True,
         )
 
         # 返回最优值
         best_param_key = sorted_params[0][0]
-        best_value = float(best_param_key.split('_')[-1])
+        best_value = float(best_param_key.split("_")[-1])
 
         return best_value
 
     def _get_default_parameters(self) -> Dict[str, float]:
         """获取默认参数"""
         return {
-            'price_position_thresholds': {
-                'extreme_high': 95,
-                'high': 80,
-                'extreme_low': 15
+            "price_position_thresholds": {
+                "extreme_high": 95,
+                "high": 80,
+                "extreme_low": 15,
             },
-            'signal_attenuation': {
-                'extreme_high': 0.5,
-                'high': 0.7,
-                'extreme_low': 1.3
+            "signal_attenuation": {
+                "extreme_high": 0.5,
+                "high": 0.7,
+                "extreme_low": 1.3,
             },
-            'breakout_threshold': 1.002,
-            'volume_confirmation': 1.2,
-            'trend_strength_threshold': 0.4
+            "breakout_threshold": 1.002,
+            "volume_confirmation": 1.2,
+            "trend_strength_threshold": 0.4,
         }
 
     def _get_default_parameter_value(self, param_name: str) -> float:
@@ -327,8 +380,8 @@ class SelfLearningOptimizer:
         defaults = self._get_default_parameters()
 
         # 处理复合参数名
-        if '.' in param_name:
-            main_param, sub_param = param_name.split('.')
+        if "." in param_name:
+            main_param, sub_param = param_name.split(".")
             return defaults.get(main_param, {}).get(sub_param, 0.5)
         else:
             return defaults.get(param_name, 0.5)
@@ -339,10 +392,14 @@ class SelfLearningOptimizer:
             return
 
         # 分析最近交易表现
-        total_return = sum(trade.get('return_pct', 0) for trade in recent_trades)
-        win_rate = sum(1 for trade in recent_trades if trade.get('return_pct', 0) > 0) / len(recent_trades)
+        total_return = sum(trade.get("return_pct", 0) for trade in recent_trades)
+        win_rate = sum(
+            1 for trade in recent_trades if trade.get("return_pct", 0) > 0
+        ) / len(recent_trades)
 
-        logger.info(f"自学习更新 - 最近{len(recent_trades)}笔交易，胜率: {win_rate:.2f}，总收益: {total_return:.2f}%")
+        logger.info(
+            f"自学习更新 - 最近{len(recent_trades)}笔交易，胜率: {win_rate:.2f}，总收益: {total_return:.2f}%"
+        )
 
         # 如果表现良好，增加当前参数的信心度
         if win_rate > 0.6 and total_return > 0:
@@ -369,23 +426,32 @@ class SelfLearningOptimizer:
     def export_optimization_report(self, filepath: str):
         """导出优化报告"""
         report = {
-            'timestamp': datetime.now().isoformat(),
-            'total_trades_analyzed': len(self.performance_history),
-            'learning_rate': self.learning_rate,
-            'exploration_rate': self.exploration_rate,
-            'optimal_parameters': self._get_default_parameters(),  # 当前最优参数
-            'parameter_space': self.parameter_space,
-            'performance_summary': {
-                'avg_win_rate': sum([p.win_rate for p in self.performance_history]) / len(self.performance_history) if self.performance_history else 0,
-                'avg_return': sum([p.avg_return for p in self.performance_history]) / len(self.performance_history) if self.performance_history else 0,
-                'total_profitable_trades': sum([p.profitable_trades for p in self.performance_history])
-            }
+            "timestamp": datetime.now().isoformat(),
+            "total_trades_analyzed": len(self.performance_history),
+            "learning_rate": self.learning_rate,
+            "exploration_rate": self.exploration_rate,
+            "optimal_parameters": self._get_default_parameters(),  # 当前最优参数
+            "parameter_space": self.parameter_space,
+            "performance_summary": {
+                "avg_win_rate": sum([p.win_rate for p in self.performance_history])
+                / len(self.performance_history)
+                if self.performance_history
+                else 0,
+                "avg_return": sum([p.avg_return for p in self.performance_history])
+                / len(self.performance_history)
+                if self.performance_history
+                else 0,
+                "total_profitable_trades": sum(
+                    [p.profitable_trades for p in self.performance_history]
+                ),
+            },
         }
 
-        with open(filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
 
         logger.info(f"优化报告已导出至: {filepath}")
+
 
 # 全局实例
 self_learning_optimizer = SelfLearningOptimizer()
