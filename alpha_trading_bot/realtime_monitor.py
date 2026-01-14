@@ -53,7 +53,7 @@ class PriceMonitorConfig(BaseConfig):
 
 
 class PriceMonitor(BaseComponent):
-    """价格监控器 - 第一阶段：记录触发信号"""
+    """价格监控器 - 支持渐进式实时化各阶段"""
 
     def __init__(self, config: Optional[PriceMonitorConfig] = None):
         super().__init__(config or PriceMonitorConfig(name="PriceMonitor"))
@@ -66,6 +66,31 @@ class PriceMonitor(BaseComponent):
         self.is_monitoring = False
         self.data_dir: str = getattr(self.config, "data_dir", "data/price_monitor")
         self.last_save_time: Optional[datetime] = None
+
+        # 第二阶段：快速信号分析器
+        self.quick_signal_analyzer = None
+        self._init_quick_signal_analyzer()
+
+    def _init_quick_signal_analyzer(self):
+        """初始化快速信号分析器（第二阶段）"""
+        try:
+            from .realtime.quick_signal_analyzer import (
+                QuickSignalAnalyzer,
+                QuickSignalAnalyzerConfig,
+            )
+
+            analyzer_config = QuickSignalAnalyzerConfig(
+                enable_ai_analysis=False,  # 第二阶段先使用规则分析
+                record_only=True,  # 仅记录，不执行
+                price_change_threshold=getattr(
+                    self.config, "price_change_threshold", 0.006
+                ),
+                data_dir=self.data_dir,
+            )
+            self.quick_signal_analyzer = QuickSignalAnalyzer(analyzer_config)
+            logger.info("快速信号分析器已初始化（第二阶段）")
+        except Exception as e:
+            logger.warning(f"快速信号分析器初始化失败: {e}")
 
     async def initialize(self) -> bool:
         """初始化价格监控器"""
@@ -81,6 +106,10 @@ class PriceMonitor(BaseComponent):
 
             # 初始化价格历史记录（用于计算变化）
             await self._initialize_price_history()
+
+            # 第二阶段：初始化快速信号分析器
+            if self.quick_signal_analyzer:
+                await self.quick_signal_analyzer.initialize()
 
             monitor_cycle = getattr(self.config, "monitor_cycle", 180)
             price_change_threshold = getattr(
@@ -331,14 +360,35 @@ class PriceMonitor(BaseComponent):
     async def _record_trigger_event(self, event: PriceChangeEvent):
         """记录触发事件"""
         try:
+            # 第二阶段：使用快速信号分析器
+            if self.quick_signal_analyzer:
+                # 获取市场上下文
+                market_context = await self._get_market_context()
+
+                # 执行快速信号分析（仅记录，不执行）
+                signal = await self.quick_signal_analyzer.analyze_price_change(
+                    price_change_percent=event.price_change_percent,
+                    current_price=event.current_price,
+                    market_data=market_context,
+                )
+
+                if signal:
+                    logger.info(
+                        f"第二阶段快速信号: {signal.signal_type} @ {signal.timestamp} "
+                        f"(置信度: {signal.confidence:.2f})"
+                    )
+                else:
+                    logger.debug("未生成快速信号")
+                return
+
+            # 第一阶段：仅记录价格变化（原有逻辑）
             if not getattr(self.config, "enable_ai_check", False):
-                # 第一阶段：仅记录价格变化
                 logger.info(
                     f"记录价格变化事件: 时间={event.timestamp}, 变化={event.price_change_percent:.2%}"
                 )
                 return
 
-            # 如果启用AI检查（第二阶段及以后）
+            # 如果启用AI检查（旧版）
             await self._perform_quick_ai_check(event)
 
         except Exception as e:
@@ -528,6 +578,22 @@ class PriceMonitor(BaseComponent):
             signal for signal in self.quick_signals if signal.timestamp > cutoff_time
         ]
 
+    def get_signal_quality_report(self, hours: int = 24) -> Dict[str, Any]:
+        """获取信号质量报告（第二阶段）"""
+        if not self.quick_signal_analyzer:
+            return {"error": "快速信号分析器未初始化"}
+
+        stats = self.quick_signal_analyzer.get_stats()
+        summary = self.quick_signal_analyzer.get_signal_summary(hours)
+
+        return {
+            "stats": stats,
+            "summary": summary,
+            "recent_signals_count": len(
+                self.quick_signal_analyzer.get_recent_signals(hours)
+            ),
+        }
+
     async def cleanup(self):
         """清理资源"""
         await self.stop_monitoring()
@@ -535,9 +601,18 @@ class PriceMonitor(BaseComponent):
         # 保存最终数据
         try:
             await self._save_data()
+
+            # 第二阶段：保存快速信号
+            if self.quick_signal_analyzer:
+                await self.quick_signal_analyzer.save_signals()
+
             logger.info("最终数据已保存")
         except Exception as e:
             logger.error(f"保存最终数据失败: {e}")
+
+        # 清理快速信号分析器
+        if self.quick_signal_analyzer:
+            self.quick_signal_analyzer.signals.clear()
 
         self.price_history.clear()
         self.price_change_events.clear()
