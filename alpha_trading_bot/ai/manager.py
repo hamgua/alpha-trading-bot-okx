@@ -19,6 +19,7 @@ from .signal_optimizer import SignalOptimizer
 from .buy_signal_optimizer import BuySignalOptimizer
 from .dynamic_signal_tier import dynamic_signal_tier
 from .self_learning_optimizer import self_learning_optimizer
+from .high_price_protection import high_price_protection, check_high_price_protection
 from ..utils.price_calculator import PriceCalculator
 from .signal_generator import AISignalGenerator
 from .cache_manager import AICacheManager
@@ -145,17 +146,41 @@ class AIManager(BaseComponent):
     ) -> List[Dict[str, Any]]:
         """生成AI交易信号"""
         try:
+            # 🛡️ 高位保护检查 - 在信号生成前进行保护评估
+            protection_summary = high_price_protection.get_protection_summary(
+                market_data
+            )
+            logger.info(
+                f"🛡️ 高位保护检查 - 价格位置: {protection_summary['price_position_pct']}, "
+                f"级别: {protection_summary['price_level']}, "
+                f"建议信心度: {protection_summary['required_confidence']}, "
+                f"是否可买: {protection_summary['can_buy']}"
+            )
+
             # 检查缓存 - 支持动态缓存和传统缓存
             if self.config.enable_dynamic_cache:
                 # 使用动态缓存系统
                 cache_key = self.dynamic_cache.generate_cache_key_v2(market_data)
                 atr_percentage = market_data.get("atr_percentage", 0)
-                dynamic_duration = self.dynamic_cache.get_dynamic_cache_duration(
+
+                # 🎯 综合缓存时长计算：ATR波动率 + 价格位置
+                price_position = (
+                    market_data.get("composite_price_position", 50.0) / 100.0
+                )
+                volatility_duration = self.dynamic_cache.get_dynamic_cache_duration(
                     atr_percentage
                 )
+                price_protection_duration = high_price_protection.get_cache_duration(
+                    price_position
+                )
+
+                # 取两者较小值，确保高位时更频繁更新
+                dynamic_duration = min(volatility_duration, price_protection_duration)
 
                 logger.info(
-                    f"🔄 使用动态缓存系统 - ATR: {atr_percentage:.2f}%, 缓存时间: {dynamic_duration}秒"
+                    f"🔄 使用动态缓存系统 - ATR: {atr_percentage:.2f}%, "
+                    f"波动率缓存: {volatility_duration}秒, 高位保护缓存: {price_protection_duration}秒, "
+                    f"综合缓存时间: {dynamic_duration}秒"
                 )
             else:
                 # 使用传统缓存系统

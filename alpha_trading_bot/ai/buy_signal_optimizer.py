@@ -97,6 +97,77 @@ class BuySignalOptimizer:
         self.buy_signal_history = []
         self.recent_buy_signals = []  # 最近30分钟的BUY信号
 
+    def _calculate_moving_averages(
+        self, close_prices: List[float], periods: List[int] = [20, 50, 200]
+    ) -> Dict[int, float]:
+        """计算移动平均线
+
+        Args:
+            close_prices: 收盘价列表
+            periods: 周期列表
+
+        Returns:
+            周期->MA值的字典
+        """
+        mas = {}
+        prices = np.array(close_prices)
+        for period in periods:
+            if len(prices) >= period:
+                mas[period] = float(np.mean(prices[-period:]))
+        return mas
+
+    def _check_pullback_opportunity(
+        self,
+        current_price: float,
+        close_prices: List[float],
+        trend_direction: str = "up",
+    ) -> tuple:
+        """检查是否处于回调买入机会
+
+        Args:
+            current_price: 当前价格
+            close_prices: 收盘价历史
+            trend_direction: 趋势方向
+
+        Returns:
+            (是否回调机会, 回调幅度, 说明)
+        """
+        if not close_prices or len(close_prices) < 20:
+            return False, 0.0, "数据不足"
+
+        if trend_direction != "up":
+            return False, 0.0, "非上涨趋势，不考虑回调买入"
+
+        # 计算移动平均线
+        mas = self._calculate_moving_averages(close_prices, [20, 50, 200])
+        if not mas:
+            return False, 0.0, "均线数据不足"
+
+        # 获取短期均线
+        short_ma_period = min(mas.keys())
+        short_ma = mas[short_ma_period]
+
+        # 计算价格到均线的回调距离
+        if current_price > short_ma:
+            distance = (current_price - short_ma) / current_price
+            pullback_pct = distance * 100
+
+            # 回调距离小于5%认为是合理回调
+            if distance <= 0.05:
+                return (
+                    True,
+                    pullback_pct,
+                    f"回调至{short_ma_period}日均线附近({pullback_pct:.1f}%)",
+                )
+            else:
+                return (
+                    False,
+                    pullback_pct,
+                    f"回调过深({pullback_pct:.1f}%)，超过5%",
+                )
+        else:
+            return False, 0.0, f"价格低于{short_ma_period}日均线"
+
     def _calculate_recent_trend(self, close_prices: List[float]) -> int:
         """计算近期趋势方向"""
         if len(close_prices) < 2:
@@ -188,25 +259,45 @@ class BuySignalOptimizer:
 
         # 1. 价格位置检查（动态风控）
         if price_position > thresholds["max_price_position"]:
-            # 价格处于高位，降低BUY信号强度或转为HOLD
-            confidence_reduction = 0.15 * thresholds["price_position_weight"]
-            optimized["confidence"] = max(
-                original_confidence - confidence_reduction, 0.3
-            )
-            optimized["reason"] += (
-                f" | ⚠️ 价格处于{price_position * 100:.1f}%高位，风险较高（趋势强度：{trend_strength:.2f}）"
-            )
-            logger.debug(
-                f"🚨 价格位置风险: {price_position * 100:.1f}% > {thresholds['max_price_position'] * 100:.0f}%，降低信心度{confidence_reduction * 100:.0f}%"
+            # 🔥 高位检查：首先检查是否是回调买入机会
+            close_prices = market_data.get("close_prices", [])
+            trend_direction = market_data.get("trend_direction", "neutral")
+
+            is_pullback, pullback_pct, pullback_reason = (
+                self._check_pullback_opportunity(
+                    current_price, close_prices, trend_direction
+                )
             )
 
-            # 如果信心度降得太低，考虑转为HOLD
-            if optimized["confidence"] < 0.45:
-                optimized["signal"] = "HOLD"
-                optimized["reason"] += " | 高位风险过大，建议观望"
-                logger.info(
-                    f"🔄 {provider.upper()}: BUY转HOLD - 价格位置风险过高（趋势强度：{trend_strength:.2f}）"
+            if is_pullback:
+                # 回调买入机会：允许买入，降低惩罚
+                optimized["reason"] += (
+                    f" | ✅ 回调买入机会 - {pullback_reason}，允许买入"
                 )
+                logger.info(
+                    f"✅ {provider.upper()}: 回调买入机会 - 价格位置{price_position * 100:.1f}%但{pullback_reason}，允许买入"
+                )
+                # 不降低信心度，保持原信号
+            else:
+                # 非回调机会：正常高位风险处理
+                confidence_reduction = 0.15 * thresholds["price_position_weight"]
+                optimized["confidence"] = max(
+                    original_confidence - confidence_reduction, 0.3
+                )
+                optimized["reason"] += (
+                    f" | ⚠️ 价格处于{price_position * 100:.1f}%高位，风险较高（趋势强度：{trend_strength:.2f}）"
+                )
+                logger.debug(
+                    f"🚨 价格位置风险: {price_position * 100:.1f}% > {thresholds['max_price_position'] * 100:.0f}%，降低信心度{confidence_reduction * 100:.0f}%"
+                )
+
+                # 如果信心度降得太低，考虑转为HOLD
+                if optimized["confidence"] < 0.45:
+                    optimized["signal"] = "HOLD"
+                    optimized["reason"] += " | 高位风险过大，建议观望"
+                    logger.info(
+                        f"🔄 {provider.upper()}: BUY转HOLD - 价格位置风险过高（趋势强度：{trend_strength:.2f}）"
+                    )
 
         # 2. RSI检查（动态风控）
         elif rsi > thresholds["max_rsi_for_buy"]:
