@@ -71,6 +71,10 @@ class PriceMonitor(BaseComponent):
         self.quick_signal_analyzer = None
         self._init_quick_signal_analyzer()
 
+        # 第三阶段：保守交易器
+        self.conservative_trader = None
+        self._init_conservative_trader()
+
     def _init_quick_signal_analyzer(self):
         """初始化快速信号分析器（第二阶段）"""
         try:
@@ -91,6 +95,30 @@ class PriceMonitor(BaseComponent):
             logger.info("快速信号分析器已初始化（第二阶段）")
         except Exception as e:
             logger.warning(f"快速信号分析器初始化失败: {e}")
+
+    def _init_conservative_trader(self):
+        """初始化保守交易器（第三阶段）"""
+        try:
+            from .realtime.conservative_trader import (
+                ConservativeTrader,
+                ConservativeTraderConfig,
+            )
+
+            trader_config = ConservativeTraderConfig(
+                trading_mode="record_only",  # 默认仅记录，可通过API切换
+                min_confidence_for_buy=0.85,  # 买入需85%信心
+                min_confidence_for_sell=0.80,  # 卖出需80%信心
+                max_trades_per_hour=2,  # 每小时最多2笔
+                max_daily_trades=6,  # 每日最多6笔
+                min_trade_interval=900,  # 最小间隔15分钟
+                stop_loss_percent=0.005,  # 止损0.5%
+                take_profit_percent=0.03,  # 止盈3%
+                data_dir=self.data_dir,
+            )
+            self.conservative_trader = ConservativeTrader(trader_config)
+            logger.info("保守交易器已初始化（第三阶段）")
+        except Exception as e:
+            logger.warning(f"保守交易器初始化失败: {e}")
 
     async def initialize(self) -> bool:
         """初始化价格监控器"""
