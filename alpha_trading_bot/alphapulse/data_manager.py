@@ -367,7 +367,7 @@ class DataManager:
         self, symbol: str, timeframe: str, limit: int = None
     ) -> List[List]:
         """
-        获取K线数据
+        获取K线数据 - 无锁版
 
         Args:
             symbol: 交易对
@@ -377,18 +377,19 @@ class DataManager:
         Returns:
             OHLCV数据列表
         """
-        async with self._lock:
-            if (
-                symbol not in self.ohlcv_storage
-                or timeframe not in self.ohlcv_storage[symbol]
-            ):
-                return []
+        # 快速检查存储是否存在（无需锁）
+        if (
+            symbol not in self.ohlcv_storage
+            or timeframe not in self.ohlcv_storage[symbol]
+        ):
+            return []
 
-            data = list(self.ohlcv_storage[symbol][timeframe])
-            if limit and len(data) > limit:
-                data = data[-limit:]
+        # 获取数据（Python字典和deque操作是原子的）
+        data = list(self.ohlcv_storage[symbol][timeframe])
+        if limit and len(data) > limit:
+            data = data[-limit:]
 
-            return [d.to_list() for d in data]
+        return [d.to_list() for d in data]
 
     async def get_current_price(self, symbol: str) -> Optional[float]:
         """获取当前价格 - 无锁版（只需读取引用）"""
