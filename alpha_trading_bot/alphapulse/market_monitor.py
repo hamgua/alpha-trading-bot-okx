@@ -184,7 +184,8 @@ class MarketMonitor:
         self,
         exchange_client,
         config: AlphaPulseConfig,
-        data_manager: DataManager = None,
+        data_manager=None,
+        on_signal=None,
     ):
         """
         初始化市场监控系统
@@ -193,6 +194,7 @@ class MarketMonitor:
             exchange_client: 交易所客户端
             config: AlphaPulse配置
             data_manager: 数据管理器（可选）
+            on_signal: 信号回调函数（可选）
         """
         self.exchange_client = exchange_client
         self.config = config
@@ -200,6 +202,7 @@ class MarketMonitor:
             max_ohlcv_bars=config.max_ohlcv_bars,
             max_indicator_history=config.max_indicator_history,
         )
+        self.on_signal = on_signal  # 信号回调
 
         # 技术指标计算器
         self.tech_indicators = TechnicalIndicators()
@@ -327,6 +330,29 @@ class MarketMonitor:
                         )
                     else:
                         logger.info(f"💤 {symbol} 无信号: {signal_result.message}")
+
+                    # 调用回调函数（无论是否有有效信号，都更新检查时间）
+                    if self.on_signal:
+                        # 创建简化的信号对象供回调使用
+                        class SimpleSignal:
+                            def __init__(
+                                self, symbol, signal_type, confidence, message
+                            ):
+                                self.symbol = symbol
+                                self.signal_type = signal_type
+                                self.confidence = confidence
+                                self.reasoning = message
+
+                        callback_signal = SimpleSignal(
+                            symbol,
+                            signal_result.signal_type,
+                            signal_result.confidence,
+                            signal_result.message,
+                        )
+                        try:
+                            self.on_signal(callback_signal)
+                        except Exception as e:
+                            logger.warning(f"⚠️ 信号回调执行失败: {e}")
 
         except Exception as e:
             logger.error(f"❌ 更新交易对数据失败 {symbol}: {e}")

@@ -93,6 +93,7 @@ class AlphaPulseEngine:
             exchange_client=exchange_client,
             config=self.config,
             data_manager=self.data_manager,
+            on_signal=self.on_signal,
         )
 
         self.signal_validator = SignalValidator(self.config)
