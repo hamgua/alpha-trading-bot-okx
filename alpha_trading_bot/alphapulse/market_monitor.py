@@ -382,21 +382,21 @@ class MarketMonitor:
                 signal_period=params["macd_signal"],
             )
 
-            # 计算ADX
-            adx_result = self.tech_indicators.calculate_adx(
+            # 计算ADX (返回列表，取最后一个值)
+            adx_list = self.tech_indicators.calculate_adx(
                 highs, lows, closes, period=params["adx_period"]
             )
-            adx = adx_result.get("adx", 0) if adx_result else 0
-            plus_di = adx_result.get("plus_di", 0) if adx_result else 0
-            minus_di = adx_result.get("minus_di", 0) if adx_result else 0
+            adx = adx_list[-1] if adx_list else 0
 
-            # 计算布林带
-            bb_result = self.tech_indicators.calculate_bollinger_bands(
-                closes, period=params["bb_period"], std_dev=params["bb_std"]
+            # 计算布林带 (返回元组: (上轨, 中轨, 下轨))
+            bb_upper_list, bb_middle_list, bb_lower_list = (
+                self.tech_indicators.calculate_bollinger_bands(
+                    closes, period=params["bb_period"], num_std=params["bb_std"]
+                )
             )
-            bb_upper = bb_result.get("upper", current_price)
-            bb_lower = bb_result.get("lower", current_price)
-            bb_middle = bb_result.get("middle", current_price)
+            bb_upper = bb_upper_list[-1] if bb_upper_list else current_price
+            bb_lower = bb_lower_list[-1] if bb_lower_list else current_price
+            bb_middle = bb_middle_list[-1] if bb_middle_list else current_price
 
             # 计算布林带位置
             bb_position = (
