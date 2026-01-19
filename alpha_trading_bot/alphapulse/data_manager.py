@@ -391,23 +391,19 @@ class DataManager:
             return [d.to_list() for d in data]
 
     async def get_current_price(self, symbol: str) -> Optional[float]:
-        """获取当前价格"""
-        async with self._lock:
-            if (
-                symbol not in self.ohlcv_storage
-                or "1m" not in self.ohlcv_storage[symbol]
-            ):
-                return None
-
-            data = self.ohlcv_storage[symbol]["1m"]
-            if data:
-                return data[-1].close
-
+        """获取当前价格 - 无锁版（只需读取引用）"""
+        if symbol not in self.ohlcv_storage or "1m" not in self.ohlcv_storage[symbol]:
             return None
+
+        data = self.ohlcv_storage[symbol]["1m"]
+        if data:
+            return data[-1].close
+
+        return None
 
     async def get_price_range(self, symbol: str) -> Dict[str, float]:
         """
-        获取价格区间
+        获取价格区间 - 无锁版
 
         Returns:
             {
@@ -419,38 +415,37 @@ class DataManager:
                 'range_7d': float,   # 7d波动幅度
             }
         """
-        async with self._lock:
-            if symbol not in self.price_range_cache:
-                return {
-                    "high_24h": 0,
-                    "low_24h": 0,
-                    "high_7d": 0,
-                    "low_7d": 0,
-                    "range_24h": 0,
-                    "range_7d": 0,
-                }
-
-            cache = self.price_range_cache[symbol]
-            current_price = await self.get_current_price(symbol)
-
-            high_24h = cache["high_24h"]
-            low_24h = cache["low_24h"]
-            high_7d = cache["high_7d"]
-            low_7d = cache["low_7d"]
-
-            # 计算波动幅度
-            range_24h = ((high_24h - low_24h) / low_24h * 100) if low_24h > 0 else 0
-            range_7d = ((high_7d - low_7d) / low_7d * 100) if low_7d > 0 else 0
-
+        if symbol not in self.price_range_cache:
             return {
-                "high_24h": high_24h,
-                "low_24h": low_24h,
-                "high_7d": high_7d,
-                "low_7d": low_7d,
-                "range_24h": range_24h,
-                "range_7d": range_7d,
-                "current_price": current_price,
+                "high_24h": 0,
+                "low_24h": 0,
+                "high_7d": 0,
+                "low_7d": 0,
+                "range_24h": 0,
+                "range_7d": 0,
             }
+
+        cache = self.price_range_cache[symbol]
+        current_price = await self.get_current_price(symbol)
+
+        high_24h = cache["high_24h"]
+        low_24h = cache["low_24h"]
+        high_7d = cache["high_7d"]
+        low_7d = cache["low_7d"]
+
+        # 计算波动幅度
+        range_24h = ((high_24h - low_24h) / low_24h * 100) if low_24h > 0 else 0
+        range_7d = ((high_7d - low_7d) / low_7d * 100) if low_7d > 0 else 0
+
+        return {
+            "high_24h": high_24h,
+            "low_24h": low_24h,
+            "high_7d": high_7d,
+            "low_7d": low_7d,
+            "range_24h": range_24h,
+            "range_7d": range_7d,
+            "current_price": current_price,
+        }
 
     def get_price_position(self, current: float, high: float, low: float) -> float:
         """
