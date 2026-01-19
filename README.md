@@ -52,6 +52,11 @@
 - **反向开仓** - 信号方向改变时自动反向开仓
 
 ### 📈 实时监控分析
+- **AlphaPulse实时监控** - 全新的独立实时监控系统
+  - **监控为主模式**: buy/sell 信号触发主流程，hold/None 持续监控
+  - **独立运行模式**: 仅运行实时监控，跳过主交易循环
+  - **后备机制**: 监控异常时主流程按周期执行
+  - **60秒间隔**: 持续监控市场，实时捕捉交易机会
 - **仓位实时监控** - 未实现盈亏、爆仓价格监控
 - **订单状态跟踪** - 活动订单实时状态更新
 - **性能指标统计** - 胜率、盈亏比、最大回撤等
@@ -420,6 +425,86 @@ INVESTMENT_TYPE=conservative    # 稳健型
 - `MONITORING_ENABLED`: 监控功能开关（默认开启）
 - `WEB_INTERFACE_ENABLED`: Web界面开关（默认关闭）
 - `WEB_PORT`: Web服务端口（默认8501）
+- `ALPHA_PULSE_ONLY_MODE`: AlphaPulse独立运行模式（默认false）
+- `ALPHA_PULSE_PRIMARY_MODE`: AlphaPulse监控为主模式（默认true）
+
+### 🎯 AlphaPulse实时监控配置
+AlphaPulse是全新的实时监控系统，支持"监控为主"和"独立运行"两种模式。
+
+#### 基础配置
+```bash
+# 启用AlphaPulse
+ALPHA_PULSE_ENABLED=true
+
+# 监控为主模式（默认true）
+# true: buy/sell信号触发主流程，hold/None持续监控
+# false: 主流程按15分钟周期运行
+ALPHA_PULSE_PRIMARY_MODE=true
+
+# 独立运行模式（默认false）
+# true: 仅运行实时监控，不执行主交易循环
+ALPHA_PULSE_ONLY_MODE=false
+```
+
+#### 监控为主模式流程
+```
+启动 --> AlphaPulse持续监控（60秒间隔）
+       ↓
+       ├─ buy/sell → 触发主流程（AI分析 → 交易执行）
+       ├─ hold/None → 继续监控，不触发主流程
+       └─ 监控异常 → 主流程后备启动（按15分钟周期）
+```
+
+#### 监控币种配置
+```bash
+# 建议只监控BTC，稳定运行后再添加其他币种
+ALPHA_PULSE_SYMBOLS=BTC/USDT:USDT
+
+# 多币种配置（增加系统负载）
+# ALPHA_PULSE_SYMBOLS=BTC/USDT:USDT,ETH/USDT:USDT
+```
+
+#### 信号阈值配置
+```bash
+# BUY/SELL信号触发阈值（0.0-1.0）
+ALPHA_PULSE_BUY_THRESHOLD=0.65
+ALPHA_PULSE_SELL_THRESHOLD=0.65
+
+# AI最小置信度
+ALPHA_PULSE_MIN_CONFIDENCE=0.70
+
+# 同交易对冷却时间（分钟）
+ALPHA_PULSE_COOLDOWN_MINUTES=15
+```
+
+#### 后备模式配置
+```bash
+# 启用后备定时任务
+FALLBACK_CRON_ENABLED=true
+
+# 监控间隔（秒）
+ALPHA_PULSE_INTERVAL=60
+```
+
+#### 配置组合示例
+```bash
+# 场景1：监控为主（推荐）
+ALPHA_PULSE_ENABLED=true
+ALPHA_PULSE_PRIMARY_MODE=true
+ALPHA_PULSE_ONLY_MODE=false
+ALPHA_PULSE_SYMBOLS=BTC/USDT:USDT
+
+# 场景2：仅监控，不交易
+ALPHA_PULSE_ENABLED=true
+ALPHA_PULSE_PRIMARY_MODE=true
+ALPHA_PULSE_ONLY_MODE=true
+ALPHA_PULSE_SYMBOLS=BTC/USDT:USDT
+
+# 场景3：传统模式（主流程为主）
+ALPHA_PULSE_ENABLED=true
+ALPHA_PULSE_PRIMARY_MODE=false
+ALPHA_PULSE_ONLY_MODE=false
+```
 
 ## 开发
 
@@ -457,6 +542,45 @@ mypy alpha_trading_bot/
 MIT License - 详见 [LICENSE](LICENSE) 文件
 
 ## 更新日志
+
+### v3.31.0 (最新版本)
+- 🔧 **AlphaPulse 实时监控模块** - 全新的独立实时监控系统
+  - **监控为主模式** (`ALPHA_PULSE_PRIMARY_MODE=true`): buy/sell 信号触发主流程
+    - 启动 → 监控 → buy/sell → 主流程 AI 接入
+    - 启动 → 监控 → hold/None → 持续监控
+    - 监控异常 → 主流程后备启动
+  - **独立运行模式** (`ALPHA_PULSE_ONLY_MODE=true`): 仅运行实时监控，跳过主交易循环
+  - **后备模式**: 监控异常时主流程按周期执行（15分钟）
+  - **技术指标计算**: ATR、RSI、MACD、ADX、布林带实时分析
+  - **信号验证**: 多维度验证买入/卖出条件
+  - **AI集成**: 可选 AI 验证信号置信度
+  - **回调机制**: 信号回调触发主流程执行
+
+- ⚡ **超时问题修复** - 解决 30 秒超时错误
+  - `data_manager.py` 无锁设计：移除热路径锁（`get_ohlcv`、`update_ohlcv`、`get_current_price`）
+  - `market_monitor.py` 超时保护：所有操作使用 `asyncio.wait_for()`
+    - `get_ohlcv`: 5秒
+    - `fetch_ohlcv`: 25秒
+    - `update_ohlcv`: 2秒/根
+    - `_calculate_indicators`: 20秒
+    - `_check_signals`: 10秒
+  - **技术指标调用修复**: 正确处理返回值（列表而非字典）
+
+- 📊 **架构优化** - 双模式监控架构
+  - **实时监控**: 60秒间隔持续监控（主模式）
+  - **后备模式**: 15分钟周期备用（异常时触发）
+  - **信号过滤**: 只有 buy/sell 信号触发主流程
+  - **无锁性能**: Python GIL 保证原子性，无需显式锁
+
+- 🧪 **测试覆盖** - 新增 AlphaPulse 单元测试
+  - `TestTimeoutProtection`: 无锁性能测试、并发读写测试
+  - `TestMarketMonitorTimeout`: 超时保护测试
+  - `TestIndicatorReturnValue`: 技术指标返回值验证
+
+- 📖 **文档完善** - 新增 `ALPHAPULSE_ARCHITECTURE.md`
+  - 详细架构说明（双模式、timeout保护、无锁设计）
+  - 配置指南和使用说明
+  - 技术指标返回值参考
 
 ### v3.12.8 (最新版本)
 - 🔧 **API稳定性增强** - 为Kimi API添加指数退避重试机制
