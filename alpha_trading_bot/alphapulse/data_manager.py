@@ -162,15 +162,22 @@ class DataManager:
     - 存储技术指标历史
     - 高效查询趋势
     - 支持多时间周期
+    - 自动同步到TieredStorage（温/冷数据）
     """
 
-    def __init__(self, max_ohlcv_bars: int = 200, max_indicator_history: int = 100):
+    def __init__(
+        self,
+        max_ohlcv_bars: int = 200,
+        max_indicator_history: int = 100,
+        tiered_storage=None,
+    ):
         """
         初始化数据管理器
 
         Args:
             max_ohlcv_bars: 最大存储的OHLCV K线数量
             max_indicator_history: 最大存储的指标历史数量
+            tiered_storage: 分层存储实例（可选，用于同步温/冷数据）
         """
         # K线数据存储 {symbol: {timeframe: deque([OHLCVData])}}
         self.ohlcv_storage: Dict[str, Dict[str, deque]] = {}
@@ -184,6 +191,9 @@ class DataManager:
         # 配置
         self.max_ohlcv_bars = max_ohlcv_bars
         self.max_indicator_history = max_indicator_history
+
+        # 分层存储（用于持久化）
+        self._tiered_storage = tiered_storage
 
         # 线程锁
         self._lock = asyncio.Lock()
@@ -245,7 +255,7 @@ class DataManager:
             # 解析K线数据
             ohlcv_data = OHLCVData.from_list(ohlcv)
 
-            # 添加到存储
+            # 添加到热数据存储（内存）
             storage = self.ohlcv_storage[symbol][timeframe]
 
             # 检查是否重复
@@ -254,6 +264,21 @@ class DataManager:
                 storage[-1] = ohlcv_data
             else:
                 storage.append(ohlcv_data)
+
+            # 异步同步到温数据存储（SQLite持久化）
+            if self._tiered_storage is not None:
+                try:
+                    # 使用后台任务，避免阻塞当前流程
+                    asyncio.create_task(
+                        self._tiered_storage.store_warm_async(
+                            symbol, timeframe, ohlcv_data
+                        )
+                    )
+                    logger.debug(
+                        f"✅ [TieredStorage] {symbol} {timeframe} 数据已加入同步队列"
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ [TieredStorage] 同步温数据失败: {e}")
 
             # 更新价格区间缓存
             await self._update_price_range(symbol, ohlcv_data.close)

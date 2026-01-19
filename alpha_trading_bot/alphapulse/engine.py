@@ -86,6 +86,7 @@ class AlphaPulseEngine:
         self.data_manager = DataManager(
             max_ohlcv_bars=self.config.max_ohlcv_bars,
             max_indicator_history=self.config.max_indicator_history,
+            tiered_storage=self.tiered_storage,  # 传入分层存储以同步数据
         )
 
         self.market_monitor = MarketMonitor(

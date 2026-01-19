@@ -288,12 +288,39 @@ class TieredStorage:
 
     # ==================== 温数据操作 ====================
 
+    async def store_warm_async(self, symbol: str, timeframe: str, ohlcv: OHLCVData):
+        """异步存储温数据 (SQLite)"""
+        loop = asyncio.get_event_loop()
+
+        def _store():
+            with self._get_conn(self.warm_db_path) as conn:
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO ohlcv 
+                    (symbol, timeframe, timestamp, open, high, low, close, volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        symbol,
+                        timeframe,
+                        ohlcv.timestamp,
+                        ohlcv.open,
+                        ohlcv.high,
+                        ohlcv.low,
+                        ohlcv.close,
+                        ohlcv.volume,
+                    ),
+                )
+                conn.commit()
+
+        await loop.run_in_executor(None, _store)
+
     def store_warm(self, symbol: str, timeframe: str, ohlcv: OHLCVData):
-        """存储温数据 (SQLite)"""
+        """存储温数据 (SQLite) - 同步方法（已废弃，请使用 store_warm_async）"""
         with self._get_conn(self.warm_db_path) as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO ohlcv 
+                INSERT OR IGNORE INTO ohlcv 
                 (symbol, timeframe, timestamp, open, high, low, close, volume)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
@@ -309,6 +336,42 @@ class TieredStorage:
                 ),
             )
             conn.commit()
+
+    async def store_warm_batch_async(
+        self, symbol: str, timeframe: str, ohlcv_list: List[OHLCVData]
+    ):
+        """异步批量存储温数据 (SQLite)"""
+        if not ohlcv_list:
+            return
+
+        loop = asyncio.get_event_loop()
+
+        def _store_batch():
+            data = [
+                (
+                    symbol,
+                    timeframe,
+                    o.timestamp,
+                    o.open,
+                    o.high,
+                    o.low,
+                    o.close,
+                    o.volume,
+                )
+                for o in ohlcv_list
+            ]
+            with self._get_conn(self.warm_db_path) as conn:
+                conn.executemany(
+                    """
+                    INSERT OR IGNORE INTO ohlcv 
+                    (symbol, timeframe, timestamp, open, high, low, close, volume)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    data,
+                )
+                conn.commit()
+
+        await loop.run_in_executor(None, _store_batch)
 
     def store_warm_batch(
         self, symbol: str, timeframe: str, ohlcv_list: List[OHLCVData]
