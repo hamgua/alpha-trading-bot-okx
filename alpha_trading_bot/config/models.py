@@ -52,6 +52,7 @@ class TradingConfig:
     cycle_minutes: int = 15
     random_offset_enabled: bool = True  # 是否启用随机时间偏移
     random_offset_range: int = 180  # 随机偏移范围（秒），默认±3分钟
+    alphapulse_only_mode: bool = False  # AlphaPulse独立运行模式
     margin_mode: str = "cross"
     position_mode: str = "one_way"
     allow_short_selling: bool = False
