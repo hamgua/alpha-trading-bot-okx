@@ -250,9 +250,16 @@ class MarketMonitor:
         """监控主循环"""
         while self._running:
             try:
+                logger.info(
+                    f"🔄 AlphaPulse 监控周期开始 (间隔: {self.config.monitor_interval}秒)"
+                )
+
                 for symbol in self.config.symbols:
+                    logger.info(f"📊 开始监控: {symbol}")
                     await self._update_symbol(symbol)
                     await asyncio.sleep(1)  # 避免API请求过快
+
+                logger.info(f"✅ AlphaPulse 监控周期完成，等待下一次...")
 
                 # 等待下一次监控
                 await asyncio.sleep(self.config.monitor_interval)
@@ -266,12 +273,18 @@ class MarketMonitor:
     async def _update_symbol(self, symbol: str):
         """更新单个交易对数据"""
         try:
+            logger.debug(f"📥 获取 {symbol} K线数据...")
+
             # 获取K线数据 (使用15分钟周期)
             ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100)
 
             if not ohlcv:
-                logger.warning(f"获取K线数据失败: {symbol}")
+                logger.warning(f"⚠️ 获取K线数据失败: {symbol}")
                 return
+
+            logger.info(
+                f"📥 {symbol} 获取到 {len(ohlcv)} 根K线, 最新价格: {ohlcv[-1][4]:.2f}"
+            )
 
             # 更新数据管理器
             for bar in ohlcv:
@@ -285,11 +298,32 @@ class MarketMonitor:
                 snapshot = indicator_result.to_indicator_snapshot()
                 await self.data_manager.update_indicator(symbol, snapshot)
 
+                # 日志输出关键指标
+                logger.info(
+                    f"📊 {symbol} 指标: "
+                    f"价格={indicator_result.current_price:.2f}, "
+                    f"RSI={indicator_result.rsi:.1f}, "
+                    f"BB位置={indicator_result.bb_position:.1f}%, "
+                    f"MACD={indicator_result.macd_histogram:.4f}, "
+                    f"ADX={indicator_result.adx:.1f}, "
+                    f"24h位置={indicator_result.price_position_24h:.1f}%, "
+                    f"趋势={indicator_result.trend_direction}"
+                )
+
                 # 检查交易信号
-                await self._check_signals(symbol, indicator_result)
+                signal_result = await self._check_signals(symbol, indicator_result)
+
+                if signal_result:
+                    if signal_result.should_trade:
+                        logger.info(
+                            f"🎯 {symbol} 信号: {signal_result.signal_type.upper()} "
+                            f"(置信度: {signal_result.confidence:.2f}, 分数: BUY={signal_result.buy_score:.2f}/SELL={signal_result.sell_score:.2f})"
+                        )
+                    else:
+                        logger.info(f"💤 {symbol} 无信号: {signal_result.message}")
 
         except Exception as e:
-            logger.error(f"更新交易对数据失败 {symbol}: {e}")
+            logger.error(f"❌ 更新交易对数据失败 {symbol}: {e}")
 
     async def _calculate_indicators(
         self, symbol: str, ohlcv: List[List]

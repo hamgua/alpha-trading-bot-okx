@@ -116,24 +116,45 @@ class AlphaPulseEngine:
     async def start(self):
         """启动引擎"""
         if self._running:
-            self.logger.warning("AlphaPulse引擎已在运行")
+            self.logger.warning("⚠️ AlphaPulse引擎已在运行")
             return
 
+        self.logger.info("=" * 60)
+        self.logger.info("🚀 启动 AlphaPulse 实时市场监控系统")
+        self.logger.info("=" * 60)
+        self.logger.info(f"📋 配置信息:")
         self.logger.info(
-            f"🚀 启动AlphaPulse引擎 (代号: AlphaPulse)"
-            f"\n  模式: {'实时监控' if self.config.enabled else '仅后备'}"
-            f"\n  监控间隔: {self.config.monitor_interval}秒"
-            f"\n  AI验证: {'启用' if self.config.use_ai_validation else '禁用'}"
-            f"\n  交易对: {self.config.symbols}"
+            f"   模式: {'✅ 实时监控' if self.config.enabled else '⏸️ 仅后备模式'}"
         )
+        self.logger.info(f"   监控间隔: {self.config.monitor_interval}秒")
+        self.logger.info(
+            f"   AI验证: {'✅ 启用' if self.config.use_ai_validation else '⛔ 禁用'}"
+        )
+        self.logger.info(f"   买入阈值: {self.config.buy_threshold}")
+        self.logger.info(f"   卖出阈值: {self.config.sell_threshold}")
+        self.logger.info(f"   交易对: {', '.join(self.config.symbols)}")
+        self.logger.info(f"   数据存储: data/alphapulse/")
+        if hasattr(self, "tiered_storage"):
+            stats = (
+                self.tiered_storage.get_stats(self.config.symbols[0])
+                if self.config.symbols
+                else {}
+            )
+            self.logger.info(
+                f"   存储状态: 热数据={stats.get('hot', {})}, 温数据={len(stats.get('warm', {}))}项"
+            )
+        self.logger.info("=" * 60)
 
         self._running = True
 
         # 启动市场监控
         if self.config.enabled:
             await self.market_monitor.start()
+            self.logger.info("✅ 市场监控已启动")
+        else:
+            self.logger.info("⏸️ 实时监控已跳过 (enabled=false)")
 
-        self.logger.info("AlphaPulse引擎已启动")
+        self.logger.info("✅ AlphaPulse引擎启动完成")
 
     async def stop(self):
         """停止引擎"""
@@ -154,13 +175,101 @@ class AlphaPulseEngine:
         """
         target_symbol = symbol or self.config.symbols[0]
 
+        self.logger.info(f"🔄 AlphaPulse 后备模式处理: {target_symbol}")
+
         try:
             # 1. 获取信号检查结果
             signal_result = await self.market_monitor.manual_check(target_symbol)
 
             if not signal_result:
-                self.logger.debug(f"无信号: {target_symbol}")
+                self.logger.info(f"💤 {target_symbol} 无信号 (数据不足)")
                 return None
+
+            if not signal_result.should_trade:
+                self.logger.info(
+                    f"💤 {target_symbol} 不满足交易条件: {signal_result.message}"
+                )
+                self.logger.info(
+                    f"   分数: BUY={signal_result.buy_score:.2f}, SELL={signal_result.sell_score:.2f}"
+                )
+                return None
+
+            self.logger.info(
+                f"🎯 {target_symbol} 检测到信号: {signal_result.signal_type.upper()}"
+            )
+            self.logger.info(f"   置信度: {signal_result.confidence:.2f}")
+            self.logger.info(f"   触发因素: {', '.join(signal_result.triggers)}")
+
+            # 2. 验证信号
+            market_summary = await self.data_manager.get_market_summary(target_symbol)
+
+            self.logger.info(f"🔍 验证信号...")
+            validation = await self.signal_validator.validate(
+                target_symbol, signal_result, market_summary
+            )
+
+            if not validation.passed:
+                self.logger.info(
+                    f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
+                )
+                self.logger.info(
+                    f"   详细: RSI={validation.rsi_ok}, 趋势={validation.trend_ok}, 波动率={validation.volatility_ok}"
+                )
+                return None
+
+            self.logger.info(f"✅ {target_symbol} 信号验证通过!")
+
+            # 3. 决定是否需要AI
+            need_ai = self.signal_validator.should_use_ai(validation)
+            ai_result = None
+
+            if need_ai:
+                self.logger.info(f"🤖 调用AI验证信号...")
+                ai_result = await self.ai_analyzer.analyze(
+                    target_symbol,
+                    signal_result.indicator_result,
+                    validation,
+                )
+
+                if ai_result:
+                    self.logger.info(
+                        f"🤖 AI分析结果: signal={ai_result.signal}, confidence={ai_result.confidence:.2f}"
+                    )
+
+                    # 检查是否应该执行
+                    should_exec, reason = self.ai_analyzer.should_execute(
+                        validation, ai_result
+                    )
+                    if not should_exec:
+                        self.logger.info(f"❌ AI阻止执行: {reason}")
+                        return None
+
+            # 4. 生成交易信号
+            trading_signal = await self._create_trading_signal(
+                target_symbol, signal_result, validation, ai_result, market_summary
+            )
+
+            # 5. 保存信号
+            self._signal_history.append(trading_signal)
+            self._last_signal_time[target_symbol] = datetime.now()
+
+            self.logger.info(f"🚀 生成最终信号: {trading_signal.signal_type.upper()}")
+            self.logger.info(f"   置信度: {trading_signal.confidence:.2f}")
+            self.logger.info(f"   推理: {trading_signal.reasoning[:100]}...")
+
+            # 6. 触发回调
+            if self.on_signal:
+                self.on_signal(trading_signal)
+
+            # 7. 如果有交易执行器，执行交易
+            if self.trade_executor and trading_signal.signal_type in ["buy", "sell"]:
+                await self._execute_trade(trading_signal)
+
+            return trading_signal
+
+        except Exception as e:
+            self.logger.error(f"❌ 处理交易周期失败: {e}")
+            return None
 
             if not signal_result.should_trade:
                 self.logger.debug(f"不满足交易条件: {signal_result.message}")
