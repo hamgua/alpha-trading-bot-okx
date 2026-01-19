@@ -279,9 +279,11 @@ class RiskManager(BaseComponent):
 
                                     tech_indicators = TechnicalIndicators()
 
-                                    # 获取ATR数据
-                                    recent_data = self.exchange_client.get_ohlcv(
-                                        symbol, "15m", limit=20
+                                    # 获取ATR数据 - 使用正确的异步方法名
+                                    recent_data = (
+                                        await self.exchange_client.fetch_ohlcv(
+                                            symbol, "15m", limit=20
+                                        )
                                     )
                                     if recent_data and len(recent_data) >= 14:
                                         high_low_data = [

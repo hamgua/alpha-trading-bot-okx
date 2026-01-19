@@ -159,6 +159,29 @@ class TransactionCostAnalyzer:
             TransactionCost: 交易成本详情
         """
         try:
+            # 处理None或0的价格
+            if actual_price is None or actual_price == 0:
+                actual_price = expected_price
+            if expected_price is None or expected_price == 0:
+                expected_price = actual_price
+
+            # 再次检查，确保有有效价格
+            if expected_price == 0 or actual_price == 0:
+                logger.warning(
+                    f"价格无效: expected_price={expected_price}, actual_price={actual_price}"
+                )
+                return TransactionCost(
+                    symbol=symbol,
+                    side=side,
+                    quantity=quantity,
+                    entry_price=0,
+                    exit_price=0,
+                    expected_price=0,
+                    actual_price=0,
+                    total_cost=0,
+                    cost_percentage=0,
+                )
+
             # 计算名义价值
             notional_value = quantity * actual_price
 
@@ -219,57 +242,16 @@ class TransactionCostAnalyzer:
 
         except Exception as e:
             logger.error(f"交易成本计算失败: {e}")
-            # 计算默认名义价值
-            default_notional_value = (
-                quantity * actual_price
-                if actual_price > 0
-                else quantity * expected_price
-            )
-            # 返回默认成本
             return TransactionCost(
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
-                entry_price=expected_price,
-                exit_price=actual_price,
-                expected_price=expected_price,
-                actual_price=actual_price,
-                total_cost=0.01 * default_notional_value,  # 默认1%成本
-                cost_percentage=0.01,
-            )
-
-            # 添加到历史记录
-            self.transaction_history.append(cost_record)
-
-            # 按日期分组
-            today = datetime.now().date()
-            self.daily_costs[today].append(cost_record)
-
-            logger.info(
-                f"交易成本计算 - 符号: {symbol}, 方向: {side}, 数量: {quantity}, "
-                f"费率: {fee_rate:.2%}, 滑点: {slippage:.2%}, 总成本: ${total_cost:.2f}"
-            )
-
-            return cost_record
-
-        except Exception as e:
-            logger.error(f"交易成本计算失败: {e}")
-            # 返回默认成本
-            return TransactionCost(
-                symbol=symbol,
-                side=side,
-                quantity=quantity,
-                entry_price=expected_price,
-                exit_price=actual_price,
-                expected_price=expected_price,
-                actual_price=actual_price,
-                total_cost=0.01
-                * (
-                    quantity * actual_price
-                    if actual_price > 0
-                    else quantity * expected_price
-                ),  # 默认1%成本
-                cost_percentage=0.01,
+                entry_price=0,
+                exit_price=0,
+                expected_price=0,
+                actual_price=0,
+                total_cost=0,
+                cost_percentage=0,
             )
 
     def analyze_execution_quality(
