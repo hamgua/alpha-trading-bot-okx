@@ -634,20 +634,36 @@ class MarketMonitor:
         """手动检查信号（用于后备模式调用）"""
         logger.info(f"🔍 [{symbol}] 开始检查信号...")
 
-        # 获取最新K线数据
-        ohlcv = await self.data_manager.get_ohlcv(symbol, "15m", limit=100)
-        logger.info(f"📊 [{symbol}] 获取到 {len(ohlcv) if ohlcv else 0} 根K线数据")
+        # 获取最新K线数据 - 添加超时和日志
+        logger.info(f"📊 [{symbol}] 正在从本地获取K线数据...")
+        try:
+            ohlcv = await asyncio.wait_for(
+                self.data_manager.get_ohlcv(symbol, "15m", limit=100), timeout=5.0
+            )
+            logger.info(
+                f"📊 [{symbol}] 本地获取完成: {len(ohlcv) if ohlcv else 0} 根K线数据"
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"⚠️ [{symbol}] get_ohlcv 超时，使用空数据")
+            ohlcv = []
 
         if not ohlcv:
             logger.info(f"📥 [{symbol}] 本地无数据，从交易所获取...")
             # 需要从交易所获取
-            ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100)
-            if ohlcv:
-                logger.info(f"📥 [{symbol}] 交易所返回 {len(ohlcv)} 根K线")
-                for bar in ohlcv:
-                    await self.data_manager.update_ohlcv(symbol, "15m", bar)
-            else:
-                logger.warning(f"❌ [{symbol}] 无法获取K线数据")
+            try:
+                ohlcv = await asyncio.wait_for(
+                    self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100),
+                    timeout=25.0,  # 剩余25秒给交易所
+                )
+                if ohlcv:
+                    logger.info(f"📥 [{symbol}] 交易所返回 {len(ohlcv)} 根K线")
+                    for bar in ohlcv:
+                        await self.data_manager.update_ohlcv(symbol, "15m", bar)
+                else:
+                    logger.warning(f"❌ [{symbol}] 无法获取K线数据")
+                    return None
+            except asyncio.TimeoutError:
+                logger.error(f"❌ [{symbol}] fetch_ohlcv 超时")
                 return None
 
         # 计算指标
