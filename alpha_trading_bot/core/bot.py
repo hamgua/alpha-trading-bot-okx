@@ -1777,6 +1777,30 @@ class TradingBot(BaseComponent):
                 await self._update_cycle_status(cycle_num, start_time, 0, 0)
                 return
 
+            # 将AlphaPulse结果放入market_data，供AI分析参考
+            if alphapulse_signal and alphapulse_signal.signal_type in ["buy", "sell"]:
+                # 从market_data中提取技术指标
+                indicator_data = alphapulse_signal.market_data.get("indicators", {})
+                market_data["alphapulse_signal"] = {
+                    "signal_type": alphapulse_signal.signal_type,
+                    "confidence": alphapulse_signal.confidence,
+                    "reasoning": alphapulse_signal.reasoning,
+                    "indicator_result": {
+                        "rsi": indicator_data.get("rsi"),
+                        "macd": indicator_data.get("macd"),
+                        "adx": indicator_data.get("adx"),
+                        "bb_position": indicator_data.get("bb_position"),
+                        "price_position_24h": indicator_data.get("price_position_24h"),
+                        "price_position_7d": indicator_data.get("price_position_7d"),
+                        "trend_direction": indicator_data.get("trend_direction"),
+                        "atr_percent": indicator_data.get("atr_percent"),
+                    },
+                }
+                self.enhanced_logger.logger.info(
+                    f"📊 AlphaPulse结果已传递给AI: {alphapulse_signal.signal_type.upper()} "
+                    f"(置信度: {alphapulse_signal.confidence:.2f})"
+                )
+
             # 2. 生成交易信号
             signals, total_signals = await self._generate_trading_signals(
                 market_data, time.time() - start_time
