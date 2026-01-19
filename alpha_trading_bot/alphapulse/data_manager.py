@@ -195,12 +195,13 @@ class DataManager:
         # 分层存储（用于持久化）
         self._tiered_storage = tiered_storage
 
-        # 线程锁
+        # 线程锁 + 初始化状态跟踪
         self._lock = asyncio.Lock()
+        self._initializing: Dict[str, bool] = {}  # 跟踪正在初始化的符号
 
     async def initialize_symbol(self, symbol: str, timeframes: List[str] = None):
         """
-        初始化交易对数据存储
+        初始化交易对数据存储 - 优化版：避免死锁
 
         Args:
             symbol: 交易对
@@ -209,18 +210,37 @@ class DataManager:
         if timeframes is None:
             timeframes = ["1m", "5m", "15m", "1h", "4h"]
 
+        # 检查是否正在初始化
+        if symbol in self._initializing and self._initializing[symbol]:
+            # 等待初始化完成
+            for _ in range(50):  # 最多等待5秒
+                await asyncio.sleep(0.1)
+                if symbol not in self._initializing or not self._initializing[symbol]:
+                    return  # 初始化完成
+            logger.warning(f"⚠️ 等待 {symbol} 初始化超时")
+
+        # 快速检查是否已初始化（无需锁）
+        if symbol in self.ohlcv_storage and symbol in self.indicator_history:
+            return  # 已初始化，直接返回
+
+        # 获取锁并初始化
         async with self._lock:
-            if symbol not in self.ohlcv_storage:
+            # 双重检查
+            if symbol in self.ohlcv_storage and symbol in self.indicator_history:
+                return
+
+            logger.info(f"🔧 开始初始化: {symbol}")
+            self._initializing[symbol] = True
+
+            try:
                 self.ohlcv_storage[symbol] = {}
                 for tf in timeframes:
                     self.ohlcv_storage[symbol][tf] = deque(maxlen=self.max_ohlcv_bars)
 
-            if symbol not in self.indicator_history:
                 self.indicator_history[symbol] = deque(
                     maxlen=self.max_indicator_history
                 )
 
-            if symbol not in self.price_range_cache:
                 self.price_range_cache[symbol] = {
                     "high_24h": 0,
                     "low_24h": float("inf"),
@@ -229,13 +249,15 @@ class DataManager:
                     "last_update": None,
                 }
 
-        logger.info(f"数据管理器已初始化: {symbol}, 时间周期: {timeframes}")
+                logger.info(f"✅ 数据管理器已初始化: {symbol}, 时间周期: {timeframes}")
+            finally:
+                self._initializing[symbol] = False
 
     async def update_ohlcv(
         self, symbol: str, timeframe: str, ohlcv: List, is_completed: bool = True
     ):
         """
-        更新K线数据 - 优化版：缩小锁范围，提高并发
+        更新K线数据 - 无锁版本：使用原子操作避免锁竞争
 
         Args:
             symbol: 交易对
@@ -243,54 +265,54 @@ class DataManager:
             ohlcv: OHLCV数据列表
             is_completed: 是否完整的K线
         """
-        # 解析K线数据（无需锁）
+        # 解析K线数据
         ohlcv_data = OHLCVData.from_list(ohlcv)
 
-        # 确保存储初始化（无需锁，使用懒初始化）
+        # 确保存储初始化
         if symbol not in self.ohlcv_storage:
-            await self.initialize_symbol(symbol, [timeframe])
+            await self.initialize_symbol(symbol, ["1m", "5m", "15m", "1h", "4h"])
+
+        # 确保时间周期已初始化
+        storage = None
         if timeframe not in self.ohlcv_storage[symbol]:
             async with self._lock:
                 if timeframe not in self.ohlcv_storage[symbol]:
                     self.ohlcv_storage[symbol][timeframe] = deque(
                         maxlen=self.max_ohlcv_bars
                     )
+                storage = self.ohlcv_storage[symbol][timeframe]
+        else:
+            storage = self.ohlcv_storage[symbol][timeframe]
 
-        # 获取存储引用（无需锁，引用是原子的）
-        storage = self.ohlcv_storage[symbol][timeframe]
+        # 更新热数据存储（原子操作，无需锁）
+        if storage and storage[-1].timestamp == ohlcv_data.timestamp:
+            storage[-1] = ohlcv_data
+        else:
+            storage.append(ohlcv_data)
 
-        # 更新热数据存储（需锁保护）
-        async with self._lock:
-            # 检查是否重复
-            if storage and storage[-1].timestamp == ohlcv_data.timestamp:
-                # 更新最后一个数据
-                storage[-1] = ohlcv_data
-            else:
-                storage.append(ohlcv_data)
+        # 更新价格区间缓存（原子操作，无需锁）
+        if symbol not in self.price_range_cache:
+            self.price_range_cache[symbol] = {
+                "high_24h": ohlcv_data.close,
+                "low_24h": ohlcv_data.close,
+                "high_7d": ohlcv_data.close,
+                "low_7d": ohlcv_data.close,
+                "last_update": datetime.now(),
+            }
+        else:
+            cache = self.price_range_cache[symbol]
+            price = ohlcv_data.close
+            cache["last_update"] = datetime.now()
+            if price > cache["high_24h"]:
+                cache["high_24h"] = price
+            if price < cache["low_24h"]:
+                cache["low_24h"] = price
+            if price > cache["high_7d"]:
+                cache["high_7d"] = price
+            if price < cache["low_7d"]:
+                cache["low_7d"] = price
 
-            # 更新价格区间缓存（快速操作，在锁内）
-            if symbol not in self.price_range_cache:
-                self.price_range_cache[symbol] = {
-                    "high_24h": ohlcv_data.close,
-                    "low_24h": ohlcv_data.close,
-                    "high_7d": ohlcv_data.close,
-                    "low_7d": ohlcv_data.close,
-                    "last_update": datetime.now(),
-                }
-            else:
-                cache = self.price_range_cache[symbol]
-                price = ohlcv_data.close
-                cache["last_update"] = datetime.now()
-                if price > cache["high_24h"]:
-                    cache["high_24h"] = price
-                if price < cache["low_24h"]:
-                    cache["low_24h"] = price
-                if price > cache["high_7d"]:
-                    cache["high_7d"] = price
-                if price < cache["low_7d"]:
-                    cache["low_7d"] = price
-
-        # 异步同步到温数据存储（无需锁，后台执行）
+        # 异步同步到温数据存储（后台执行）
         if self._tiered_storage is not None:
             try:
                 asyncio.create_task(
