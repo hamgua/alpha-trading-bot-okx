@@ -1837,36 +1837,47 @@ class TradingBot(BaseComponent):
                         f"🔍 AlphaPulse检查模式：buy/sell信号触发交易流程"
                     )
 
-                    # 始终执行后备模式检查
-                    alphapulse_signal = await self.alphapulse_engine.process_cycle()
+                    # 使用已有的触发信号（从回调中设置），不再重新检查
+                    if (
+                        hasattr(self, "_alphapulse_trigger_event")
+                        and self._alphapulse_trigger_event
+                    ):
+                        alphapulse_signal = self._alphapulse_trigger_event
+                        self._alphapulse_trigger_event = None  # 清空事件
 
-                    if alphapulse_signal and alphapulse_signal.signal_type in [
-                        "buy",
-                        "sell",
-                    ]:
-                        # 更新最后检查时间
-                        now = asyncio.get_event_loop().time()
-                        self._alphapulse_last_check_time[alphapulse_signal.symbol] = now
+                        if alphapulse_signal.signal_type in ["buy", "sell"]:
+                            # 更新最后检查时间
+                            now = asyncio.get_event_loop().time()
+                            self._alphapulse_last_check_time[
+                                alphapulse_signal.symbol
+                            ] = now
 
-                        alphapulse_signals.append(
-                            {
-                                "type": alphapulse_signal.signal_type,
-                                "symbol": alphapulse_signal.symbol,
-                                "source": "alphapulse",
-                                "confidence": alphapulse_signal.confidence,
-                                "reason": alphapulse_signal.reasoning,
-                                "execution_params": alphapulse_signal.execution_params,
-                                "ai_result": alphapulse_signal.ai_result,
-                            }
-                        )
-                        self.enhanced_logger.logger.info(
-                            f"📡 AlphaPulse信号: {alphapulse_signal.signal_type.upper()} "
-                            f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
-                        )
+                            alphapulse_signals.append(
+                                {
+                                    "type": alphapulse_signal.signal_type,
+                                    "symbol": alphapulse_signal.symbol,
+                                    "source": "alphapulse",
+                                    "confidence": alphapulse_signal.confidence,
+                                    "reason": alphapulse_signal.reasoning,
+                                    "execution_params": alphapulse_signal.execution_params,
+                                    "ai_result": alphapulse_signal.ai_result,
+                                }
+                            )
+                            self.enhanced_logger.logger.info(
+                                f"📡 AlphaPulse信号: {alphapulse_signal.signal_type.upper()} "
+                                f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
+                            )
+                        else:
+                            # 非 buy/sell 信号，跳过
+                            self.enhanced_logger.logger.info(
+                                f"💤 AlphaPulse信号类型非交易信号 ({alphapulse_signal.signal_type}) - 跳过交易周期"
+                            )
+                            await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                            return
                     else:
-                        # 没有 buy/sell 信号，跳过整个交易流程
+                        # 没有触发信号，跳过
                         self.enhanced_logger.logger.info(
-                            f"💤 AlphaPulse无有效信号 ({alphapulse_signal.signal_type if alphapulse_signal else 'None'}) - 跳过交易周期"
+                            f"💤 无AlphaPulse触发信号 - 跳过交易周期"
                         )
                         await self._update_cycle_status(cycle_num, start_time, 0, 0)
                         return
