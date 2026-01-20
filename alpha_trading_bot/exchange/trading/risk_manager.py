@@ -286,11 +286,12 @@ class RiskManager(BaseComponent):
                                         )
                                     )
                                     if recent_data and len(recent_data) >= 14:
-                                        high_low_data = [
-                                            (d[2], d[3]) for d in recent_data
-                                        ]
+                                        # 提取 high, low, close 列表（格式: [timestamp, open, high, low, close, volume]）
+                                        high_list = [d[2] for d in recent_data]
+                                        low_list = [d[3] for d in recent_data]
+                                        close_list = [d[4] for d in recent_data]
                                         atr_14 = tech_indicators.calculate_atr(
-                                            high_low_data, period=14
+                                            high_list, low_list, close_list, period=14
                                         )
 
                                         # 计算信号强度和置信度

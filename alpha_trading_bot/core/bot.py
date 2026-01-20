@@ -1864,17 +1864,19 @@ class TradingBot(BaseComponent):
                             f"✅ AI 验证通过：确认 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
                         )
                     elif verification_result["direction"] == "reverse":
-                        # AI 建议反向，不执行
+                        # AI 建议反向，不执行，跳过整个周期
                         self.enhanced_logger.logger.warning(
-                            f"⚠️ AI 建议反向：AlphaPulse {alphapulse_signal.signal_type.upper()} → 忽略信号，等待反向信号"
+                            f"⚠️ AI 建议反向：AlphaPulse {alphapulse_signal.signal_type.upper()} → 忽略信号，跳过交易周期"
                         )
-                        use_alphapulse_signal = False
+                        await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                        return
                     else:
-                        # AI 拒绝，不执行
+                        # AI 拒绝，不执行，跳过整个周期
                         self.enhanced_logger.logger.warning(
-                            f"⚠️ AI 验证拒绝：忽略 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
+                            f"⚠️ AI 验证拒绝：忽略 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号，跳过交易周期"
                         )
-                        use_alphapulse_signal = False
+                        await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                        return
 
                     if use_alphapulse_signal:
                         # 更新最后检查时间
