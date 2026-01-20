@@ -295,8 +295,8 @@ class MarketMonitor:
         try:
             logger.debug(f"📥 获取 {symbol} K线数据...")
 
-            # 获取K线数据 (使用15分钟周期)
-            ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100)
+            # 获取K线数据 (使用5分钟周期)
+            ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "5m", limit=100)
 
             if not ohlcv:
                 logger.warning(f"⚠️ 获取K线数据失败: {symbol}")
@@ -308,7 +308,7 @@ class MarketMonitor:
 
             # 更新数据管理器
             for bar in ohlcv:
-                await self.data_manager.update_ohlcv(symbol, "15m", bar)
+                await self.data_manager.update_ohlcv(symbol, "5m", bar)
 
             # 计算技术指标
             indicator_result = await self._calculate_indicators(symbol, ohlcv)
@@ -470,12 +470,12 @@ class MarketMonitor:
 
             # 趋势分析
             trend_analysis = await self.data_manager.get_trend_analysis(
-                symbol, "15m", 20
+                symbol, "5m", 20
             )
 
             return TechnicalIndicatorResult(
                 symbol=symbol,
-                timeframe="15m",
+                timeframe="5m",
                 timestamp=datetime.now(),
                 current_price=current_price,
                 high_24h=high_24h,
@@ -727,7 +727,7 @@ class MarketMonitor:
         logger.info(f"📊 [{symbol}] 正在从本地获取K线数据...")
         try:
             ohlcv = await asyncio.wait_for(
-                self.data_manager.get_ohlcv(symbol, "15m", limit=100), timeout=5.0
+                self.data_manager.get_ohlcv(symbol, "5m", limit=100), timeout=5.0
             )
             logger.info(
                 f"📊 [{symbol}] 本地获取完成: {len(ohlcv) if ohlcv else 0} 根K线数据"
@@ -741,7 +741,7 @@ class MarketMonitor:
             # 需要从交易所获取
             try:
                 ohlcv = await asyncio.wait_for(
-                    self.exchange_client.fetch_ohlcv(symbol, "15m", limit=100),
+                    self.exchange_client.fetch_ohlcv(symbol, "5m", limit=100),
                     timeout=25.0,  # 剩余25秒给交易所
                 )
                 if ohlcv:
@@ -751,7 +751,7 @@ class MarketMonitor:
                     for i, bar in enumerate(ohlcv):
                         try:
                             await asyncio.wait_for(
-                                self.data_manager.update_ohlcv(symbol, "15m", bar),
+                                self.data_manager.update_ohlcv(symbol, "5m", bar),
                                 timeout=2.0,  # 每根K线最多2秒
                             )
                             if (i + 1) % 25 == 0:
