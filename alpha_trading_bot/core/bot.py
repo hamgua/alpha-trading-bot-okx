@@ -1830,82 +1830,121 @@ class TradingBot(BaseComponent):
             # 1. 获取和处理市场数据
             market_data = await self._process_market_data()
 
-            # 1.5. AlphaPulse信号处理（如果启用）
-            # 逻辑：只有 AlphaPulse 产生 buy/sell 信号才进入主交易流程
+            # 1.5. AlphaPulse信号处理 + AI验证
+            # 逻辑：AlphaPulse 产生信号 → AI 验证 → 比对决策
+            use_alphapulse_signal = False
             if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
                 from ..alphapulse.config import AlphaPulseConfig
 
                 config = AlphaPulseConfig.from_env()
-                if config.enabled:
+                if (
+                    config.enabled
+                    and alphapulse_signal
+                    and alphapulse_signal.signal_type in ["buy", "sell"]
+                ):
+                    # AlphaPulse 产生信号，调用 AI 验证
                     self.enhanced_logger.logger.info(
-                        f"🔍 AlphaPulse检查模式：buy/sell信号触发交易流程"
+                        f"🎯 AlphaPulse 检测到 {alphapulse_signal.signal_type.upper()} 信号，调用 AI 验证..."
                     )
 
-                    # 如果有传入的信号，直接使用
-                    if alphapulse_signal and alphapulse_signal.signal_type in [
-                        "buy",
-                        "sell",
-                    ]:
+                    # AI 验证 AlphaPulse 信号
+                    verification_result = await self.ai_manager.verify_signal(
+                        signal_type=alphapulse_signal.signal_type,
+                        symbol=alphapulse_signal.symbol,
+                        confidence=alphapulse_signal.confidence,
+                        reasoning=alphapulse_signal.reasoning,
+                        market_data=market_data,
+                    )
+
+                    # 比对决策
+                    if verification_result["direction"] == "confirm":
+                        # AI 确认，执行 AlphaPulse 信号
+                        use_alphapulse_signal = True
+                        self.enhanced_logger.logger.info(
+                            f"✅ AI 验证通过：确认 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
+                        )
+                    elif verification_result["direction"] == "reverse":
+                        # AI 建议反向，不执行
+                        self.enhanced_logger.logger.warning(
+                            f"⚠️ AI 建议反向：AlphaPulse {alphapulse_signal.signal_type.upper()} → 忽略信号，等待反向信号"
+                        )
+                        use_alphapulse_signal = False
+                    else:
+                        # AI 拒绝，不执行
+                        self.enhanced_logger.logger.warning(
+                            f"⚠️ AI 验证拒绝：忽略 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号"
+                        )
+                        use_alphapulse_signal = False
+
+                    if use_alphapulse_signal:
                         # 更新最后检查时间
                         now = asyncio.get_event_loop().time()
                         self._alphapulse_last_check_time[alphapulse_signal.symbol] = now
 
-                        alphapulse_signals.append(
+                        # 构造 AlphaPulse 信号
+                        alphapulse_signals = [
                             {
                                 "type": alphapulse_signal.signal_type,
+                                "signal": alphapulse_signal.signal_type,
                                 "symbol": alphapulse_signal.symbol,
                                 "source": "alphapulse",
                                 "confidence": alphapulse_signal.confidence,
                                 "reason": alphapulse_signal.reasoning,
                                 "execution_params": alphapulse_signal.execution_params,
                                 "ai_result": alphapulse_signal.ai_result,
+                                "ai_verification": verification_result,
                             }
-                        )
+                        ]
                         self.enhanced_logger.logger.info(
                             f"📡 AlphaPulse信号: {alphapulse_signal.signal_type.upper()} "
                             f"{alphapulse_signal.symbol} (置信度: {alphapulse_signal.confidence:.2f})"
                         )
-                    else:
-                        # 没有传入信号或信号无效，继续执行正常交易流程
-                        self.enhanced_logger.logger.info(
-                            f"💤 无有效AlphaPulse信号 - 继续执行正常交易流程"
-                        )
-                        # 不返回，继续执行 AI/策略信号流程
-            else:
-                # AlphaPulse 未启用，正常执行主交易流程
-                self.enhanced_logger.logger.info(
-                    f"ℹ️ AlphaPulse未启用，正常执行交易流程"
-                )
 
-            # 将AlphaPulse结果放入market_data，供AI分析参考
-            if alphapulse_signal and alphapulse_signal.signal_type in ["buy", "sell"]:
-                # 从market_data中提取技术指标（TechnicalIndicatorResult是dataclass，直接访问属性）
-                indicator_data = alphapulse_signal.market_data.get("indicators")
-                if indicator_data:
-                    market_data["alphapulse_signal"] = {
-                        "signal_type": alphapulse_signal.signal_type,
-                        "confidence": alphapulse_signal.confidence,
-                        "reasoning": alphapulse_signal.reasoning,
-                        "indicator_result": {
-                            "rsi": indicator_data.rsi,
-                            "macd": indicator_data.macd,
-                            "adx": indicator_data.adx,
-                            "bb_position": indicator_data.bb_position,
-                            "price_position_24h": indicator_data.price_position_24h,
-                            "price_position_7d": indicator_data.price_position_7d,
-                            "trend_direction": indicator_data.trend_direction,
-                            "atr_percent": indicator_data.atr_percent,
-                        },
-                    }
-                    self.enhanced_logger.logger.info(
-                        f"📊 AlphaPulse结果已传递给AI: {alphapulse_signal.signal_type.upper()} "
-                        f"(置信度: {alphapulse_signal.confidence:.2f})"
-                    )
+                        # 将AlphaPulse结果放入market_data，供后续风控使用
+                        indicator_data = alphapulse_signal.market_data.get("indicators")
+                        if indicator_data:
+                            market_data["alphapulse_signal"] = {
+                                "signal_type": alphapulse_signal.signal_type,
+                                "confidence": alphapulse_signal.confidence,
+                                "reasoning": alphapulse_signal.reasoning,
+                                "indicator_result": {
+                                    "rsi": indicator_data.rsi,
+                                    "macd": indicator_data.macd,
+                                    "adx": indicator_data.adx,
+                                    "bb_position": indicator_data.bb_position,
+                                    "price_position_24h": indicator_data.price_position_24h,
+                                    "price_position_7d": indicator_data.price_position_7d,
+                                    "trend_direction": indicator_data.trend_direction,
+                                    "atr_percent": indicator_data.atr_percent,
+                                },
+                            }
+                            self.enhanced_logger.logger.info(
+                                f"📊 AlphaPulse信号已传递给风控系统"
+                            )
+                else:
+                    # 无AlphaPulse信号，执行正常流程
+                    if not config.enabled:
+                        self.enhanced_logger.logger.info(
+                            f"ℹ️ AlphaPulse未启用，执行正常交易流程"
+                        )
+                    else:
+                        self.enhanced_logger.logger.info(
+                            f"💤 无有效AlphaPulse信号（{alphapulse_signal}），执行正常交易流程"
+                        )
 
             # 2. 生成交易信号
-            signals, total_signals = await self._generate_trading_signals(
-                market_data, time.time() - start_time
-            )
+            if use_alphapulse_signal:
+                # AI 验证通过，使用 AlphaPulse 信号
+                signals = alphapulse_signals
+                total_signals = len(signals)
+                self.enhanced_logger.logger.info(
+                    f"🎯 使用 AlphaPulse + AI 验证通过的信号执行交易"
+                )
+            else:
+                # 正常流程：生成AI和策略信号
+                signals, total_signals = await self._generate_trading_signals(
+                    market_data, time.time() - start_time
+                )
 
             # 添加调试日志
             self.enhanced_logger.logger.info(

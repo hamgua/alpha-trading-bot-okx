@@ -513,12 +513,6 @@ class MarketMonitor:
     ) -> Optional[SignalCheckResult]:
         """检查交易信号"""
         try:
-            # 检查冷却时间
-            now = time.time()
-            last_signal = self._last_signal_time.get(symbol, 0)
-            if now - last_signal < self._cooldown_seconds:
-                return None
-
             # 计算单一交易分数
             trade_score, triggers, details = self._calculate_trade_score(result)
 
@@ -550,6 +544,21 @@ class MarketMonitor:
                     message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, 需 <= {self.SELL_THRESHOLD})"
                 else:
                     message = f"市场中性 (分数: {trade_score:.2f})"
+
+            # 检查冷却时间（仅对BUY/SELL信号生效）
+            now = time.time()
+            if should_trade:
+                last_signal = self._last_signal_time.get(symbol, 0)
+                if now - last_signal < self._cooldown_seconds:
+                    # 在冷却期内，信号类型降级为HOLD
+                    should_trade = False
+                    signal_type = "hold"
+                    message = (
+                        f"信号冷却中 ({self._cooldown_seconds // 60}分钟内不重复触发)"
+                    )
+                    logger.info(
+                        f"💤 {symbol} 冷却中 - 跳过BUY/SELL触发 (剩余{int(self._cooldown_seconds - (now - last_signal))}秒)"
+                    )
 
             if should_trade:
                 self._last_signal_time[symbol] = now
