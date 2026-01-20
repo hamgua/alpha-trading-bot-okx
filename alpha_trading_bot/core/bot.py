@@ -399,7 +399,7 @@ class TradingBot(BaseComponent):
                         self.enhanced_logger.logger.debug(
                             f"⏳ 等待AlphaPulse信号触发... (周期 {cycle_count})"
                         )
-                        await asyncio.sleep(30)  # 每30秒检查一次
+                        await asyncio.sleep(5)  # 每5秒检查一次
 
             except asyncio.CancelledError:
                 self.enhanced_logger.logger.info("监控为主模式已停止")
