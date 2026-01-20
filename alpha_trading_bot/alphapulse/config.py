@@ -30,10 +30,10 @@ class AlphaPulseConfig:
     """监控为主模式: true=监控触发主流程, false=主流程按周期运行"""
 
     # ========== 触发阈值 ==========
-    buy_threshold: float = field(default=0.65)
+    buy_threshold: float = field(default=0.50)
     """BUY信号触发阈值 (0.0-1.0)"""
 
-    sell_threshold: float = field(default=0.65)
+    sell_threshold: float = field(default=0.50)
     """SELL信号触发阈值 (0.0-1.0)"""
 
     min_ai_confidence: float = field(default=0.70)

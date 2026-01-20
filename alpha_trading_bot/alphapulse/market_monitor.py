@@ -146,37 +146,48 @@ class MarketMonitor:
     - 存储历史数据
     """
 
-    # BUY信号触发条件及权重
+    # BUY信号触发条件及权重（适配中性偏弱市场）
     BUY_SIGNALS = {
-        "rsi_oversold": {"threshold": 30, "weight": 0.20, "check": lambda v: v < 30},
-        "rsi_weak": {"threshold": 40, "weight": 0.15, "check": lambda v: v < 40},
-        "bb_bottom": {"threshold": 10, "weight": 0.15, "check": lambda v: v < 10},
-        "bb_lower_zone": {"threshold": 25, "weight": 0.10, "check": lambda v: v < 25},
-        "macd_crossover_up": {"weight": 0.10, "check": lambda v: v > 0},
-        "adx_strong_up": {"threshold": 25, "weight": 0.10, "check": lambda v: v > 25},
-        "price_low_24h": {"threshold": 20, "weight": 0.10, "check": lambda v: v < 20},
-        "price_low_7d": {"threshold": 25, "weight": 0.05, "check": lambda v: v < 25},
-        "volatility_high": {
-            "threshold": 0.5,
-            "weight": 0.05,
-            "check": lambda v: v > 0.5,
+        # RSI: 中性偏低即可触发，不再要求超卖
+        "rsi_weak": {"threshold": 55, "weight": 0.15, "check": lambda v: v < 55},
+        # 布林带: 价格在相对高位区域（>75%）触发买入（低位买入高位卖出逻辑反转）
+        "bb_upper_zone": {"threshold": 75, "weight": 0.15, "check": lambda v: v > 75},
+        # MACD: 金叉转正
+        "macd_crossover_up": {"weight": 0.15, "check": lambda v: v > 0},
+        # ADX: 降低阈值到20（实际平均23.6）
+        "adx_weak_up": {"threshold": 20, "weight": 0.10, "check": lambda v: v > 20},
+        # 24h位置: 放宽到25%（实际平均22.2%）
+        "price_low_24h": {"threshold": 25, "weight": 0.15, "check": lambda v: v < 25},
+        # 7d位置: 放宽到30%
+        "price_low_7d": {"threshold": 30, "weight": 0.10, "check": lambda v: v < 30},
+        # 波动率: 降低到0.2%（实际0.21%）
+        "volatility_low": {
+            "threshold": 0.2,
+            "weight": 0.10,
+            "check": lambda v: v > 0.2,
         },
     }
 
-    # SELL信号触发条件及权重
+    # SELL信号触发条件及权重（适配中性偏强市场）
     SELL_SIGNALS = {
-        "rsi_overbought": {"threshold": 70, "weight": 0.20, "check": lambda v: v > 70},
-        "rsi_strong": {"threshold": 60, "weight": 0.15, "check": lambda v: v > 60},
+        # RSI: 中性偏高即可触发，不再要求超买
+        "rsi_strong": {"threshold": 50, "weight": 0.15, "check": lambda v: v > 50},
+        # 布林带: 价格在相对高位区域（>90%）或高位区间（>75%）
         "bb_top": {"threshold": 90, "weight": 0.15, "check": lambda v: v > 90},
         "bb_upper_zone": {"threshold": 75, "weight": 0.10, "check": lambda v: v > 75},
-        "macd_crossover_down": {"weight": 0.10, "check": lambda v: v < 0},
-        "adx_strong_down": {"threshold": 25, "weight": 0.10, "check": lambda v: v > 25},
-        "price_high_24h": {"threshold": 80, "weight": 0.10, "check": lambda v: v > 80},
-        "price_high_7d": {"threshold": 75, "weight": 0.05, "check": lambda v: v > 75},
-        "volatility_high": {
-            "threshold": 0.5,
-            "weight": 0.05,
-            "check": lambda v: v > 0.5,
+        # MACD: 死叉转负
+        "macd_crossover_down": {"weight": 0.15, "check": lambda v: v < 0},
+        # ADX: 降低阈值到20
+        "adx_weak_down": {"threshold": 20, "weight": 0.10, "check": lambda v: v > 20},
+        # 24h位置: 放宽到75%（实际平均22%，需要高位）
+        "price_high_24h": {"threshold": 75, "weight": 0.15, "check": lambda v: v > 75},
+        # 7d位置: 放宽到70%
+        "price_high_7d": {"threshold": 70, "weight": 0.10, "check": lambda v: v > 70},
+        # 波动率: 降低到0.2%
+        "volatility_low": {
+            "threshold": 0.2,
+            "weight": 0.10,
+            "check": lambda v: v > 0.2,
         },
     }
 
@@ -561,7 +572,7 @@ class MarketMonitor:
         score = 0.0
         triggers = []
 
-        # RSI checks - handle rsi_oversold and rsi_weak keys
+        # RSI checks
         for key in signal_config:
             if key.startswith("rsi_"):
                 cfg = signal_config[key]
@@ -571,25 +582,23 @@ class MarketMonitor:
                         triggers.append(f"RSI超卖 {result.rsi:.1f}")
                     elif key == "rsi_weak":
                         triggers.append(f"RSI偏弱 {result.rsi:.1f}")
+                    elif key == "rsi_strong":
+                        triggers.append(f"RSI偏强 {result.rsi:.1f}")
 
-        # 布林带位置
+        # 布林带位置 - 统一逻辑：使用配置的check函数
         for key in signal_config:
             if key.startswith("bb_"):
                 cfg = signal_config[key]
-                if signal_type == "buy":
-                    if result.bb_position < cfg["threshold"]:
-                        score += cfg["weight"]
-                        if key == "bb_bottom":
-                            triggers.append(f"布林带底部 {result.bb_position:.1f}%")
-                        elif key == "bb_lower_zone":
-                            triggers.append(f"布林带低位区间 {result.bb_position:.1f}%")
-                else:
-                    if result.bb_position > 100 - cfg["threshold"]:
-                        score += cfg["weight"]
-                        if key == "bb_top":
-                            triggers.append(f"布林带顶部 {result.bb_position:.1f}%")
-                        elif key == "bb_upper_zone":
-                            triggers.append(f"布林带高位区间 {result.bb_position:.1f}%")
+                if cfg["check"](result.bb_position):
+                    score += cfg["weight"]
+                    if key == "bb_bottom":
+                        triggers.append(f"布林带底部 {result.bb_position:.1f}%")
+                    elif key == "bb_lower_zone":
+                        triggers.append(f"布林带低位区间 {result.bb_position:.1f}%")
+                    elif key == "bb_top":
+                        triggers.append(f"布林带顶部 {result.bb_position:.1f}%")
+                    elif key == "bb_upper_zone":
+                        triggers.append(f"布林带高位区间 {result.bb_position:.1f}%")
 
         # MACD柱状图
         for key in signal_config:
