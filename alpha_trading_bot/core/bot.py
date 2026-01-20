@@ -1826,6 +1826,24 @@ class TradingBot(BaseComponent):
         self._tp_sl_managed_this_cycle = False  # 重置周期标志
         self._managed_positions.clear()  # 重置已管理仓位集合
 
+        # 检查是否在预热期内
+        from ..alphapulse.config import AlphaPulseConfig
+
+        config = AlphaPulseConfig.from_env()
+        warmup_end_time = getattr(self, "_alphapulse_warmup_end", None)
+        if warmup_end_time is None:
+            # 首次运行，初始化预热期结束时间
+            warmup_end_time = (
+                asyncio.get_event_loop().time() + config.warmup_minutes * 60
+            )
+            self._alphapulse_warmup_end = warmup_end_time
+            self.enhanced_logger.logger.info(
+                f"🔄 AlphaPulse 预热期启动（{config.warmup_minutes}分钟），期间不触发主流程"
+            )
+
+        current_time = asyncio.get_event_loop().time()
+        in_warmup = current_time < warmup_end_time
+
         try:
             # 1. 获取和处理市场数据
             market_data = await self._process_market_data()
@@ -1834,9 +1852,24 @@ class TradingBot(BaseComponent):
             # 逻辑：AlphaPulse 产生信号 → AI 验证 → 比对决策
             use_alphapulse_signal = False
             if hasattr(self, "alphapulse_engine") and self.alphapulse_engine:
-                from ..alphapulse.config import AlphaPulseConfig
+                if in_warmup:
+                    # 预热期内，记录信号但不触发主流程
+                    remaining_seconds = int(warmup_end_time - current_time)
+                    if alphapulse_signal and alphapulse_signal.signal_type in [
+                        "buy",
+                        "sell",
+                    ]:
+                        self.enhanced_logger.logger.info(
+                            f"🎯 AlphaPulse {alphapulse_signal.signal_type.upper()} 信号已记录 "
+                            f"[预热中: 剩余{int(remaining_seconds // 60)}分{remaining_seconds % 60}秒 - 跳过主流程]"
+                        )
+                    else:
+                        self.enhanced_logger.logger.info(
+                            f"💤 AlphaPulse 无有效信号 [预热中: 剩余{int(remaining_seconds // 60)}分{remaining_seconds % 60}秒]"
+                        )
+                    await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                    return
 
-                config = AlphaPulseConfig.from_env()
                 if (
                     config.enabled
                     and alphapulse_signal

@@ -1478,8 +1478,11 @@ REASON: 你的分析原因"""
                         f"❌ AI 验证拒绝: {signal_type.upper()} (AI置信度: {ai_confidence:.2f})"
                     )
 
-                # 打印 AI 完整的返回内容
-                logger.info(f"📝 AI 完整验证返回:\n{result_text}")
+                # 打印 AI 完整验证返回（一行显示）
+                result_one_line = result_text.replace("\n", " ").strip()
+                logger.info(
+                    f"📝 AI 验证: {direction.upper()} | CONFIDENCE: {ai_confidence:.2f} | REASON: {result_one_line}"
+                )
 
                 return {
                     "verified": verified,

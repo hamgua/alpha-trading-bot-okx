@@ -25,6 +25,9 @@ class AlphaPulseConfig:
     use_ai_validation: bool = field(default=True)
     """是否使用AI验证信号"""
 
+    warmup_minutes: int = field(default=2)
+    """启动预热期（分钟），预热期内不触发主流程"""
+
     # ========== 监控模式 ==========
     primary_mode: bool = field(default=True)
     """监控为主模式: true=监控触发主流程, false=主流程按周期运行"""
@@ -94,6 +97,7 @@ class AlphaPulseConfig:
         enabled = os.getenv("ALPHA_PULSE_ENABLED", "true").lower() == "true"
         monitor_interval = int(os.getenv("ALPHA_PULSE_INTERVAL", "60"))
         use_ai = os.getenv("ALPHA_PULSE_USE_AI", "true").lower() == "true"
+        warmup = int(os.getenv("ALPHA_PULSE_WARMUP_MINUTES", "2"))
 
         # 监控模式
         primary_mode = os.getenv("ALPHA_PULSE_PRIMARY_MODE", "true").lower() == "true"
@@ -129,6 +133,7 @@ class AlphaPulseConfig:
             enabled=enabled,
             monitor_interval=monitor_interval,
             use_ai_validation=use_ai,
+            warmup_minutes=warmup,
             primary_mode=primary_mode,
             buy_threshold=buy_threshold,
             sell_threshold=sell_threshold,
