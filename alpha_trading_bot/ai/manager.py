@@ -1322,6 +1322,163 @@ class AIManager(BaseComponent):
             logger.error(f"更新自学习失败: {e}")
 
 
+    async def verify_signal(
+        self,
+        signal_type: str,
+        symbol: str,
+        confidence: float,
+        reasoning: str,
+        market_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        验证 AlphaPulse 信号
+
+        Args:
+            signal_type: AlphaPulse 信号类型 (BUY/SELL)
+            symbol: 交易对
+            confidence: AlphaPulse 置信度
+            reasoning: AlphaPulse 推理
+            market_data: 市场数据
+
+        Returns:
+            验证结果: {
+                "verified": bool,  # 是否确认
+                "direction": str,  # confirm/reject/reverse
+                "confidence": float,  # AI 验证置信度
+                "reason": str,  # 验证原因
+            }
+        """
+        try:
+            from ..config import load_config
+
+            config = load_config()
+            if not getattr(config.ai, "enable_signal_optimization", True):
+                logger.info("信号优化已禁用，跳过验证")
+                return {
+                    "verified": True,
+                    "direction": "confirm",
+                    "confidence": confidence,
+                    "reason": "信号优化已禁用，直接确认",
+                }
+
+            # 获取技术指标
+            technical_data = market_data.get("technical_data", {})
+            price = market_data.get("price", 0)
+            rsi = technical_data.get("rsi", 50)
+            macd = technical_data.get("macd_histogram", 0)
+            adx = technical_data.get("adx", 0)
+            bb_position = technical_data.get("price_position", 50)
+            atr_percent = market_data.get("atr_percentage", 0)
+
+            # 获取价格位置
+            composite_position = market_data.get("composite_price_position", 50)
+
+            # 构建验证 Prompt
+            prompt = f"""你是专业的加密货币交易分析师。AlphaPulse 监控系统检测到以下信号，请验证是否合理：
+
+【AlphaPulse 信号】
+- 交易对: {symbol}
+- 信号类型: {signal_type}
+- 置信度: {confidence:.2f}
+- 推理: {reasoning}
+
+【当前市场数据】
+- 当前价格: ${price:.2f}
+- RSI: {rsi:.1f}
+- MACD柱状图: {macd:.4f}
+- ADX: {adx:.1f}
+- 布林带位置: {bb_position:.1f}%
+- ATR百分比: {atr_percent:.2f}%
+- 综合价格位置: {composite_position:.1f}%
+
+请分析：
+1. AlphaPulse 的信号是否与技术指标一致？
+2. 当前市场环境是否支持这个信号方向？
+3. 是否有明显的技术面矛盾？
+
+请给出验证结果：
+- 如果信号合理且方向正确 → CONFIRM
+- 如果信号不合理或方向错误 → REJECT
+- 如果信号方向与市场趋势相反 → REVERSE（建议反向操作）
+
+同时给出你的置信度 (0.0-1.0) 和简要原因。
+
+输出格式：
+VERIFICATION: CONFIRM|REJECT|REVERSE
+CONFIDENCE: 0.xx
+REASON: 你的分析原因"""
+
+            logger.info(f"🔍 AI 开始验证 AlphaPulse {signal_type} 信号...")
+
+            # 调用单个 AI 提供商进行验证
+            provider = self.config.primary_provider or "deepseek"
+
+            try:
+                ai_signal = await self.ai_client.generate_signal(
+                    prompt=prompt,
+                    provider=provider,
+                    price=price,
+                    volume=market_data.get("volume", 0),
+                    atr_percent=atr_percent,
+                    rsi=rsi,
+                    bb_position=bb_position,
+                )
+
+                # 解析验证结果
+                result_text = ai_signal.get("reason", "") if ai_signal else ""
+
+                # 简单解析结果
+                if "VERIFICATION: CONFIRM" in result_text.upper():
+                    verified = True
+                    direction = "confirm"
+                elif "VERIFICATION: REVERSE" in result_text.upper():
+                    verified = False
+                    direction = "reverse"
+                else:
+                    verified = False
+                    direction = "reject"
+
+                # 提取置信度
+                import re
+
+                confidence_match = re.search(r"CONFIDENCE:\s*([0-9.]+)", result_text, re.I)
+                ai_confidence = float(confidence_match.group(1)) if confidence_match else 0.5
+
+                # 提取原因
+                reason_match = re.search(r"REASON:\s*(.+)", result_text, re.I | re.S)
+                ai_reason = reason_match.group(1).strip() if reason_match else result_text
+
+                logger.info(
+                    f"✅ AI 验证结果: {direction.upper()} (AI置信度: {ai_confidence:.2f}) - {ai_reason[:100]}"
+                )
+
+                return {
+                    "verified": verified,
+                    "direction": direction,
+                    "confidence": ai_confidence,
+                    "reason": ai_reason,
+                }
+
+            except Exception as e:
+                logger.warning(f"AI 验证失败: {e}，使用默认确认")
+                return {
+                    "verified": True,
+                    "direction": "confirm",
+                    "confidence": 0.5,
+                    "reason": f"AI 验证失败，默认确认: {str(e)}",
+                }
+
+        except Exception as e:
+            logger.error(f"验证信号失败: {e}")
+            return {
+                "verified": True,
+                "direction": "confirm",
+                "confidence": 0.3,
+                "reason": f"验证过程出错，默认确认: {str(e)}",
+            }
+
+
+
 # 全局AI管理器实例
 _ai_manager_instance: Optional[AIManager] = None
 
@@ -1516,157 +1673,3 @@ async def cleanup_ai_manager() -> None:
             logger.error(f"价格位置缩放失败: {e}")
             return signal  # 如果缩放失败，返回原始信号
 
-    async def verify_signal(
-        self,
-        signal_type: str,
-        symbol: str,
-        confidence: float,
-        reasoning: str,
-        market_data: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """
-        验证 AlphaPulse 信号
-
-        Args:
-            signal_type: AlphaPulse 信号类型 (BUY/SELL)
-            symbol: 交易对
-            confidence: AlphaPulse 置信度
-            reasoning: AlphaPulse 推理
-            market_data: 市场数据
-
-        Returns:
-            验证结果: {
-                "verified": bool,  # 是否确认
-                "direction": str,  # confirm/reject/reverse
-                "confidence": float,  # AI 验证置信度
-                "reason": str,  # 验证原因
-            }
-        """
-        try:
-            from ..config import load_config
-
-            config = load_config()
-            if not getattr(config.ai, "enable_signal_optimization", True):
-                logger.info("信号优化已禁用，跳过验证")
-                return {
-                    "verified": True,
-                    "direction": "confirm",
-                    "confidence": confidence,
-                    "reason": "信号优化已禁用，直接确认",
-                }
-
-            # 获取技术指标
-            technical_data = market_data.get("technical_data", {})
-            price = market_data.get("price", 0)
-            rsi = technical_data.get("rsi", 50)
-            macd = technical_data.get("macd_histogram", 0)
-            adx = technical_data.get("adx", 0)
-            bb_position = technical_data.get("price_position", 50)
-            atr_percent = market_data.get("atr_percentage", 0)
-
-            # 获取价格位置
-            composite_position = market_data.get("composite_price_position", 50)
-
-            # 构建验证 Prompt
-            prompt = f"""你是专业的加密货币交易分析师。AlphaPulse 监控系统检测到以下信号，请验证是否合理：
-
-【AlphaPulse 信号】
-- 交易对: {symbol}
-- 信号类型: {signal_type}
-- 置信度: {confidence:.2f}
-- 推理: {reasoning}
-
-【当前市场数据】
-- 当前价格: ${price:.2f}
-- RSI: {rsi:.1f}
-- MACD柱状图: {macd:.4f}
-- ADX: {adx:.1f}
-- 布林带位置: {bb_position:.1f}%
-- ATR百分比: {atr_percent:.2f}%
-- 综合价格位置: {composite_position:.1f}%
-
-请分析：
-1. AlphaPulse 的信号是否与技术指标一致？
-2. 当前市场环境是否支持这个信号方向？
-3. 是否有明显的技术面矛盾？
-
-请给出验证结果：
-- 如果信号合理且方向正确 → CONFIRM
-- 如果信号不合理或方向错误 → REJECT
-- 如果信号方向与市场趋势相反 → REVERSE（建议反向操作）
-
-同时给出你的置信度 (0.0-1.0) 和简要原因。
-
-输出格式：
-VERIFICATION: CONFIRM|REJECT|REVERSE
-CONFIDENCE: 0.xx
-REASON: 你的分析原因"""
-
-            logger.info(f"🔍 AI 开始验证 AlphaPulse {signal_type} 信号...")
-
-            # 调用单个 AI 提供商进行验证
-            provider = self.config.primary_provider or "deepseek"
-
-            try:
-                ai_signal = await self.ai_client.generate_signal(
-                    prompt=prompt,
-                    provider=provider,
-                    price=price,
-                    volume=market_data.get("volume", 0),
-                    atr_percent=atr_percent,
-                    rsi=rsi,
-                    bb_position=bb_position,
-                )
-
-                # 解析验证结果
-                result_text = ai_signal.get("reason", "") if ai_signal else ""
-
-                # 简单解析结果
-                if "VERIFICATION: CONFIRM" in result_text.upper():
-                    verified = True
-                    direction = "confirm"
-                elif "VERIFICATION: REVERSE" in result_text.upper():
-                    verified = False
-                    direction = "reverse"
-                else:
-                    verified = False
-                    direction = "reject"
-
-                # 提取置信度
-                import re
-
-                confidence_match = re.search(r"CONFIDENCE:\s*([0-9.]+)", result_text, re.I)
-                ai_confidence = float(confidence_match.group(1)) if confidence_match else 0.5
-
-                # 提取原因
-                reason_match = re.search(r"REASON:\s*(.+)", result_text, re.I | re.S)
-                ai_reason = reason_match.group(1).strip() if reason_match else result_text
-
-                logger.info(
-                    f"✅ AI 验证结果: {direction.upper()} (AI置信度: {ai_confidence:.2f}) - {ai_reason[:100]}"
-                )
-
-                return {
-                    "verified": verified,
-                    "direction": direction,
-                    "confidence": ai_confidence,
-                    "reason": ai_reason,
-                }
-
-            except Exception as e:
-                logger.warning(f"AI 验证失败: {e}，使用默认确认")
-                return {
-                    "verified": True,
-                    "direction": "confirm",
-                    "confidence": 0.5,
-                    "reason": f"AI 验证失败，默认确认: {str(e)}",
-                }
-
-        except Exception as e:
-            logger.error(f"验证信号失败: {e}")
-            return {
-                "verified": True,
-                "direction": "confirm",
-                "confidence": 0.3,
-                "reason": f"验证过程出错，默认确认: {str(e)}",
-            }
