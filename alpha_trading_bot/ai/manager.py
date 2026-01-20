@@ -1464,15 +1464,29 @@ REASON: 你的分析原因"""
                     reason_match.group(1).strip() if reason_match else result_text
                 )
 
-                logger.info(
-                    f"✅ AI 验证结果: {direction.upper()} (AI置信度: {ai_confidence:.2f}) - {ai_reason[:100]}"
-                )
+                # 根据验证结果打印不同级别的日志
+                if direction == "confirm":
+                    logger.info(
+                        f"✅ AI 验证通过: {signal_type.upper()} (AI置信度: {ai_confidence:.2f})"
+                    )
+                elif direction == "reverse":
+                    logger.warning(
+                        f"⚠️ AI 建议反向: {signal_type.upper()} → 建议 REVERSE (AI置信度: {ai_confidence:.2f})"
+                    )
+                else:
+                    logger.warning(
+                        f"❌ AI 验证拒绝: {signal_type.upper()} (AI置信度: {ai_confidence:.2f})"
+                    )
+
+                # 打印 AI 完整的返回内容
+                logger.info(f"📝 AI 完整验证返回:\n{result_text}")
 
                 return {
                     "verified": verified,
                     "direction": direction,
                     "confidence": ai_confidence,
                     "reason": ai_reason,
+                    "raw_result": result_text,  # 保存完整返回供调用方使用
                 }
 
             except Exception as e:
