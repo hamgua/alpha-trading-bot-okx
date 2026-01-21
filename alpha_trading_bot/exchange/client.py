@@ -687,7 +687,8 @@ class ExchangeClient:
                 raise ValueError("symbol和timeframe不能为空")
 
             # 限制请求数量，避免交易所限流
-            limit = min(limit, 200)
+            # 5m K线：2000根 ≈ 7天，用于7日价格位置计算
+            limit = min(limit, 2000)
 
             # 尝试获取数据
             ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
