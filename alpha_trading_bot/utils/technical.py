@@ -124,7 +124,7 @@ class TechnicalIndicators:
     @staticmethod
     def calculate_adx(
         high: List[float], low: List[float], close: List[float], period: int = 14
-    ) -> List[float]:
+    ) -> Tuple[List[float], List[float], List[float]]:
         """
         计算ADX（平均趋向指数）
 
@@ -135,7 +135,7 @@ class TechnicalIndicators:
             period: 计算周期，默认14
 
         Returns:
-            ADX值列表
+            (ADX值列表, +DI值列表, -DI值列表)
         """
         try:
             if (
@@ -143,7 +143,8 @@ class TechnicalIndicators:
                 or len(low) < period * 2
                 or len(close) < period * 2
             ):
-                return [0.0] * len(close)
+                zero_list = [0.0] * len(close)
+                return zero_list, zero_list.copy(), zero_list.copy()
 
             # 计算TR、+DM、-DM
             tr_values = []
@@ -219,6 +220,9 @@ class TechnicalIndicators:
 
             # 计算ADX（DX的平滑）
             adx_values = [0.0] * (period * 2 - 1)
+            plus_di_full = [0.0] * len(close)
+            minus_di_full = [0.0] * len(close)
+
             if len(dx_values) >= period:
                 initial_adx = np.mean(dx_values[period - 1 : period * 2 - 1])
                 adx_values[period * 2 - 2] = float(initial_adx)
@@ -227,11 +231,21 @@ class TechnicalIndicators:
                     adx = (adx_values[i - 1] * (period - 1) + dx_values[i]) / period
                     adx_values.append(adx)
 
-            return adx_values
+            # 填充 +DI 和 -DI 的完整列表
+            # 前 period 个值用 0 填充
+            # 从 period 开始使用计算的值
+            for i in range(len(plus_di_values)):
+                idx = i + period
+                if idx < len(close):
+                    plus_di_full[idx] = plus_di_values[i]
+                    minus_di_full[idx] = minus_di_values[i]
+
+            return adx_values, plus_di_full, minus_di_full
 
         except Exception as e:
             logger.error(f"计算ADX失败: {e}")
-            return [0.0] * len(close)
+            zero_list = [0.0] * len(close)
+            return zero_list, zero_list.copy(), zero_list.copy()
 
     @staticmethod
     def calculate_rsi(close: List[float], period: int = 14) -> List[float]:

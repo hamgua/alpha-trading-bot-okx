@@ -467,13 +467,13 @@ class MarketMonitor:
             macd_signal = macd_signal_list[-1] if macd_signal_list else 0.0
             macd_hist = macd_hist_list[-1] if macd_hist_list else 0.0
 
-            # 计算ADX (返回列表，取最后一个值)
-            adx_list = self.tech_indicators.calculate_adx(
+            # 计算ADX (返回元组: (ADX, +DI, -DI))
+            adx_list, plus_di_list, minus_di_list = self.tech_indicators.calculate_adx(
                 highs, lows, closes, period=params["adx_period"]
             )
             adx = adx_list[-1] if adx_list else 0.0
-            plus_di = 0.0
-            minus_di = 0.0
+            plus_di = plus_di_list[-1] if plus_di_list else 0.0
+            minus_di = minus_di_list[-1] if minus_di_list else 0.0
 
             # 计算布林带 (返回元组: (中轨, 上轨, 下轨))
             bb_middle_list, bb_upper_list, bb_lower_list = (
