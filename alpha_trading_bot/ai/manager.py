@@ -1482,7 +1482,13 @@ REASON: 你的分析原因"""
                 logger.info(f"📝 AI 验证详情:")
                 logger.info(f"   方向: {direction.upper()}")
                 logger.info(f"   置信度: {ai_confidence:.2f}")
-                logger.info(f"   原始返回: {result_text}")
+                # 使用 raw_response 获取完整返回内容
+                raw_result = (
+                    ai_signal.get("raw_response", result_text)
+                    if ai_signal
+                    else result_text
+                )
+                logger.info(f"   原始返回:\n{raw_result}")
 
                 return {
                     "verified": verified,
