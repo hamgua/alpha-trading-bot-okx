@@ -620,6 +620,13 @@ class MarketMonitor:
 
             # 场景6: AlphaPulse HOLD + 超卖反弹 HOLD → HOLD
             else:
+                # 调试日志：显示实际值
+                logger.warning(
+                    f"🔍 {symbol} HOLD原因: trade_score={trade_score:.10f}, "
+                    f"BUY_THRESHOLD={self.BUY_THRESHOLD:.10f}, "
+                    f"差值={self.BUY_THRESHOLD - trade_score:.15f}, "
+                    f"is_rebound_buy: {is_rebound_buy}"
+                )
                 signal_type = "hold"
                 if trade_score > 0:
                     message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, BUY 信号需 >= {self.BUY_THRESHOLD})"
