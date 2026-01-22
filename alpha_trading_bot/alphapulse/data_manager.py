@@ -58,15 +58,32 @@ class OHLCVData:
 
     @classmethod
     def from_list(cls, data: List) -> "OHLCVData":
-        """从列表创建"""
-        return cls(
-            timestamp=int(data[0]),
-            open=float(data[1]),
-            high=float(data[2]),
-            low=float(data[3]),
-            close=float(data[4]),
-            volume=float(data[5]),
-        )
+        """
+        从列表创建（兼容 CCXT 6 元素格式和持久化 7 元素格式）
+
+        CCXT 格式: [timestamp, open, high, low, close, volume]
+        持久化格式: [timestamp, open_time, open_price, high_price, low_price, close_price, volume]
+        """
+        if len(data) == 7:
+            # 持久化格式（带 open_time 字符串）
+            return cls(
+                timestamp=int(data[0]),
+                open=float(data[2]),  # open_price
+                high=float(data[3]),  # high_price
+                low=float(data[4]),  # low_price
+                close=float(data[5]),  # close_price
+                volume=float(data[6]),
+            )
+        else:
+            # CCXT 格式（6 元素）
+            return cls(
+                timestamp=int(data[0]),
+                open=float(data[1]),
+                high=float(data[2]),
+                low=float(data[3]),
+                close=float(data[4]),
+                volume=float(data[5]),
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典"""
