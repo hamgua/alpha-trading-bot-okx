@@ -823,6 +823,9 @@ class ExchangeClient:
                 # 过滤和截取
                 if len(ohlcv) > limit:
                     ohlcv = ohlcv[-limit:]
+            else:
+                # 数据新鲜，直接使用本地数据
+                ohlcv = local_klines[-limit:] if limit else local_klines
 
             # 5. 验证返回数据
             if not ohlcv or not isinstance(ohlcv, list):
