@@ -304,8 +304,8 @@ class MarketMonitor:
             logger.debug(f"📥 获取 {symbol} K线数据...")
 
             # 获取K线数据 (使用5分钟周期)
-            # 需要 2000 根才能计算 7 日价格位置
-            ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "5m", limit=2000)
+            # 需要 2016 根才能计算 7 日价格位置 (7天 = 7 * 24 * 12 = 2016 根 5m K线)
+            ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "5m", limit=2100)
 
             if not ohlcv:
                 logger.warning(f"⚠️ 获取K线数据失败: {symbol}")
