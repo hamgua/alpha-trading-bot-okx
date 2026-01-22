@@ -1893,13 +1893,12 @@ class TradingBot(BaseComponent):
                             "reasoning": alphapulse_signal.reasoning,
                             "indicator_result": {
                                 "rsi": indicator_data.rsi,
-                                "macd": indicator_data.macd,
+                                "macd": indicator_data.macd_histogram,  # 🔥 修复：传递柱状图值而非快线值
                                 "adx": indicator_data.adx,
                                 "bb_position": indicator_data.bb_position,
-                                "macd_histogram": indicator_data.macd_histogram,
+                                "atr_percent": indicator_data.atr_percent,
                                 "price_position_24h": indicator_data.price_position_24h,
                                 "price_position_7d": indicator_data.price_position_7d,
-                                "atr_percent": indicator_data.atr_percent,
                             },
                         }
                         self.enhanced_logger.logger.info(
