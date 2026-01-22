@@ -191,9 +191,9 @@ class MarketMonitor:
         },
     }
 
-    # 信号阈值配置
-    BUY_THRESHOLD = 0.30  # 分数 >= 0.3 → BUY
-    SELL_THRESHOLD = -0.30  # 分数 <= -0.3 → SELL
+    # 信号阈值配置 - 方案A: 降低阈值以扩大 AI 核验范围
+    BUY_THRESHOLD = 0.20  # 分数 >= 0.2 → BUY (原 0.30，降低 33%)
+    SELL_THRESHOLD = -0.20  # 分数 <= -0.2 → SELL (原 -0.30，降低 33%)
 
     def __init__(
         self,
@@ -727,15 +727,15 @@ class MarketMonitor:
         is_oversold = result.rsi < 30.0
         is_oversold_area = is_extreme_low and is_oversold
 
-        # 超卖区域权重调整配置
+        # 超卖区域权重调整配置 - 方案B: 优化极低位时的权重分配
         oversold_weights = {
-            "rsi": 0.25,  # 增强：超卖RSI是强信号
-            "bb_position": 0.10,  # 降低：BB位置在超卖时参考价值下降
-            "macd": 0.05,  # 大幅降低：短期下跌动能不应抵消极低位信号
-            "adx": 0.15,  # 增强：趋势确认对反弹很重要
-            "price_position_24h": 0.30,  # 大幅增强：极低位是核心信号
-            "price_position_7d": 0.15,  # 增强：7日极低位确认
-            "volatility": 0.00,  # 忽略：波动率在超卖时不是关键
+            "rsi": 0.25,  # 保持：超卖RSI是强信号
+            "bb_position": 0.10,  # 保持：BB位置在超卖时参考价值下降
+            "macd": 0.03,  # 🔥 大幅降低：从0.05降到0.03，极低位时MACD不应拉低分数
+            "adx": 0.12,  # 降低：趋势确认在超卖时不是最关键
+            "price_position_24h": 0.35,  # 🔥 增强：从0.30升到0.35，极低位是核心信号
+            "price_position_7d": 0.15,  # 保持：7日极低位确认
+            "volatility": 0.00,  # 保持：波动率在超卖时不是关键
         }
 
         # 选择权重
