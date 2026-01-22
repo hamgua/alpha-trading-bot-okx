@@ -703,24 +703,45 @@ class ExchangeClient:
             need_fetch = False
             force_full_fetch = False  # 是否强制全量获取
 
+            # 调试日志
+            local_count = len(local_klines) if local_klines else 0
+            has_metadata = metadata is not None
+            last_update_sec = 0
+            if metadata and metadata.last_update:
+                last_update = datetime.fromisoformat(metadata.last_update)
+                last_update_sec = (datetime.now() - last_update).total_seconds()
+
+            logger.debug(
+                f"📊 K线数据检查: 本地={local_count} 根, limit={limit}, "
+                f"有元数据={has_metadata}, 更新时间差={last_update_sec:.1f}秒"
+            )
+
             if not local_klines:
                 # 没有本地数据，全量获取
                 need_fetch = True
                 force_full_fetch = True
+                logger.info(f"📥 策略: 无本地数据，强制全量获取")
             elif len(local_klines) < limit:
                 # 本地数据不足，获取完整历史数据
                 need_fetch = True
                 force_full_fetch = True
+                logger.info(
+                    f"📥 策略: 本地数据不足({local_count}/{limit})，强制全量获取"
+                )
             elif metadata:
                 # 检查本地数据是否过期（超过 5 分钟）
-                last_update = datetime.fromisoformat(metadata.last_update)
-                if (datetime.now() - last_update).total_seconds() >= 300:
+                if last_update_sec >= 300:
                     need_fetch = True
+                    logger.info(f"📥 策略: 数据过期({last_update_sec:.1f}秒)，增量更新")
                 else:
                     need_fetch = False
+                    logger.info(
+                        f"📂 策略: 数据新鲜({last_update_sec:.1f}秒)，使用本地缓存"
+                    )
             else:
                 # 没有元数据，保守起见获取新数据
                 need_fetch = True
+                logger.info(f"📥 策略: 无元数据，增量更新")
 
             ohlcv = []
 
