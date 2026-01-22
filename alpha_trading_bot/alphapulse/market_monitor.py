@@ -747,6 +747,14 @@ class MarketMonitor:
                 logger.info(
                     f"💤 {symbol} HOLD信号 (分数: {trade_score:.2f}, 置信度: {alpha_confidence:.2f})"
                 )
+                # 额外输出无信号原因
+                if trade_score > 0:
+                    no_signal_msg = f"市场偏多但信号不足 (分数: {trade_score:.2f}, BUY 信号需 >= {self.BUY_THRESHOLD})"
+                elif trade_score < 0:
+                    no_signal_msg = f"市场偏空但信号不足 (分数: {trade_score:.2f}, SELL 信号需 <= {self.SELL_THRESHOLD})"
+                else:
+                    no_signal_msg = f"市场中性 (分数: {trade_score:.2f})"
+                logger.info(f"💤 {symbol} 无信号: {no_signal_msg}")
             else:
                 logger.info(f"AlphaPulse信号: {symbol} - {message}")
 
