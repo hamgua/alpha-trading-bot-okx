@@ -763,10 +763,14 @@ class ExchangeClient:
                     )
 
                     if not recent_klines:
-                        ohlcv = []
+                        # API 返回空，使用本地数据
+                        ohlcv = local_klines[-limit:] if limit else local_klines
+                        logger.warning(
+                            f"⚠️ API 返回空数据，使用本地缓存: {len(ohlcv)} 根"
+                        )
                     else:
                         # 找到新数据的起始位置（时间戳 > 最后一条本地数据）
-                        new_start_idx = len(recent_klines)
+                        new_start_idx = 0
                         for i, k in enumerate(recent_klines):
                             if k[0] > last_local_timestamp:
                                 new_start_idx = i
