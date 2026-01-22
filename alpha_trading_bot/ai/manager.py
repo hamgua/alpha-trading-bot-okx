@@ -1360,52 +1360,93 @@ class AIManager(BaseComponent):
                     "reason": "信号优化已禁用，直接确认",
                 }
 
-            # 获取技术指标
-            technical_data = market_data.get("technical_data", {})
-            price = market_data.get("price", 0)
-            rsi = technical_data.get("rsi", 50)
-            macd = technical_data.get("macd_histogram", 0)
-            adx = technical_data.get("adx", 0)
-            bb_position = technical_data.get("price_position", 50)
-            atr_percent = market_data.get("atr_percentage", 0)
+            # 🔥 核心修复：优先使用 AlphaPulse 的实时指标数据
+            # 原因：AI 验证需要与 AlphaPulse 使用相同的数据源，否则会出现数据不一致
+            alphapulse_data = market_data.get("alphapulse_signal", {})
 
-            # 获取价格位置
-            composite_position = market_data.get("composite_price_position", 50)
+            if alphapulse_data and "indicator_result" in alphapulse_data:
+                # 使用 AlphaPulse 刚刚计算的实时指标
+                indicator_result = alphapulse_data["indicator_result"]
+                rsi = indicator_result.get("rsi", 50)
+                macd = indicator_result.get("macd", 0)
+                adx = indicator_result.get("adx", 0)
+                bb_position = indicator_result.get("bb_position", 50)
+                atr_percent = indicator_result.get("atr_percent", 0)
+                price = market_data.get("price", 0)
+                composite_position = (
+                    indicator_result.get("price_position_24h", 50)
+                    + indicator_result.get("price_position_7d", 50)
+                ) / 2
+                logger.info(
+                    f"🎯 AI验证使用 AlphaPulse 实时指标: "
+                    f"RSI={rsi:.1f}, MACD={macd:.4f}, ADX={adx:.1f}, "
+                    f"BB位置={bb_position:.1f}%, ATR%={atr_percent:.2f}%"
+                )
+            else:
+                # 回退到 market_data 中的技术指标（可能过时或缺失）
+                technical_data = market_data.get("technical_data", {})
+                price = market_data.get("price", 0)
+                rsi = technical_data.get("rsi", 50)
+                macd = technical_data.get("macd_histogram", 0)
+                adx = technical_data.get("adx", 0)
+                bb_position = technical_data.get("price_position", 50)
+                atr_percent = market_data.get("atr_percentage", 0)
+                composite_position = market_data.get("composite_price_position", 50)
+                logger.warning(
+                    f"⚠️ AI验证未获取到 AlphaPulse 实时指标，回退使用 market_data，"
+                    f"可能导致数据不一致！RSI={rsi:.1f}, ADX={adx:.1f}"
+                )
 
-            # 构建验证 Prompt
-            prompt = f"""你是专业的加密货币交易分析师。AlphaPulse 监控系统检测到以下信号，请验证是否合理：
+            # 构建验证 Prompt - 方案B: 改进 Prompt 减少误判
+            prompt = f"""你是专业的加密货币交易分析师。AlphaPulse 实时监控系统基于以下指标数据生成了交易信号，请验证信号是否合理：
 
 【AlphaPulse 信号】
 - 交易对: {symbol}
-- 信号类型: {signal_type}
-- 置信度: {confidence:.2f}
-- 推理: {reasoning}
+- 信号类型: {signal_type.upper()}
+- 系统置信度: {confidence:.2f}
+- AlphaPulse推理: {reasoning}
 
-【当前市场数据】
+【AlphaPulse 使用的实时指标】
 - 当前价格: ${price:.2f}
-- RSI: {rsi:.1f}
-- MACD柱状图: {macd:.4f}
-- ADX: {adx:.1f}
-- 布林带位置: {bb_position:.1f}%
+- RSI: {rsi:.1f} ({"超卖" if rsi < 30 else "偏弱" if rsi < 40 else "中性" if rsi < 60 else "偏强" if rsi < 70 else "超买"})
+- MACD柱状图: {macd:.4f} ({"负值-下跌动能" if macd < 0 else "正值-上涨动能" if macd > 0 else "零轴附近-观望"})
+- ADX: {adx:.1f} ({"无趋势" if adx < 20 else "弱趋势" if adx < 25 else "中等趋势" if adx < 40 else "强趋势"})
+- 布林带位置: {bb_position:.1f}% ({"底部-超卖区域" if bb_position < 20 else "低位" if bb_position < 40 else "中轨" if bb_position < 60 else "高位" if bb_position < 80 else "顶部-超买区域"})
 - ATR百分比: {atr_percent:.2f}%
-- 综合价格位置: {composite_position:.1f}%
+- 综合价格位置: {composite_position:.1f}% ({"极低位-买入机会" if composite_position < 15 else "低位" if composite_position < 35 else "中性" if composite_position < 65 else "高位" if composite_position < 85 else "极高位-风险区域"})
 
-请分析：
-1. AlphaPulse 的信号是否与技术指标一致？
-2. 当前市场环境是否支持这个信号方向？
-3. 是否有明显的技术面矛盾？
+【验证要点】
+请从以下维度分析信号合理性：
+
+1. **核心指标一致性**：
+   - RSI 与信号方向是否一致？（BUY 需要 RSI 偏弱/超卖，SELL 需要 RSI 偏强/超买）
+   - 价格位置是否在合适区间？（BUY 适合低位，SELL 适合高位）
+   - 布林带位置是否支持信号方向？
+
+2. **动能判断**：
+   - MACD 柱状图的正负方向是否与信号一致？
+   - ADX 趋势强度是否足够明显？
+
+3. **逻辑自洽性**：
+   - AlphaPulse 的推理是否基于合理的技术分析？
+   - 多个指标是否指向同一方向？
+   - 是否有明显的矛盾信号？
+
+【判断标准】
+- **CONFIRM**: 信号逻辑自洽，多数核心指标支持信号方向，即使部分次要指标（如 ADX）暂时不理想
+- **REJECT**: 核心指标与信号方向明显矛盾（如 RSI 在 50 以上时发出 BUY 信号）
+- **REVERSE**: 信号方向与市场趋势完全相反，建议反向操作
+
+【注意事项】
+- 次要指标（如 ADX）暂时为默认值或不够理想时，只要 RSI、价格位置等核心指标明确支持信号方向，应给予 CONFIRM
+- 不要因为单个指标不理想就轻易 REJECT，要综合考虑所有指标
+- 重点关注 RSI、价格位置、布林带位置等最直观反映市场状态的指标
 
 请给出验证结果：
-- 如果信号合理且方向正确 → CONFIRM
-- 如果信号不合理或方向错误 → REJECT
-- 如果信号方向与市场趋势相反 → REVERSE（建议反向操作）
-
-同时给出你的置信度 (0.0-1.0) 和简要原因。
-
 输出格式：
 VERIFICATION: CONFIRM|REJECT|REVERSE
 CONFIDENCE: 0.xx
-REASON: 你的分析原因"""
+REASON: 你的详细分析原因（不少于30字）"""
 
             logger.info(f"🔍 AI 开始验证 AlphaPulse {signal_type} 信号...")
 
