@@ -698,73 +698,36 @@ class ExchangeClient:
             # 1. 尝试从本地加载历史数据
             local_klines, metadata = kline_manager.load_klines(symbol, timeframe)
             last_local_timestamp = local_klines[-1][0] if local_klines else 0
+            first_local_timestamp = local_klines[0][0] if local_klines else 0
 
-            # 2. 计算需要获取的新数据量
+            # 2. 判断是否需要获取新数据
             need_fetch = False
-            fetch_since = None
-            fill_history = False  # 是否需要填充历史数据
 
             if not local_klines:
                 # 没有本地数据，获取全部
                 need_fetch = True
-                fetch_since = None
-            elif len(local_klines) < limit:
-                # 本地数据不足，需要获取更多历史数据
-                need_fetch = True
-                fetch_since = local_klines[0][0]  # 从最早一条开始获取
-                fill_history = True
             elif metadata:
-                # 本地数据足够，检查是否需要增量更新
                 # 检查本地数据是否过期（超过 5 分钟）
                 last_update = datetime.fromisoformat(metadata.last_update)
                 if (datetime.now() - last_update).total_seconds() >= 300:
-                    # 数据已过期，需要获取新数据
                     need_fetch = True
-                    fetch_since = last_local_timestamp  # 只获取新数据
                 else:
-                    # 数据还新鲜，直接使用本地数据
                     need_fetch = False
             else:
                 # 没有元数据，保守起见获取新数据
                 need_fetch = True
-                fetch_since = last_local_timestamp
 
             ohlcv = []
 
             if need_fetch:
                 # 3. 从交易所获取数据
-                if fetch_since is None:
+                if not local_klines:
                     # 全量获取
                     ohlcv = await self.exchange.fetch_ohlcv(
                         symbol, timeframe, limit=limit
                     )
-                elif fill_history:
-                    # 填充历史数据：从最早一条往前获取
-                    remaining = limit - len(local_klines)
-                    since = fetch_since
-
-                    while remaining > 0:
-                        request_count = min(remaining, MAX_PER_REQUEST)
-                        batch = await self.exchange.fetch_ohlcv(
-                            symbol, timeframe, limit=request_count, since=since
-                        )
-
-                        if not batch:
-                            break
-
-                        ohlcv.extend(batch)
-                        remaining -= len(batch)
-
-                        # 更新 since 为下一批请求的时间戳（往前获取）
-                        since = batch[0][0] - 1
-
-                        logger.info(
-                            f"📥 填充历史 K 线: 已获取 {len(ohlcv)} 根, 还需 {remaining} 根"
-                        )
-
-                        await asyncio.sleep(0.1)
                 else:
-                    # 增量获取新数据：先获取少量最新K线，找到新数据的起始点
+                    # 增量获取：先获取少量最新K线，找到新数据的起始点
                     recent_klines = await self.exchange.fetch_ohlcv(
                         symbol, timeframe, limit=min(limit, 100)
                     )
@@ -772,8 +735,8 @@ class ExchangeClient:
                     if not recent_klines:
                         ohlcv = []
                     else:
-                        # 找到新数据的起始位置
-                        new_start_idx = 0
+                        # 找到新数据的起始位置（时间戳 > 最后一条本地数据）
+                        new_start_idx = len(recent_klines)
                         for i, k in enumerate(recent_klines):
                             if k[0] > last_local_timestamp:
                                 new_start_idx = i
@@ -785,28 +748,26 @@ class ExchangeClient:
                         if new_klines:
                             # 合并本地数据和新数据
                             ohlcv = local_klines + new_klines
-                            # 限制数量
+                            # 限制数量，保留最近的 limit 条
                             if len(ohlcv) > limit:
                                 ohlcv = ohlcv[-limit:]
+                            logger.info(
+                                f"📥 增量更新: 本地 {len(local_klines)} 根 + 新增 {len(new_klines)} 根 = {len(ohlcv)} 根"
+                            )
                         else:
                             # 没有新数据，使用本地数据
                             ohlcv = local_klines[-limit:] if limit else local_klines
-                            logger.info(f"📂 无新K线数据，使用本地缓存")
+                            logger.info(
+                                f"📂 无新K线数据，使用本地缓存: {len(ohlcv)} 根"
+                            )
 
-                # 4. 合并数据并保存到本地
+                # 4. 保存到本地
                 if ohlcv:
-                    # 合并本地和新数据
-                    merged_klines = kline_manager.merge_klines(symbol, timeframe, ohlcv)
+                    kline_manager.save_klines(symbol, timeframe, ohlcv)
 
-                    # 保存到本地
-                    kline_manager.save_klines(symbol, timeframe, merged_klines)
-
-                    # 使用合并后的数据
-                    ohlcv = merged_klines
-
-                    # 过滤和截取
-                    if len(ohlcv) > limit:
-                        ohlcv = ohlcv[-limit:]
+                # 过滤和截取
+                if len(ohlcv) > limit:
+                    ohlcv = ohlcv[-limit:]
             else:
                 # 使用本地数据
                 ohlcv = local_klines[-limit:] if limit else local_klines
