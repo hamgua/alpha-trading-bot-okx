@@ -698,14 +698,19 @@ class ExchangeClient:
             # 1. 尝试从本地加载历史数据
             local_klines, metadata = kline_manager.load_klines(symbol, timeframe)
             last_local_timestamp = local_klines[-1][0] if local_klines else 0
-            first_local_timestamp = local_klines[0][0] if local_klines else 0
 
-            # 2. 判断是否需要获取新数据
+            # 2. 判断获取策略
             need_fetch = False
+            force_full_fetch = False  # 是否强制全量获取
 
             if not local_klines:
-                # 没有本地数据，获取全部
+                # 没有本地数据，全量获取
                 need_fetch = True
+                force_full_fetch = True
+            elif len(local_klines) < limit:
+                # 本地数据不足，获取完整历史数据
+                need_fetch = True
+                force_full_fetch = True
             elif metadata:
                 # 检查本地数据是否过期（超过 5 分钟）
                 last_update = datetime.fromisoformat(metadata.last_update)
@@ -721,11 +726,13 @@ class ExchangeClient:
 
             if need_fetch:
                 # 3. 从交易所获取数据
-                if not local_klines:
-                    # 全量获取
+                if force_full_fetch or not local_klines:
+                    # 全量获取完整历史数据
                     ohlcv = await self.exchange.fetch_ohlcv(
                         symbol, timeframe, limit=limit
                     )
+                    if ohlcv:
+                        logger.info(f"📥 全量获取: {len(ohlcv)} 根 K 线数据")
                 else:
                     # 增量获取：先获取少量最新K线，找到新数据的起始点
                     recent_klines = await self.exchange.fetch_ohlcv(
@@ -768,12 +775,6 @@ class ExchangeClient:
                 # 过滤和截取
                 if len(ohlcv) > limit:
                     ohlcv = ohlcv[-limit:]
-            else:
-                # 使用本地数据
-                ohlcv = local_klines[-limit:] if limit else local_klines
-                logger.info(
-                    f"📂 使用本地 K 线数据: {symbol} {timeframe} - {len(ohlcv)} 根"
-                )
 
             # 5. 验证返回数据
             if not ohlcv or not isinstance(ohlcv, list):
