@@ -301,9 +301,7 @@ class MarketMonitor:
     async def _update_symbol(self, symbol: str):
         """更新单个交易对数据"""
         try:
-            logger.debug(f"📥 获取 {symbol} K线数据...")
-
-            # 获取K线数据 (使用5分钟周期)
+            # 获取K线数据 (使用5分钟周期，支持本地缓存和增量更新)
             # 需要 2016 根才能计算 7 日价格位置 (7天 = 7 * 24 * 12 = 2016 根 5m K线)
             ohlcv = await self.exchange_client.fetch_ohlcv(symbol, "5m", limit=2100)
 

@@ -696,7 +696,7 @@ class ExchangeClient:
             MAX_TOTAL = 3000  # 最多获取 3000 根 ≈ 10 天
 
             # 1. 尝试从本地加载历史数据
-            local_klines, _ = kline_manager.load_klines(symbol, timeframe)
+            local_klines, metadata = kline_manager.load_klines(symbol, timeframe)
             last_local_timestamp = local_klines[-1][0] if local_klines else 0
 
             # 2. 计算需要获取的新数据量
@@ -711,25 +711,39 @@ class ExchangeClient:
                 # 本地数据不足，获取更多
                 need_fetch = True
                 fetch_since = local_klines[0][0]  # 从最早一条开始获取
+            elif metadata:
+                # 本地数据足够，检查是否需要增量更新
+                # 检查本地数据是否过期（超过 5 分钟）
+                last_update = datetime.fromisoformat(metadata.last_update)
+                if (datetime.now() - last_update).total_seconds() >= 300:
+                    # 数据已过期，需要获取新数据
+                    need_fetch = True
+                    fetch_since = last_local_timestamp  # 只获取新数据
+                else:
+                    # 数据还新鲜，直接使用本地数据
+                    need_fetch = False
             else:
-                # 本地数据足够，检查是否需要更新
-                # 如果最近 5 分钟没有更新过，获取新数据
+                # 没有元数据，保守起见获取新数据
                 need_fetch = True
-                fetch_since = last_local_timestamp  # 只获取新数据
+                fetch_since = last_local_timestamp
 
             ohlcv = []
 
             if need_fetch:
                 # 3. 从交易所获取数据
-                if limit <= MAX_PER_REQUEST:
-                    # 单次请求
+                if limit <= MAX_PER_REQUEST and fetch_since is None:
+                    # 单次请求，不需要增量
                     ohlcv = await self.exchange.fetch_ohlcv(
                         symbol, timeframe, limit=limit
                     )
                 else:
-                    # 多次请求获取历史数据
+                    # 需要增量获取或历史数据
                     remaining = min(limit, MAX_TOTAL)
-                    since = fetch_since
+                    since = (
+                        fetch_since
+                        if fetch_since
+                        else (current_timestamp - 7 * 24 * 60 * 60 * 1000)
+                    )  # 默认获取 7 天
 
                     while remaining > 0 and len(ohlcv) < MAX_TOTAL:
                         request_count = min(remaining, MAX_PER_REQUEST)
