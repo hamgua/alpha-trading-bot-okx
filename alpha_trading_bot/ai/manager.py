@@ -1519,17 +1519,27 @@ REASON: 你的详细分析原因（不少于30字）"""
                         f"❌ AI 验证拒绝: {signal_type.upper()} (AI置信度: {ai_confidence:.2f})"
                     )
 
-                # 打印 AI 完整验证返回（分段打印，避免截断）
+                # 打印 AI 完整验证返回
                 logger.info(f"📝 AI 验证详情:")
                 logger.info(f"   方向: {direction.upper()}")
                 logger.info(f"   置信度: {ai_confidence:.2f}")
-                # 使用 raw_response 获取完整返回内容
+                # 原始返回内容处理：将 REASON 合并为一行
                 raw_result = (
                     ai_signal.get("raw_response", result_text)
                     if ai_signal
                     else result_text
                 )
-                logger.info(f"   原始返回:\n{raw_result}")
+                # 规范化输出：移除多余空白，合并为单行
+                normalized_result = raw_result
+                if "REASON:" in raw_result:
+                    # 将 REASON 部分合并为一行
+                    parts = raw_result.split("REASON:")
+                    if len(parts) > 1:
+                        reason_text = parts[1].strip()
+                        # 移除多余换行，将空格规范化
+                        reason_text = " ".join(reason_text.split())
+                        normalized_result = parts[0].strip() + f" REASON: {reason_text}"
+                logger.info(f"   原始返回: {normalized_result}")
 
                 return {
                     "verified": verified,

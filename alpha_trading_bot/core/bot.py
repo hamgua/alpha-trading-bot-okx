@@ -1883,6 +1883,35 @@ class TradingBot(BaseComponent):
                         f"🎯 AlphaPulse 检测到 {alphapulse_signal.signal_type.upper()} 信号，调用 AI 验证..."
                     )
 
+                    # 🔥 关键修复：在 AI 验证前，将 AlphaPulse 的指标数据放入 market_data
+                    # 这样 AI 验证时就能获取到与 AlphaPulse 相同的实时指标
+                    indicator_data = alphapulse_signal.market_data.get("indicators")
+                    if indicator_data:
+                        market_data["alphapulse_signal"] = {
+                            "signal_type": alphapulse_signal.signal_type,
+                            "confidence": alphapulse_signal.confidence,
+                            "reasoning": alphapulse_signal.reasoning,
+                            "indicator_result": {
+                                "rsi": indicator_data.rsi,
+                                "macd": indicator_data.macd,
+                                "adx": indicator_data.adx,
+                                "bb_position": indicator_data.bb_position,
+                                "macd_histogram": indicator_data.macd_histogram,
+                                "price_position_24h": indicator_data.price_position_24h,
+                                "price_position_7d": indicator_data.price_position_7d,
+                                "atr_percent": indicator_data.atr_percent,
+                            },
+                        }
+                        self.enhanced_logger.logger.info(
+                            f"🎯 已将 AlphaPulse 实时指标传递给 AI 验证: "
+                            f"RSI={indicator_data.rsi:.1f}, MACD={indicator_data.macd_histogram:.4f}, "
+                            f"ADX={indicator_data.adx:.1f}, BB位置={indicator_data.bb_position:.1f}%"
+                        )
+                    else:
+                        self.enhanced_logger.logger.warning(
+                            f"⚠️ AlphaPulse 信号中未包含指标数据，AI 验证可能使用旧数据"
+                        )
+
                     # AI 验证 AlphaPulse 信号
                     verification_result = await self.ai_manager.verify_signal(
                         signal_type=alphapulse_signal.signal_type,
