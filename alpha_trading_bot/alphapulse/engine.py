@@ -245,9 +245,7 @@ class AlphaPulseEngine:
                     self.logger.info(
                         f"❌ {target_symbol} 信号验证未通过: {validation.final_message}"
                     )
-self.logger.info(
-                    f"   详细: {validation.final_message}"
-                )
+                    self.logger.info(f"   详细: {validation.final_message}")
                     return None
 
             self.logger.info(f"✅ {target_symbol} 信号验证通过!")

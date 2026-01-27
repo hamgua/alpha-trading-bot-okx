@@ -1870,14 +1870,14 @@ class TradingBot(BaseComponent):
                         self.enhanced_logger.logger.info(
                              f"💤 AlphaPulse 无有效信号 [预热中: 剩余{int(remaining_seconds // 60)}分{remaining_seconds % 60}秒]"
                          )
-                     await self._update_cycle_status(cycle_num, start_time, 0, 0)
-                     return
+                    await self._update_cycle_status(cycle_num, start_time, 0, 0)
+                    return
 
-                 if (
-                     config.enabled
-                     and alphapulse_signal
-                     and alphapulse_signal.signal_type in ["buy", "sell"]
-                 ):
+                    if (
+                        config.enabled
+                        and alphapulse_signal
+                        and alphapulse_signal.signal_type in ["buy", "sell"]
+                    ):
                      # 第一阶段优化：AlphaPulse快速通道 - 强信号直接执行
                      should_use_fast_channel = False
                      fast_channel_reason = ""
@@ -2053,9 +2053,9 @@ class TradingBot(BaseComponent):
                 # AI 验证通过，使用 AlphaPulse 信号
                 signals = alphapulse_signals
                 total_signals = len(signals)
-                         self.enhanced_logger.logger.info(
-                             f"🎯 使用{'AlphaPulse快速通道' if should_use_fast_channel else 'AlphaPulse + AI验证'}的信号执行交易"
-                         )
+                self.enhanced_logger.logger.info(
+                    f"🎯 使用{'AlphaPulse快速通道' if should_use_fast_channel else 'AlphaPulse + AI验证'}的信号执行交易"
+                )
             else:
                 # 正常流程：生成AI和策略信号
                 signals, total_signals = await self._generate_trading_signals(
