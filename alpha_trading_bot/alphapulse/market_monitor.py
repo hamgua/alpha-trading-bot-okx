@@ -17,6 +17,7 @@ from .oversold_rebound_detector import (
     OversoldReboundDetector,
     ReboundCheckResult,
 )
+from .signal_metrics import record_alpha_pulse_signal, get_signal_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -571,140 +572,141 @@ class MarketMonitor:
             combined_triggers = triggers.copy()
 
             # ============================================================
-            # 信号融合逻辑
+            # 信号融合逻辑 - 重构：移除直接拦截，改为置信度调节
+            # 新架构：BUY信号允许通过，价格位置用于调节AI置信度
             # ============================================================
+
+            # 计算价格位置调节因子（用于后续AI置信度调节）
+            def calculate_price_confidence_factor(
+                bb_position: float, pos_24h: float, pos_7d: float
+            ) -> float:
+                """
+                计算价格位置置信度调节因子
+                - 价格越低，因子越高（增强置信度）
+                - 价格越高，因子越低（降低置信度）
+                返回值范围: 0.5 - 1.3
+                """
+                # 计算综合价格位置（BB权重30%，24h权重45%，7d权重25%）
+                composite_position = bb_position * 0.30 + pos_24h * 0.45 + pos_7d * 0.25
+
+                # 根据价格位置计算调节因子
+                if composite_position >= 85:  # 极高位
+                    return 0.5  # 大幅降低置信度
+                elif composite_position >= 70:  # 高位
+                    return 0.65  # 降低置信度
+                elif composite_position >= 55:  # 偏高
+                    return 0.8  # 轻微降低
+                elif composite_position >= 40:  # 中性偏上
+                    return 0.95  # 接近中性
+                elif composite_position >= 25:  # 中性偏下
+                    return 1.0  # 中性
+                elif composite_position >= 15:  # 低位
+                    return 1.15  # 轻微增强
+                else:  # 极低位 (< 15%)
+                    return 1.3  # 大幅增强置信度
 
             # 场景1: AlphaPulse BUY + 超卖反弹 BUY → BUY（最强信号）
             if trade_score >= self.BUY_THRESHOLD and is_rebound_buy:
-                # 🔥 方案A: 增加价格位置检查
-                bb_position = result.bb_position
-                price_position_24h = result.price_position_24h
-                price_position_7d = result.price_position_7d
-                is_low_price = (
-                    bb_position < 50
-                    and price_position_24h < 50
-                    and price_position_7d < 40
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🎯 融合信号 BUY: AlphaPulse分数={trade_score:.2f} + 超卖反弹确认, "
+                    f"触发因素: {', '.join(set(combined_triggers))}"
                 )
-
-                if is_low_price:
-                    signal_type = "buy"
-                    should_trade = True
-                    combined_triggers.extend(rebound_result.triggers)
-                    message = (
-                        f"🎯 融合信号 BUY: AlphaPulse分数={trade_score:.2f} + 超卖反弹确认, "
-                        f"触发因素: {', '.join(set(combined_triggers))}"
-                    )
-                    logger.info(f"✅ {symbol}: {message}")
-                else:
-                    signal_type = "hold"
-                    should_trade = False
-                    message = (
-                        f"融合 BUY 信号被拦截: 价格位置偏高 "
-                        f"(BB={bb_position:.1f}%, 24h={price_position_24h:.1f}%, 7d={price_position_7d:.1f}%)"
-                    )
-                    logger.warning(f"⚠️ {symbol}: {message}")
+                logger.info(f"✅ {symbol}: {message}")
 
             # 场景2: AlphaPulse SELL + 超卖反弹 BUY → BUY（反转信号）
             elif trade_score <= self.SELL_THRESHOLD and is_rebound_buy:
-                # 🔥 方案A: 同样检查价格位置（即使超卖反弹也需要价格相对低位）
-                bb_position = result.bb_position
-                price_position_24h = result.price_position_24h
-                price_position_7d = result.price_position_7d
-                is_low_price = (
-                    bb_position < 50
-                    and price_position_24h < 50
-                    and price_position_7d < 40
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🔄 反转信号 BUY: AlphaPulse SELL分数={trade_score:.2f} 但超卖反弹检测到买入机会, "
+                    f"反弹信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
                 )
-
-                if is_low_price:
-                    signal_type = "buy"
-                    should_trade = True
-                    combined_triggers.extend(rebound_result.triggers)
-                    message = (
-                        f"🔄 反转信号 BUY: AlphaPulse SELL分数={trade_score:.2f} 但超卖反弹检测到买入机会, "
-                        f"反弹信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
-                    )
-                    logger.warning(f"⚠️ {symbol}: {message}")
-                else:
-                    signal_type = "hold"
-                    should_trade = False
-                    message = (
-                        f"反转 BUY 信号被拦截: 价格位置不满足低位条件 "
-                        f"(BB={bb_position:.1f}%, 24h={price_position_24h:.1f}%, 7d={price_position_7d:.1f}%)"
-                    )
-                    logger.warning(f"⚠️ {symbol}: {message}")
+                logger.info(f"✅ {symbol}: {message}")
 
             # 场景3: AlphaPulse HOLD + 超卖反弹 BUY → BUY（新机会）
             elif (
                 -self.BUY_THRESHOLD < trade_score < self.BUY_THRESHOLD
                 and is_rebound_buy
             ):
-                # 🔥 方案A: 检查价格位置
-                bb_position = result.bb_position
-                price_position_24h = result.price_position_24h
-                price_position_7d = result.price_position_7d
-                is_low_price = (
-                    bb_position < 50
-                    and price_position_24h < 50
-                    and price_position_7d < 40
+                signal_type = "buy"
+                should_trade = True
+                combined_triggers.extend(rebound_result.triggers)
+                message = (
+                    f"🚀 超卖反弹 BUY: AlphaPulse HOLD(分数={trade_score:.2f}) 但反弹信号触发, "
+                    f"信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
                 )
+                logger.info(f"✅ {symbol}: {message}")
 
-                if is_low_price:
-                    signal_type = "buy"
-                    should_trade = True
-                    combined_triggers.extend(rebound_result.triggers)
-                    message = (
-                        f"🚀 超卖反弹 BUY: AlphaPulse HOLD(分数={trade_score:.2f}) 但反弹信号触发, "
-                        f"信号: {', '.join(rebound_result.triggers)}, 信心度={rebound_confidence:.2f}"
-                    )
-                    logger.info(f"✅ {symbol}: {message}")
-                else:
-                    signal_type = "hold"
-                    should_trade = False
-                    message = (
-                        f"超卖反弹 BUY 信号被拦截: 价格位置不满足低位条件 "
-                        f"(BB={bb_position:.1f}%, 24h={price_position_24h:.1f}%, 7d={price_position_7d:.1f}%)"
-                    )
-                    logger.warning(f"⚠️ {symbol}: {message}")
-
-            # 场景4: AlphaPulse BUY (无超卖反弹) → 需检查 BB 位置
+            # 场景4: AlphaPulse BUY (无超卖反弹) → BUY
             elif trade_score >= self.BUY_THRESHOLD:
-                # 🔥 方案A: BB 位置检查 - 价格偏高时不买
-                bb_position = result.bb_position
-                price_position_24h = result.price_position_24h
-                price_position_7d = result.price_position_7d
+                signal_type = "buy"
+                should_trade = True
+                message = f"BUY信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
+                logger.info(f"🎯 {symbol}: {message}")
 
-                # 判断价格是否处于相对低位
-                is_low_price = (
-                    bb_position < 50
-                    and price_position_24h < 50
-                    and price_position_7d < 40
+            # 场景5: AlphaPulse SELL (无超卖反弹) → SELL
+            elif trade_score <= self.SELL_THRESHOLD:
+                signal_type = "sell"
+                should_trade = True
+                message = f"SELL信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
+                logger.info(f"🎯 {symbol}: {message}")
+
+            # 场景6: AlphaPulse HOLD + 超卖反弹 HOLD → HOLD
+            else:
+                # 调试日志：显示实际值
+                logger.debug(
+                    f"🔍 {symbol} HOLD原因: trade_score={trade_score:.10f}, "
+                    f"BUY_THRESHOLD={self.BUY_THRESHOLD:.10f}, "
+                    f"差值={self.BUY_THRESHOLD - trade_score:.15f}, "
+                    f"is_rebound_buy: {is_rebound_buy}"
+                )
+                signal_type = "hold"
+                if trade_score > 0:
+                    message = f"市场偏多但信号不足 (分数: {trade_score:.2f}, BUY 信号需 >= {self.BUY_THRESHOLD})"
+                    if is_rebound_buy:
+                        message += (
+                            f" | 超卖反弹信号: {', '.join(rebound_result.triggers)}"
+                        )
+                elif trade_score < 0:
+                    message = f"市场偏空但信号不足 (分数: {trade_score:.2f}, SELL 信号需 <= {self.SELL_THRESHOLD})"
+                else:
+                    message = f"市场中性 (分数: {trade_score:.2f})"
+
+                if is_rebound_buy:
+                    message += f" | ⏳ 超卖观察中: {rebound_result.message}"
+
+            # ============================================================
+            # 价格位置置信度调节（在信号确定后应用）
+            # ============================================================
+            if signal_type == "buy":
+                price_confidence_factor = calculate_price_confidence_factor(
+                    result.bb_position,
+                    result.price_position_24h,
+                    result.price_position_7d,
                 )
 
-                if is_low_price:
-                    # 价格低位，允许 BUY
-                    signal_type = "buy"
-                    should_trade = True
-                    message = f"BUY信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
-                    logger.info(f"🎯 {symbol}: {message}")
-                else:
-                    # 价格偏高，降级为 HOLD
-                    signal_type = "hold"
-                    should_trade = False
-                    # 找出不符合条件的参数
-                    exceeded = []
-                    # 优化价格位置限制 - 放宽拦截阈值以捕获更多反弹机会
-                    if bb_position >= 70:
-                        exceeded.append(f"BB={bb_position:.1f}% > 70%")
-                    if price_position_24h >= 65:
-                        exceeded.append(f"24h={price_position_24h:.1f}% > 65%")
-                    if price_position_7d >= 55:
-                        exceeded.append(f"7d={price_position_7d:.1f}% > 55%")
-                    message = (
-                        f"BUY信号被拦截: 价格位置偏高 ({', '.join(exceeded)})，"
-                        f"分数={trade_score:.2f}，需价格回调后买入"
+                # 记录价格位置分析日志
+                logger.info(
+                    f"📍 {symbol} 价格位置分析: "
+                    f"BB={result.bb_position:.1f}%, 24h={result.price_position_24h:.1f}%, 7d={result.price_position_7d:.1f}%, "
+                    f"置信度调节因子={price_confidence_factor:.2f}"
+                )
+
+                # 应用置信度调节
+                if price_confidence_factor < 1.0:
+                    logger.info(
+                        f"⚠️ {symbol} 价格位置偏高，置信度降低 {price_confidence_factor:.2f}x，"
+                        f"原始置信度={alpha_confidence:.2f} → 调整后={alpha_confidence * price_confidence_factor:.2f}"
                     )
-                    logger.warning(f"⚠️ {symbol}: {message}")
+                elif price_confidence_factor > 1.0:
+                    logger.info(
+                        f"✅ {symbol} 价格位置偏低，置信度增强 {price_confidence_factor:.2f}x，"
+                        f"原始置信度={alpha_confidence:.2f} → 调整后={alpha_confidence * price_confidence_factor:.2f}"
+                    )
 
             # 场景5: AlphaPulse SELL (无超卖反弹) → SELL
             elif trade_score <= self.SELL_THRESHOLD:
@@ -774,6 +776,21 @@ class MarketMonitor:
             if is_rebound_buy and signal_type == "buy":
                 # 使用两者的加权平均
                 final_confidence = alpha_confidence * 0.4 + rebound_confidence * 0.6
+
+            # 记录信号指标（用于监控通过率）
+            block_reason = (
+                None
+                if should_trade
+                else f"价格位置/置信度: BB={result.bb_position:.1f}%, 24h={result.price_position_24h:.1f}%, 7d={result.price_position_7d:.1f}%"
+            )
+            record_alpha_pulse_signal(
+                signal_type=signal_type,
+                should_trade=should_trade,
+                trade_score=trade_score,
+                confidence=final_confidence,
+                block_reason=block_reason,
+                symbol=symbol,
+            )
 
             return SignalCheckResult(
                 should_trade=should_trade,
