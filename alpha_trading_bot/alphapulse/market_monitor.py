@@ -708,12 +708,6 @@ class MarketMonitor:
                         f"原始置信度={alpha_confidence:.2f} → 调整后={alpha_confidence * price_confidence_factor:.2f}"
                     )
 
-            # 场景5: AlphaPulse SELL (无超卖反弹) → SELL
-            elif trade_score <= self.SELL_THRESHOLD:
-                signal_type = "sell"
-                should_trade = True
-                message = f"SELL信号触发 (分数: {trade_score:.2f}), 触发因素: {', '.join(triggers)}"
-                logger.info(f"🎯 {symbol}: {message}")
 
             # 场景6: AlphaPulse HOLD + 超卖反弹 HOLD → HOLD
             else:

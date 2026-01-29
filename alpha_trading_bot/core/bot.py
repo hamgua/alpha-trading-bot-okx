@@ -698,8 +698,8 @@ class TradingBot(BaseComponent):
 
         # 生成AI信号 - 使用实例缓存确保不重复调用
         if getattr(self, "_ai_signals_cache_valid", False):
-            self.enhanced_logger.logger.warning(
-                "⚠️ 检测到重复的AI信号获取请求，使用已生成的信号"
+            self.enhanced_logger.logger.info(
+                "ℹ️ 检测到重复的AI信号获取请求，使用缓存的信号"
             )
             ai_signals = getattr(self, "_cached_ai_signals", [])
             # 为缓存的信号添加标志，以便日志处理
@@ -913,6 +913,20 @@ class TradingBot(BaseComponent):
                 macd_hist = technical_data.get("macd_histogram", 0)
                 adx = technical_data.get("adx", 0)
                 bb_position = technical_data.get("price_position", 0)
+
+                # 类型安全处理：确保值是标量而非列表
+                def to_scalar(value, default=0):
+                    if isinstance(value, list):
+                        return float(value[-1]) if value else default
+                    try:
+                        return float(value)
+                    except (TypeError, ValueError):
+                        return default
+
+                rsi = to_scalar(rsi)
+                macd_hist = to_scalar(macd_hist)
+                adx = to_scalar(adx)
+                bb_position = to_scalar(bb_position)
 
                 self.enhanced_logger.logger.info("📊 技术指标详情:")
                 self.enhanced_logger.logger.info(f"  📈 RSI: {rsi:.2f}")
