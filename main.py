@@ -10,15 +10,33 @@ Alpha Trading Bot - 精简版入口
 
 import asyncio
 import logging
+import os
+from datetime import datetime
 from dotenv import load_dotenv
 
 # 加载 .env 文件
 load_dotenv()
 
+# 创建logs目录
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+
+# 日志文件名（日期格式）
+log_file = os.path.join(
+    log_dir, f"alpha-trading-bot-okx-{datetime.now().strftime('%Y%m%d')}.log"
+)
+
+# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+    handlers=[
+        logging.StreamHandler(),  # 控制台输出
+        logging.FileHandler(log_file, encoding="utf-8"),  # 文件输出
+    ],
 )
+
+logger = logging.getLogger(__name__)
 
 
 async def main():
