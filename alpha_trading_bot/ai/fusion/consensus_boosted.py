@@ -96,6 +96,7 @@ class ConsensusBoostedFusion:
         weights: Dict[str, float],
         threshold: Optional[float] = None,
         confidences: Optional[Dict[str, int]] = None,
+        market_data: Optional[Dict[str, Any]] = None,
     ) -> FusionResult:
         """
         融合多个AI信号
@@ -140,8 +141,14 @@ class ConsensusBoostedFusion:
         elif self.config.strategy == FusionStrategyType.CONFIDENCE:
             return self._fuse_confidence(signals, threshold, consensus_ratio)
         else:
+            # 方案B：动态阈值计算
+            # 仅当threshold为None时使用动态阈值
+            if threshold is None:
+                effective_threshold = self._calculate_dynamic_threshold(market_data)
+            else:
+                effective_threshold = threshold
             return self._fuse_consensus_boosted(
-                signals, weights, threshold, confidences, consensus_ratio
+                signals, weights, effective_threshold, confidences, consensus_ratio
             )
 
     def _count_signals(self, signals: List[Dict[str, str]]) -> Dict[str, int]:
@@ -386,7 +393,7 @@ class ConsensusBoostedFusion:
             # 全部一致
             boost_factor = self.config.consensus_boost_full
             boost_reason = f"全部一致，强化{boost_factor}x"
-        elif consensus_ratio >= 0.67:
+        elif consensus_ratio >= 0.66:  # 2/3 = 0.666...
             # 2/3以上一致
             boost_factor = self.config.consensus_boost_partial
             boost_reason = f"部分一致({consensus_ratio:.0%})，强化{boost_factor}x"
@@ -406,16 +413,10 @@ class ConsensusBoostedFusion:
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
 
-        # 步骤5: 特殊处理 - 当所有AI一致为HOLD时
-        # HOLD信号的一致性强化应该被限制
-        signal_counts = self._count_signals(signals)
-        if max_sig == "hold" and consensus_ratio >= 1.0:
-            # 如果全是一致HOLD，降低其权重（避免过度保守）
-            weighted_scores["hold"] = 0.6
-            weighted_scores["buy"] = 0.2
-            weighted_scores["sell"] = 0.2
-            is_valid = False  # 标记为无效信号
-            boost_reason += " (HOLD一致性限制)"
+        # 方案B：移除原 HOLD 一致性压制逻辑
+        # 原逻辑：当全是一致HOLD时强制标记为无效
+        # 原因：该逻辑导致信号过于保守，系统中几乎全是HOLD信号
+        # 替代方案：通过动态阈值(_calculate_dynamic_threshold)来调整信号分布
 
         logger.info(
             f"[融合-一致性强化] 结果: {max_sig} "
@@ -442,6 +443,68 @@ class ConsensusBoostedFusion:
                 },
             },
         )
+
+    def _calculate_dynamic_threshold(
+        self, market_data: Optional[Dict[str, Any]]
+    ) -> float:
+        """
+        方案B：动态阈值计算
+
+        根据市场环境动态调整融合阈值：
+        - RSI超卖区域：降低买入阈值，更容易触发买入
+        - RSI超买区域：降低卖出阈值，更容易触发卖出
+        - 高波动环境：提高阈值，更谨慎
+        - 默认使用配置阈值
+
+        Args:
+            market_data: 市场数据字典
+
+        Returns:
+            float: 动态调整后的阈值
+        """
+        if not market_data:
+            return self.config.threshold
+
+        base_threshold = self.config.threshold
+        technical = market_data.get("technical", {})
+        rsi = technical.get("rsi", 50)
+        atr_pct = technical.get("atr_percent", 0)
+        trend_strength = technical.get("trend_strength", 0)
+
+        # RSI超卖区域（<35）：降低买入阈值，更容易抄底
+        if rsi < 35:
+            dynamic_threshold = max(0.30, base_threshold - 0.10)
+            logger.info(
+                f"[融合-动态阈值] RSI超卖({rsi:.1f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
+            )
+            return dynamic_threshold
+
+        # RSI超买区域（>65）：降低卖出阈值，更容易获利了结
+        elif rsi > 65:
+            dynamic_threshold = max(0.30, base_threshold - 0.08)
+            logger.info(
+                f"[融合-动态阈值] RSI超买({rsi:.1f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
+            )
+            return dynamic_threshold
+
+        # 高波动环境（ATR > 3%）：提高阈值，更谨慎
+        elif atr_pct > 0.03:
+            dynamic_threshold = min(0.55, base_threshold + 0.08)
+            logger.info(
+                f"[融合-动态阈值] 高波动(ATR:{atr_pct:.1%})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
+            )
+            return dynamic_threshold
+
+        # 强趋势环境：略微提高阈值
+        elif trend_strength > 0.4:
+            dynamic_threshold = base_threshold + 0.03
+            logger.info(
+                f"[融合-动态阈值] 强趋势({trend_strength:.2f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
+            )
+            return dynamic_threshold
+
+        # 默认阈值
+        return base_threshold
 
     def _validate_config(self) -> None:
         """验证配置合理性"""
