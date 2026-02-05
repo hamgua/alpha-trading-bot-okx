@@ -141,7 +141,7 @@ class ConsensusBoostedFusion:
         elif self.config.strategy == FusionStrategyType.CONFIDENCE:
             return self._fuse_confidence(signals, threshold, consensus_ratio)
         else:
-            # 方案B：动态阈值计算
+            # 使用动态阈值计算，根据市场环境调整信号触发条件
             # 仅当threshold为None时使用动态阈值
             if threshold is None:
                 effective_threshold = self._calculate_dynamic_threshold(market_data)
@@ -413,10 +413,8 @@ class ConsensusBoostedFusion:
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
 
-        # 方案B：移除原 HOLD 一致性压制逻辑
-        # 原逻辑：当全是一致HOLD时强制标记为无效
-        # 原因：该逻辑导致信号过于保守，系统中几乎全是HOLD信号
-        # 替代方案：通过动态阈值(_calculate_dynamic_threshold)来调整信号分布
+        # 移除原 HOLD 一致性压制逻辑
+        # 该逻辑会导致信号过于保守（全 HOLD），现通过动态阈值调整信号分布
 
         logger.info(
             f"[融合-一致性强化] 结果: {max_sig} "
@@ -448,7 +446,7 @@ class ConsensusBoostedFusion:
         self, market_data: Optional[Dict[str, Any]]
     ) -> float:
         """
-        方案B：动态阈值计算
+        动态阈值计算
 
         根据市场环境动态调整融合阈值：
         - RSI超卖区域：降低买入阈值，更容易触发买入

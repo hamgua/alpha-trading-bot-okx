@@ -57,23 +57,23 @@ class OptimizedSignal:
 class OptimizerConfig:
     """优化器配置"""
 
-    # 方案B均衡型调整
+    # 信号优化参数调整为更积极以提高信号多样性
     # 异常信号过滤
-    confidence_floor: float = 0.35  # 降低最低置信度（原0.40）
+    confidence_floor: float = 0.35  # 降低最低置信度
     confidence_ceiling: float = 0.95  # 保持最高置信度
-    rapid_change_threshold: float = 0.25  # 降低快速变化阈值（原0.30）
+    rapid_change_threshold: float = 0.25  # 降低快速变化阈值
 
     # 信号平滑
-    smoothing_window: int = 2  # 减小平滑窗口（原3）
+    smoothing_window: int = 2  # 减小平滑窗口
     smoothing_enabled: bool = True
 
     # 市场环境适应
     volatility_adjustment: bool = True
-    high_volatility_threshold: float = 0.04  # 提高高波动阈值（原0.03）
+    high_volatility_threshold: float = 0.04  # 提高高波动阈值
 
     # 连续信号检查
-    consecutive_limit: int = 2  # 减少连续信号限制（原3）
-    cooldown_period: int = 1  # 减少冷却期（原2）
+    consecutive_limit: int = 2  # 减少连续信号限制
+    cooldown_period: int = 1  # 减少冷却期
 
 
 class SignalOptimizer:
