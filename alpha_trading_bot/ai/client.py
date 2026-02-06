@@ -121,8 +121,8 @@ class AIClient:
             f"[AI融合] 结果: {max_signal} (信号值:{max_score:.2f}, 阈值:{threshold}, 有效:{is_valid})"
         )
 
-        return fused_signal
-        return fused_signal
+        # 返回字符串信号，而不是 FusionResult
+        return fused_signal.signal
 
     async def _call_ai(
         self, provider: str, market_data: Dict[str, Any], api_key: str

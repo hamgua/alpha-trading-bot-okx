@@ -162,17 +162,18 @@ class TradingBot:
         logger.info(f"[交易决策] 当前价格: {current_price}")
 
         # 4. 获取AI信号
-        logger.info("[AI信号] 正在获取交易信号...")
-        signal = await self._ai_client.get_signal(market_data)
-        signal = SignalProcessor.process(signal)
-        logger.info(f"[AI信号] 原始信号: {signal}")
-
-        # 5. 处理信号
         try:
+            logger.info("[AI信号] 正在获取交易信号...")
+            signal = await self._ai_client.get_signal(market_data)
+            signal = SignalProcessor.process(signal)
+            logger.info(f"[AI信号] 原始信号: {signal}")
+
+            # 5. 处理信号
             await self._execute_signal(signal, current_price, has_position)
         except Exception as e:
-            logger.error(f"[信号执行] 执行信号时出错: {e}")
+            logger.error(f"[交易周期] 获取/处理AI信号时出错: {e}")
             logger.exception("详细错误:")
+            return  # 直接返回，跳过后续处理
 
         logger.info("交易周期完成")
         logger.info("=" * 60)
