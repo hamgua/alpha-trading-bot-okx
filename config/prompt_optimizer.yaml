@@ -1,0 +1,56 @@
+# AI Prompt Optimizer Configuration
+prompt_optimizer:
+  enabled: true
+  trend_sma_short: 5
+  trend_sma_long: 20
+  trend_momentum_periods: 12
+  strong_trend_threshold: 0.6
+  weak_trend_threshold: 0.3
+  strong_momentum_threshold: 0.005
+  weak_momentum_threshold: 0.002
+
+adaptive_fusion:
+  enabled: true
+  fusion_mode: moderate
+  base_threshold: 0.50
+  strong_trend_threshold: 0.40
+  weak_trend_threshold: 0.45
+  momentum_boost: 0.05
+  weights:
+    strong_uptrend:
+      kimi: 0.55
+      deepseek: 0.45
+    weak_uptrend:
+      kimi: 0.50
+      deepseek: 0.50
+    sideways:
+      kimi: 0.50
+      deepseek: 0.50
+    weak_downtrend:
+      kimi: 0.40
+      deepseek: 0.60
+    strong_downtrend:
+      kimi: 0.30
+      deepseek: 0.70
+
+ml_optimization:
+  enabled: true
+  training_interval_hours: 24
+  min_samples: 100
+  ab_test_enabled: true
+  traffic_split: 0.2
+
+monitoring:
+  enabled: true
+  win_rate_alert: 0.3
+  loss_streak_alert: 3
+  api_failure_alert: 0.1
+  max_metric_points: 1000
+
+providers:
+  kimi:
+    weight_adjustment: 1.0
+    trend_sensitivity: high
+  deepseek:
+    weight_adjustment: 1.0
+    trend_sensitivity: low
