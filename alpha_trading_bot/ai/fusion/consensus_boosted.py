@@ -141,12 +141,9 @@ class ConsensusBoostedFusion:
         elif self.config.strategy == FusionStrategyType.CONFIDENCE:
             return self._fuse_confidence(signals, threshold, consensus_ratio)
         else:
-            # 使用动态阈值计算，根据市场环境调整信号触发条件
-            # 仅当threshold为None时使用动态阈值
-            if threshold is None:
-                effective_threshold = self._calculate_dynamic_threshold(market_data)
-            else:
-                effective_threshold = threshold
+            # 修复 BUG：始终计算动态阈值，不依赖 threshold 是否为 None
+            # 根据市场环境动态调整信号触发条件
+            effective_threshold = self._calculate_dynamic_threshold(market_data)
             return self._fuse_consensus_boosted(
                 signals, weights, effective_threshold, confidences, consensus_ratio
             )
