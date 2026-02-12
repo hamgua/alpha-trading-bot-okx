@@ -414,7 +414,7 @@ class ConsensusBoostedFusion:
         # 记录反弹检测信息
         if self.config.enable_rebound_mode:
             logger.info(
-                f"[融合] 反弹检测: RSI={rsi:.1f}, 趋势={trend_direction}, "
+                f"[融合-反弹+高位] 反弹检测: RSI={rsi:.1f}, 趋势={trend_direction}, "
                 f"反弹区间=[{self.config.rsi_rebound_low}-{self.config.rsi_rebound_high}], "
                 f"高位抑制=[>{self.config.rsi_high_suppression}]"
             )
