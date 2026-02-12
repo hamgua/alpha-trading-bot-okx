@@ -213,7 +213,9 @@ class SignalOptimizer:
             last_record = self.signal_history[-1]
             if last_record.signal == signal:
                 consecutive = 1
-                for record in reversed(self.signal_history[:-1]):
+                # deque不支持切片，需要转换为list
+                history_list = list(self.signal_history)
+                for record in reversed(history_list[:-1]):
                     if record.signal == signal:
                         consecutive += 1
                     else:
