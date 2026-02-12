@@ -294,11 +294,11 @@ class AIClient:
     async def _call_ai(
         self, provider: str, market_data: Dict[str, Any], api_key: str
     ) -> str:
-        """调用单个AI"""
+        """调用单个AI - 差异化"""
         import aiohttp
 
-        config = get_provider_config(provider)
-        prompt = build_prompt(market_data)
+        # 根据 provider 生成差异化 prompt
+        prompt = build_prompt(market_data, provider=provider)
 
         headers = {
             "Authorization": f"Bearer {api_key}",
