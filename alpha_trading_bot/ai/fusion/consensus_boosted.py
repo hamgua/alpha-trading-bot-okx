@@ -38,6 +38,13 @@ class FusionConfig:
     consensus_boost_full: float = 1.3  # 全部一致时强化倍数
     consensus_boost_partial: float = 1.15  # 2/3一致时强化倍数
     default_confidence: int = 70  # 默认置信度
+    # === 方案 D：反弹检测 + 条件性放行 ===
+    partial_consensus_threshold: float = 0.6  # 部分一致阈值（50% → 60%）
+    kimi_buy_rebound_boost: float = 1.3  # Kimi BUY 在反弹区间加权
+    rsi_rebound_low: float = 40  # RSI 反弹区间下限
+    rsi_rebound_high: float = 58  # RSI 反弹区间上限
+    rsi_high_suppression: float = 60  # RSI 高于此值抑制 BUY
+    enable_rebound_mode: bool = True  # 启用反弹检测模式
 
 
 @dataclass
@@ -168,7 +175,12 @@ class ConsensusBoostedFusion:
             )
 
             return self._fuse_consensus_boosted(
-                signals, weights, effective_threshold, confidences, consensus_ratio
+                signals,
+                weights,
+                effective_threshold,
+                confidences,
+                consensus_ratio,
+                market_data,
             )
 
     def _count_signals(self, signals: List[Dict[str, str]]) -> Dict[str, int]:
@@ -377,21 +389,44 @@ class ConsensusBoostedFusion:
         threshold: Optional[float],
         confidences: Optional[Dict[str, int]],
         consensus_ratio: float,
+        market_data: Optional[Dict[str, Any]] = None,
     ) -> FusionResult:
         """
-        一致性强化融合（推荐策略）
+        一致性强化融合（推荐策略）+ 方案D反弹检测增强
 
         核心逻辑：
         1. 计算加权得分
         2. 根据一致性比例强化得分
         3. 全部一致时强化1.3倍
         4. 2/3以上一致时强化1.15倍
+        5. 【方案D】反弹区间Kimi BUY加权，高位抑制
         """
         threshold = threshold or self.config.threshold
+
+        # 提取RSI和趋势方向（方案D需要）
+        rsi = 50  # 默认中性
+        trend_direction = "neutral"
+        if market_data:
+            technical = market_data.get("technical", {})
+            rsi = technical.get("rsi", 50)
+            trend_direction = technical.get("trend_direction", "neutral")
+
+        # 记录反弹检测信息
+        if self.config.enable_rebound_mode:
+            logger.info(
+                f"[融合-方案D] 反弹检测: RSI={rsi:.1f}, 趋势={trend_direction}, "
+                f"反弹区间=[{self.config.rsi_rebound_low}-{self.config.rsi_rebound_high}], "
+                f"高位抑制=[>{self.config.rsi_high_suppression}]"
+            )
 
         # 步骤1: 计算加权得分
         weighted_scores = {"buy": 0, "hold": 0, "sell": 0}
         total_weight = 0
+
+        # 检查是否有Kimi BUY信号（方案D需要）
+        has_kimi_buy = any(
+            s["provider"] == "kimi" and s["signal"] == "buy" for s in signals
+        )
 
         for s in signals:
             provider = s["provider"]
@@ -402,10 +437,25 @@ class ConsensusBoostedFusion:
                 confidence = confidences.get(provider, self.config.default_confidence)
 
             adjusted_weight = weight * (confidence / 100.0)
+
+            # 【方案D】Kimi BUY在反弹区间加权
+            if (
+                self.config.enable_rebound_mode
+                and sig == "buy"
+                and provider == "kimi"
+                and self.config.rsi_rebound_low <= rsi <= self.config.rsi_rebound_high
+                and trend_direction != "bearish"
+            ):
+                adjusted_weight *= self.config.kimi_buy_rebound_boost
+                logger.info(
+                    f"[融合-方案D] Kimi BUY反弹加权: 置信度={confidence}%, "
+                    f"RSI={rsi:.1f}, 加权后={adjusted_weight:.3f}"
+                )
+
             weighted_scores[sig] += adjusted_weight
             total_weight += adjusted_weight
 
-        # 步骤2: 一致性强化
+        # 步骤2: 一致性强化 + 方案D阈值调整
         boost_factor = 1.0
         boost_reason = ""
 
@@ -413,13 +463,36 @@ class ConsensusBoostedFusion:
             # 全部一致
             boost_factor = self.config.consensus_boost_full
             boost_reason = f"全部一致，强化{boost_factor}x"
-        elif consensus_ratio >= 0.66:  # 2/3 = 0.666...
-            # 2/3以上一致
+        elif consensus_ratio >= self.config.partial_consensus_threshold:
+            # 【方案D】放宽部分一致阈值（0.50 → 0.60）
             boost_factor = self.config.consensus_boost_partial
             boost_reason = f"部分一致({consensus_ratio:.0%})，强化{boost_factor}x"
+        elif (
+            self.config.enable_rebound_mode
+            and has_kimi_buy
+            and self.config.rsi_rebound_low <= rsi <= self.config.rsi_rebound_high
+        ):
+            # 【方案D】反弹区间内的Kimi BUY，即使一致性不足也给予部分强化
+            boost_factor = 1.1
+            boost_reason = f"Kimi反弹区间，强化{boost_factor}x"
 
         # 找到最高得分的信号
         max_sig = max(weighted_scores, key=weighted_scores.get)
+
+        # 【方案D】高位抑制BUY（RSI > 60 时）
+        if (
+            self.config.enable_rebound_mode
+            and max_sig == "buy"
+            and rsi > self.config.rsi_high_suppression
+        ):
+            weighted_scores["buy"] *= 0.5
+            logger.info(
+                f"[融合-方案D] 高位抑制BUY: RSI={rsi:.1f} > {self.config.rsi_high_suppression}, "
+                f"得分减半"
+            )
+            # 重新确定胜出信号
+            max_sig = max(weighted_scores, key=weighted_scores.get)
+
         weighted_scores[max_sig] *= boost_factor
 
         # 步骤3: 归一化
@@ -432,9 +505,6 @@ class ConsensusBoostedFusion:
         max_sig = max(weighted_scores, key=weighted_scores.get)
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
-
-        # 移除原 HOLD 一致性压制逻辑
-        # 该逻辑会导致信号过于保守（全 HOLD），现通过动态阈值调整信号分布
 
         logger.info(
             f"[融合-一致性强化] 结果: {max_sig} "
@@ -455,6 +525,9 @@ class ConsensusBoostedFusion:
                 "type": "consensus_boosted",
                 "boost_factor": boost_factor,
                 "boost_reason": boost_reason,
+                "scheme_d_enabled": self.config.enable_rebound_mode,
+                "rsi": rsi,
+                "trend_direction": trend_direction,
                 "original_scores": {
                     k: v / boost_factor if k == max_sig and boost_factor > 1 else v
                     for k, v in weighted_scores.items()
