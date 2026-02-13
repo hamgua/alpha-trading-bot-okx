@@ -131,9 +131,15 @@ class BTCPriceLevelDetector:
 
         price_range = recent_high - recent_low
 
-        # 计算阈值
-        high_threshold_price = recent_high * self.config.high_threshold
+        # 计算阈值 - 基于价格区间的百分比位置
+        high_threshold_price = recent_high - price_range * (
+            1 - self.config.high_threshold
+        )
         low_threshold_price = recent_low + price_range * self.config.low_threshold
+
+        # 确保阈值合理（high > low）
+        if high_threshold_price <= low_threshold_price:
+            high_threshold_price = recent_high
 
         # 计算距离
         distance_to_high = (recent_high - price) / recent_high
