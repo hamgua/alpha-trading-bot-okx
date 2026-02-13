@@ -123,8 +123,12 @@ class HighPriceBuyOptimizer:
         if len(self.price_history) > 50:
             self.price_history = self.price_history[-50:]
 
-        # 2. 判断价格水平
-        price_level = self._get_price_level(price)
+        # 2. 判断价格水平 - 优先使用传入的 buy_mode，确保与 BTC 检测器一致
+        price_level = (
+            buy_mode
+            if buy_mode in ["low", "mid", "high"]
+            else self._get_price_level(price)
+        )
 
         # 3. 获取当前阈值
         thresholds = self._get_thresholds(price_level)
