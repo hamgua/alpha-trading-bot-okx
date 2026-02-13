@@ -6,6 +6,7 @@ AI客户端 - 支持单AI/多AI融合
 - 信号分布统计监控
 - 动态阈值可视化
 - 备用提供商自动切换
+- 信号优化集成 (AISignalIntegrator)
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from datetime import datetime
 from .providers import get_provider_config
 from .prompt_builder import build_prompt
 from .response_parser import parse_response
+from .integrator import AISignalIntegrator, IntegrationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +76,7 @@ class AIClient:
         self,
         config: Optional["AIConfig"] = None,
         api_keys: Optional[Dict[str, str]] = None,
+        integrator_mode: str = "standard",
     ):
         from alpha_trading_bot.config.models import AIConfig
         from .fusion.base import get_fusion_strategy
@@ -85,15 +88,47 @@ class AIClient:
         self.api_keys = api_keys or {}
         self._get_fusion_strategy = get_fusion_strategy
 
+        # 初始化信号集成器
+        self.integrator = AISignalIntegrator(
+            IntegrationConfig(
+                enable_adaptive_buy=True,
+                enable_signal_optimizer=True,
+                enable_high_price_filter=True,
+                enable_btc_detector=True,
+            )
+        )
+
     async def get_signal(self, market_data: Dict[str, Any]) -> str:
         """获取交易信号，返回: buy / hold / sell"""
+        # 获取原始信号
         if self.config.mode == "single":
-            return await self._get_single_signal(market_data)
+            original_signal, original_confidence = await self._get_single_signal(
+                market_data
+            )
         else:
-            return await self._get_fusion_signal(market_data)
+            original_signal, original_confidence = await self._get_fusion_signal(
+                market_data
+            )
 
-    async def _get_single_signal(self, market_data: Dict[str, Any]) -> str:
-        """单AI模式"""
+        # 使用集成器优化信号
+        confidence_float = (
+            float(original_confidence) / 100 if original_confidence else 0.50
+        )
+        result = self.integrator.process(
+            market_data=market_data,
+            original_signal=original_signal,
+            original_confidence=confidence_float,
+        )
+
+        # 记录集成过程
+        if result.adjustments_made:
+            for adj in result.adjustments_made:
+                logger.info(f"  [集成优化] {adj}")
+
+        return result.final_signal
+
+    async def _get_single_signal(self, market_data: Dict[str, Any]) -> tuple:
+        """单AI模式，返回 (signal, confidence)"""
         provider = self.config.default_provider
         api_key = self.api_keys.get(provider, "")
         logger.info(f"[AI请求] 单AI模式, 提供商: {provider}")
@@ -104,9 +139,9 @@ class AIClient:
 
         await log_signal_distribution(signal, source=provider)
         logger.info(f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}%")
-        return signal
+        return signal, confidence
 
-    async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> str:
+    async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> tuple:
         """多AI融合模式 - 并行调用多个AI并融合结果"""
         providers = self.config.fusion_providers
         logger.info(f"[AI请求] 多AI融合模式, 提供商列表: {providers}")
@@ -192,9 +227,10 @@ class AIClient:
         # 记录信号分布
         await log_signal_distribution(fused_signal.signal, source="fusion")
 
-        return fused_signal.signal
+        # 返回信号和置信度
+        return fused_signal.signal, fused_signal.confidence
 
-    async def _fallback_fusion(self, market_data: Dict[str, Any]) -> str:
+    async def _fallback_fusion(self, market_data: Dict[str, Any]) -> tuple:
         """备用融合方案 - 当主提供商失败时使用"""
         fallback_providers = ["qwen", "openai", "deepseek"]
         available = []
@@ -205,7 +241,7 @@ class AIClient:
 
         if not available:
             logger.warning("[AI融合-备用] 无可用备用提供商，返回默认HOLD信号")
-            return "hold"
+            return "hold", 0.40
 
         logger.info(f"[AI融合-备用] 使用备用提供商: {available}")
 
@@ -220,12 +256,12 @@ class AIClient:
                     f"[AI融合-备用] {provider}: 信号={signal}, 置信度={confidence}%"
                 )
                 await log_signal_distribution(signal, source=f"fallback_{provider}")
-                return signal
+                return signal, confidence if confidence else 0.40
             except Exception as e:
                 logger.error(f"[AI融合-备用] {provider} 失败: {e}")
                 continue
 
-        return "hold"
+        return "hold", 0.40
 
     async def _call_ai_with_retry(
         self, provider: str, market_data: Dict[str, Any], api_key: str
