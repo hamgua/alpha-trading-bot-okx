@@ -36,32 +36,32 @@ class BuyConditions:
     """买入条件配置"""
 
     # 常规模式参数
-    regular_trend_strength_min: float = 0.2
-    regular_rsi_max: float = 65
-    regular_bb_position_max: float = 65
+    regular_trend_strength_min: float = 0.15
+    regular_rsi_max: float = 70
+    regular_bb_position_max: float = 70
     regular_adx_min: float = 15
-    regular_momentum_min: float = 0.005
+    regular_momentum_min: float = 0.003
 
     # 超卖反弹模式参数
     oversold_enabled: bool = True
-    oversold_rsi_max: float = 30
-    oversold_momentum_min: float = 0.005
-    oversold_trend_strength_min: float = 0.1
-    oversold_bb_position_max: float = 45
-    oversold_position_factor: float = 0.5  # 仓位系数
+    oversold_rsi_max: float = 45  # 从30提高到45，允许更多买入机会
+    oversold_momentum_min: float = 0.003  # 从0.005降低到0.003，更容易捕捉小幅反弹
+    oversold_trend_strength_min: float = 0.05  # 从0.1降低到0.05
+    oversold_bb_position_max: float = 50
+    oversold_position_factor: float = 0.6  # 从0.5提高到0.6
 
     # 强势支撑模式参数
     support_enabled: bool = True
-    support_price_position_max: float = 20
-    support_rsi_max: float = 35
-    support_momentum_min: float = 0.003
-    support_position_factor: float = 0.7  # 仓位系数
+    support_price_position_max: float = 35  # 从20提高到35，允许更高价位买入
+    support_rsi_max: float = 45  # 从35提高到45
+    support_momentum_min: float = 0.002  # 从0.003降低到0.002
+    support_position_factor: float = 0.8  # 从0.7提高到0.8
 
     # 趋势确认模式参数
     confirmation_enabled: bool = True
-    confirmation_consecutive_up: int = 3
-    confirmation_rsi_max: float = 55
-    confirmation_position_factor: float = 0.8  # 仓位系数
+    confirmation_consecutive_up: int = 2  # 从3降低到2，更容易触发
+    confirmation_rsi_max: float = 60  # 从55提高到60
+    confirmation_position_factor: float = 0.9  # 从0.8提高到0.9
 
 
 class AdaptiveBuyCondition:

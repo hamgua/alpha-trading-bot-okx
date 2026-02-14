@@ -34,16 +34,20 @@ class FusionConfig:
     """融合配置"""
 
     strategy: FusionStrategyType = FusionStrategyType.CONSENSUS_BOOSTED
-    threshold: float = 0.5  # 融合阈值
+    threshold: float = 0.42  # 从0.50降低到0.42，更容易触发信号
     consensus_boost_full: float = 1.3  # 全部一致时强化倍数
-    consensus_boost_partial: float = 1.15  # 2/3一致时强化倍数
+    consensus_boost_partial: float = 1.1  # 2/3一致时强化倍数（从1.15降低）
     default_confidence: int = 70  # 默认置信度
     # === 反弹检测 + 条件性放行 ===
-    partial_consensus_threshold: float = 0.6  # 部分一致阈值（50% → 60%）
-    kimi_buy_rebound_boost: float = 1.3  # Kimi BUY 在反弹区间加权
-    rsi_rebound_low: float = 40  # RSI 反弹区间下限
-    rsi_rebound_high: float = 58  # RSI 反弹区间上限
-    rsi_high_suppression: float = 60  # RSI 高于此值抑制 BUY
+    partial_consensus_threshold: float = (
+        0.5  # 部分一致阈值（从0.60降低到0.50，更容易达成共识）
+    )
+    kimi_buy_rebound_boost: float = 1.2  # Kimi BUY 在反弹区间加权（从1.3降低）
+    rsi_rebound_low: float = 30  # RSI 反弹区间下限（从40降低，扩大区间）
+    rsi_rebound_high: float = 70  # RSI 反弹区间上限（从58提高到70，允许更高RSI时买入）
+    rsi_high_suppression: float = (
+        72  # RSI 高于此值抑制 BUY（从60提高到72，减少高位抑制）
+    )
     enable_rebound_mode: bool = True  # 启用反弹检测模式
 
 
