@@ -304,9 +304,15 @@ class ConsensusBoostedFusion:
         if len(unique_signals) == 1:
             sig = list(unique_signals)[0]
             logger.info(f"[融合-共识] 结果: {sig} (all agreed)")
+
+            if sig == "hold":
+                confidence = min(0.6 * consensus_ratio, 0.7)
+            else:
+                confidence = 1.0
+
             return FusionResult(
                 signal=sig,
-                confidence=1.0,
+                confidence=confidence,
                 scores={
                     "buy": 1.0 if sig == "buy" else 0,
                     "hold": 1.0 if sig == "hold" else 0,

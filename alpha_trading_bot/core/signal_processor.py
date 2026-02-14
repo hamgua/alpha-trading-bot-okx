@@ -25,7 +25,7 @@ class SignalProcessor:
     """信号处理器"""
 
     # 信号转换规则
-    SELL_TO_HOLD = True  # SELL信号是否强制转为HOLD
+    SELL_TO_HOLD = False  # SELL信号是否强制转为HOLD（改为False，允许SELL信号通过）
 
     @classmethod
     def process(cls, signal: str) -> str:

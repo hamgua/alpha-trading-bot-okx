@@ -201,6 +201,13 @@ class TradingBot:
             else:
                 logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
 
+        elif signal == "SELL":
+            if has_position:
+                logger.info("[信号执行] SELL信号 + 有持仓 -> 执行平仓")
+                await self._close_position(current_price)
+            else:
+                logger.info("[信号执行] SELL信号 + 无持仓 -> 不操作")
+
         else:
             logger.warning(f"[信号执行] 未知信号: {signal}")
 
@@ -348,6 +355,40 @@ class TradingBot:
 
         self.position_manager.set_stop_order(stop_order_id)
         logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+
+    async def _close_position(self, price: float) -> None:
+        """平仓"""
+        if not self.position_manager.has_position():
+            logger.warning("[平仓] 无持仓，跳过平仓")
+            return
+
+        position = self.position_manager.position
+        assert position is not None, (
+            "position should not be None when has_position is True"
+        )
+
+        amount = position.amount
+        logger.info(f"[平仓] 开始平仓流程, 当前价格: {price}, 数量: {amount}张")
+
+        order_id = await self._exchange.create_order(
+            symbol=self.config.exchange.symbol,
+            side="sell",
+            amount=amount,
+            price=None,
+        )
+        logger.info(f"[平仓] 平仓订单创建成功: 订单ID={order_id}")
+
+        if self.position_manager.stop_order_id:
+            logger.info(f"[平仓] 取消旧止损单: {self.position_manager.stop_order_id}")
+            try:
+                await self._exchange.cancel_order(
+                    self.position_manager.stop_order_id, self.config.exchange.symbol
+                )
+            except Exception as e:
+                logger.warning(f"[平仓] 取消止损单失败: {e}")
+
+        self.position_manager.clear_position()
+        logger.info(f"[平仓] 平仓完成 - 价格:{price}, 数量:{amount}张")
 
     async def cleanup(self) -> None:
         """清理资源"""
