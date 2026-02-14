@@ -60,6 +60,18 @@ class AdaptiveTradingBot:
         from ..ai.adaptive.risk_manager import RiskControlManager, RiskConfig
         from ..ai.optimizer import ConfigUpdater
 
+        # === ML 学习模块 ===
+        from ..ai.ml.ml_data_manager import MLDataManager, get_ml_data_manager
+        from ..ai.ml.adaptive_weight_optimizer import (
+            AdaptiveWeightOptimizer,
+            get_weight_optimizer,
+        )
+        from ..ai.ml.learning_integrator import (
+            MLLearningIntegrator,
+            SimpleLearningLoop,
+            get_learning_integrator,
+        )
+
         # 参数自适应
         self.param_manager = AdaptiveParameterManager()
 
@@ -87,7 +99,17 @@ class AdaptiveTradingBot:
         # 配置管理
         self.config_updater = ConfigUpdater()
 
-        logger.info("[自适应] 所有组件初始化完成")
+        # === ML 学习组件 ===
+        # ML 数据管理器
+        self.ml_data_manager = get_ml_data_manager()
+
+        # 权重优化器
+        self.weight_optimizer = get_weight_optimizer()
+
+        # 学习集成器（简化版）
+        self.simple_learning = SimpleLearningLoop()
+
+        logger.info("[自适应] 所有组件初始化完成（含ML学习模块）")
 
     @property
     def exchange(self):
@@ -483,7 +505,6 @@ class AdaptiveTradingBot:
         # 更新策略库中对应策略的权重
         strategy_type = trade.signal_type
         if strategy_type in ["buy", "sell"]:
-            # 更新对应类型策略的权重
             for strategy in self.strategy_library.strategies.values():
                 if strategy.strategy_type.value == f"{strategy_type}_following":
                     strategy.update_weight(performance_score)
@@ -493,22 +514,45 @@ class AdaptiveTradingBot:
                     )
                     break
 
+        # === ML 在线学习：更新 AI 提供商权重 ===
+        try:
+            if hasattr(trade, "signal_type"):
+                provider = getattr(trade, "signal_provider", "unknown")
+                confidence = getattr(trade, "confidence", 0.5)
+                outcome = trade.outcome.value
+                pnl = trade.pnl_percent or 0
+
+                # 调用 ML 在线学习
+                self.simple_learning.online_update(
+                    provider=provider,
+                    confidence=confidence,
+                    outcome=outcome,
+                    pnl_percent=pnl,
+                )
+                logger.info(
+                    f"[ML学习] 在线更新: {provider}, outcome={outcome}, pnl={pnl:.2f}%"
+                )
+        except Exception as e:
+            logger.warning(f"[ML学习] 在线更新失败: {e}")
+
     async def _background_optimization_task(self) -> None:
-        """后台优化任务（每日UTC 00:00运行）"""
+        """后台优化任务（每6小时运行一次ML学习）"""
         from datetime import timezone
 
         while self._running:
             try:
-                # 检查是否到达UTC 00:00
+                # 检查是否到达执行时间（每6小时）
                 await asyncio.sleep(3600)  # 每小时检查
 
                 now_utc = datetime.now(timezone.utc)
-                if now_utc.hour != 0 or now_utc.minute > 5:
-                    continue  # 还未到UTC 00:00
+                should_run = now_utc.hour in [0, 6, 12, 18] and now_utc.minute <= 5
 
-                logger.info("[优化] 开始每日优化任务...")
+                if not should_run:
+                    continue
 
-                # 1. 收集当日数据
+                logger.info("[ML学习] 开始后台优化任务...")
+
+                # 1. 获取当日表现数据
                 metrics = self.performance_tracker.get_performance_metrics()
                 daily_data = {
                     "trade_count": metrics.total_trades,
@@ -516,54 +560,52 @@ class AdaptiveTradingBot:
                     "total_pnl": metrics.total_pnl,
                 }
                 logger.info(
-                    f"[优化] 当日数据: 交易次数={daily_data.get('trade_count', 0)}, 胜率={daily_data.get('win_rate', 0):.2%}"
+                    f"[ML学习] 当日数据: 交易次数={daily_data.get('trade_count', 0)}, "
+                    f"胜率={daily_data.get('win_rate', 0):.2%}"
                 )
 
-                # 2. 获取历史市场数据用于回测
-                market_data = (
-                    await self._exchange.get_market_data() if self._exchange else {}
-                )
-                historical_data = []  # TODO: 从数据库获取历史K线数据
+                # 2. 获取历史市场数据（使用ML数据管理器）
+                try:
+                    # 从ML数据管理器获取市场特征
+                    market_features = self.ml_data_manager.get_market_features(
+                        symbol=self.config.exchange.symbol, periods=100
+                    )
 
-                if historical_data:
-                    # 3. 运行回测
-                    from ..ai.optimizer import BacktestEngine
+                    # 3. 运行 ML 学习循环
+                    learning_result = self.simple_learning.learn_from_trades()
+                    logger.info(f"[ML学习] 学习结果: 权重={learning_result}")
 
-                    backtest_engine = BacktestEngine()
-                    strategy_signals = []  # TODO: 根据策略库生成信号
-
-                    result = backtest_engine.run_backtest(
-                        historical_data, strategy_signals
+                    # 4. 获取优化后的权重
+                    optimized_weights, confidence = (
+                        self.weight_optimizer.get_optimized_weights()
                     )
                     logger.info(
-                        f"[优化] 回测结果: 收益率={result.total_return:.2%}, "
-                        f"夏普比率={result.sharpe_ratio:.2f}, 最大回撤={result.max_drawdown:.2%}"
+                        f"[ML学习] 优化权重: {optimized_weights}, 置信度={confidence:.2f}"
                     )
 
-                    # 4. 运行贝叶斯优化
-                    from ..ai.optimizer import BayesianOptimizer
+                    # 5. 应用新权重（如果改善显著）
+                    if confidence > 0.6:
+                        self.simple_learning.data_manager.save_model_weights(
+                            optimized_weights, source="auto_optimize"
+                        )
+                        logger.info(f"[ML学习] 已应用新权重: {optimized_weights}")
 
-                    optimizer = BayesianOptimizer()
-                    opt_result = optimizer.optimize()
+                except Exception as e:
+                    logger.warning(f"[ML学习] ML优化失败，使用基础权重: {e}")
+                    # 使用基于表现的基础权重
+                    optimized_weights = (
+                        self.weight_optimizer.calculate_performance_based_weights()
+                    )
+                    self.simple_learning.data_manager.save_model_weights(
+                        optimized_weights, source="fallback"
+                    )
 
-                    if opt_result.best_value is not None:
-                        best_params = opt_result.best_params
-                        logger.info(f"[优化] 最优参数: {best_params}")
-
-                        # 5. 应用最优参数
-                        self.config_updater.apply_optimized_params(best_params)
-                        logger.info("[优化] 已应用最优参数")
-                    else:
-                        logger.warning("[优化] 贝叶斯优化未找到更优参数")
-                else:
-                    logger.info("[优化] 无足够历史数据，跳过回测和优化")
-
-                logger.info("[优化] 每日优化任务完成")
+                logger.info("[ML学习] 后台优化任务完成")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.error(f"[优化] 任务出错: {e}")
+                logger.error(f"[ML学习] 任务出错: {e}")
 
     async def cleanup(self) -> None:
         """清理资源"""
