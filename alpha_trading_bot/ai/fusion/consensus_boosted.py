@@ -34,21 +34,18 @@ class FusionConfig:
     """融合配置"""
 
     strategy: FusionStrategyType = FusionStrategyType.CONSENSUS_BOOSTED
-    threshold: float = 0.42  # 从0.50降低到0.42，更容易触发信号
-    consensus_boost_full: float = 1.3  # 全部一致时强化倍数
-    consensus_boost_partial: float = 1.1  # 2/3一致时强化倍数（从1.15降低）
+    threshold: float = 0.35  # 大幅降低阈值，更容易触发交易
+    consensus_boost_full: float = 1.5  # 提高全一致强化倍数
+    consensus_boost_partial: float = 1.25  # 提高部分一致强化倍数
     default_confidence: int = 70  # 默认置信度
     # === 反弹检测 + 条件性放行 ===
-    partial_consensus_threshold: float = (
-        0.5  # 部分一致阈值（从0.60降低到0.50，更容易达成共识）
-    )
-    kimi_buy_rebound_boost: float = 1.2  # Kimi BUY 在反弹区间加权（从1.3降低）
-    rsi_rebound_low: float = 30  # RSI 反弹区间下限（从40降低，扩大区间）
-    rsi_rebound_high: float = 70  # RSI 反弹区间上限（从58提高到70，允许更高RSI时买入）
-    rsi_high_suppression: float = (
-        72  # RSI 高于此值抑制 BUY（从60提高到72，减少高位抑制）
-    )
+    partial_consensus_threshold: float = 0.35  # 降低部分一致阈值，更容易触发
+    kimi_buy_rebound_boost: float = 1.4  # 提高Kimi反弹加权
+    rsi_rebound_low: float = 25  # 扩大反弹区间下限
+    rsi_rebound_high: float = 75  # 扩大反弹区间上限
+    rsi_high_suppression: float = 78  # 提高抑制阈值，允许更高RSI买入
     enable_rebound_mode: bool = True  # 启用反弹检测模式
+    buy_bias: float = 1.15  # 新增：买入偏好系数，当得分相近时倾向买入
 
 
 @dataclass
@@ -511,7 +508,24 @@ class ConsensusBoostedFusion:
             for sig in weighted_scores:
                 weighted_scores[sig] /= total
 
-        # 步骤4: 最终判断
+        # 步骤4: 买入偏好 - 当buy与hold得分接近时，倾向买入
+        if self.config.buy_bias > 1.0:
+            buy_score = weighted_scores.get("buy", 0)
+            hold_score = weighted_scores.get("hold", 0)
+            # 如果buy得分在hold的85%以内，给buy一个偏好加成
+            if hold_score > 0 and buy_score >= hold_score * 0.85:
+                weighted_scores["buy"] *= self.config.buy_bias
+                logger.info(
+                    f"[融合] 买入偏好触发: buy={buy_score:.3f}, hold={hold_score:.3f}, "
+                    f"偏好系数={self.config.buy_bias}x"
+                )
+                # 重新归一化
+                total = sum(weighted_scores.values())
+                if total > 0:
+                    for sig in weighted_scores:
+                        weighted_scores[sig] /= total
+
+        # 步骤5: 最终判断
         max_sig = max(weighted_scores, key=weighted_scores.get)
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
