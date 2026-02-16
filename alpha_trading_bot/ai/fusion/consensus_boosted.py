@@ -34,18 +34,17 @@ class FusionConfig:
     """融合配置"""
 
     strategy: FusionStrategyType = FusionStrategyType.CONSENSUS_BOOSTED
-    threshold: float = 0.35  # 大幅降低阈值，更容易触发交易
-    consensus_boost_full: float = 1.5  # 提高全一致强化倍数
-    consensus_boost_partial: float = 1.25  # 提高部分一致强化倍数
-    default_confidence: int = 70  # 默认置信度
-    # === 反弹检测 + 条件性放行 ===
-    partial_consensus_threshold: float = 0.35  # 降低部分一致阈值，更容易触发
-    kimi_buy_rebound_boost: float = 1.4  # 提高Kimi反弹加权
-    rsi_rebound_low: float = 25  # 扩大反弹区间下限
-    rsi_rebound_high: float = 75  # 扩大反弹区间上限
-    rsi_high_suppression: float = 78  # 提高抑制阈值，允许更高RSI买入
-    enable_rebound_mode: bool = True  # 启用反弹检测模式
-    buy_bias: float = 1.15  # 新增：买入偏好系数，当得分相近时倾向买入
+    threshold: float = 0.38
+    consensus_boost_full: float = 1.4
+    consensus_boost_partial: float = 1.2
+    default_confidence: int = 70
+    partial_consensus_threshold: float = 0.4
+    kimi_buy_rebound_boost: float = 1.3
+    rsi_rebound_low: float = 28
+    rsi_rebound_high: float = 72
+    rsi_high_suppression: float = 75
+    enable_rebound_mode: bool = True
+    buy_bias: float = 1.1
 
 
 @dataclass
