@@ -269,15 +269,39 @@ class TradingBot:
             "position should not be None when has_position is True"
         )
 
+        # 关键修复：先检查是否存在止损单
+        has_existing_stop_order = self.position_manager.stop_order_id is not None
+
         # 计算新止损价
         new_stop = self.position_manager.calculate_stop_price(current_price)
         self.position_manager.log_stop_loss_info(current_price, new_stop)
 
-        # 容错判断：新止损价变化 < 容错比例时跳过更新
+        # 如果没有止损单，直接创建
+        if not has_existing_stop_order:
+            logger.info("[止损更新] 当前无止损单，直接创建")
+            if self.position_manager.stop_order_id:
+                logger.info(
+                    f"[止损更新] 取消旧止损单: {self.position_manager.stop_order_id}"
+                )
+                await self._exchange.cancel_order(
+                    str(self.position_manager.stop_order_id),
+                    self.config.exchange.symbol,
+                )
+            logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
+            stop_order_id = await self._exchange.create_stop_loss(
+                symbol=self.config.exchange.symbol,
+                side="sell",
+                amount=position.amount,
+                stop_price=new_stop,
+            )
+            self.position_manager.set_stop_order(stop_order_id)
+            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+            return
+
+        # 容错判断
         tolerance = self.config.stop_loss.stop_loss_tolerance_percent
         entry_price = position.entry_price
 
-        # 根据盈亏状态计算原止损价
         if current_price >= entry_price:
             old_stop = entry_price * (
                 1 - self.config.stop_loss.stop_loss_profit_percent
@@ -285,7 +309,6 @@ class TradingBot:
         else:
             old_stop = entry_price * (1 - self.config.stop_loss.stop_loss_percent)
 
-        # 计算变化百分比
         price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
 
         if price_diff_percent < tolerance:
@@ -294,55 +317,31 @@ class TradingBot:
             )
             return
 
-        logger.info(
-            f"[止损更新] 当前价:{current_price}, 止损价:{new_stop}, 持仓数量:{position.amount}张"
-        )
-
-        # 计算新止损价
-        new_stop = self.position_manager.calculate_stop_price(current_price)
-        self.position_manager.log_stop_loss_info(current_price, new_stop)
-
-        # 获取当前止损单价格
-        current_stop = self.position_manager.stop_order_id
-
-        # 容错判断
-        tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-        if current_stop:
-            # 计算容差范围
-            tolerance_amount = current_price * tolerance
-            diff = abs(new_stop - (current_price * (1 - tolerance)))  # 简化计算
-
-            # 如果新旧止损价差异在容差范围内，跳过更新
-            old_stop_price = position.entry_price * (
-                1
-                - (
-                    self.config.stop_loss.stop_loss_profit_percent
-                    if current_price > position.entry_price
-                    else self.config.stop_loss.stop_loss_percent
-                )
-            )
-            price_diff_percent = (
-                abs(new_stop - old_stop_price) / old_stop_price
-                if old_stop_price > 0
-                else 1
+        # 取消旧止损单并创建新止损单
+        old_stop_order_id = self.position_manager.stop_order_id
+        if old_stop_order_id:
+            logger.info(f"[止损更新] 取消旧止损单: {old_stop_order_id}")
+            await self._exchange.cancel_order(
+                str(old_stop_order_id), self.config.exchange.symbol
             )
 
-            if price_diff_percent < tolerance:
-                logger.info(
-                    f"[止损更新] 止损价变化({price_diff_percent * 100:.3f}%) < 容错({tolerance * 100:.3f}%), 跳过更新"
-                )
-                return
-
-        logger.info(
-            f"[止损更新] 当前价:{current_price}, 止损价:{new_stop}, 持仓数量:{position.amount}张"
+        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
+        stop_order_id = await self._exchange.create_stop_loss(
+            symbol=self.config.exchange.symbol,
+            side="sell",
+            amount=position.amount,
+            stop_price=new_stop,
         )
+
+        self.position_manager.set_stop_order(stop_order_id)
+        logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
 
         if self.position_manager.stop_order_id:
             logger.info(
                 f"[止损更新] 取消旧止损单: {self.position_manager.stop_order_id}"
             )
             await self._exchange.cancel_order(
-                self.position_manager.stop_order_id, self.config.exchange.symbol
+                str(self.position_manager.stop_order_id), self.config.exchange.symbol
             )
 
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")

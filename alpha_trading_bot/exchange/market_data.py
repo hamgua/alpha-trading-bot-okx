@@ -145,8 +145,8 @@ class MarketDataService:
             safe_balance = balance * 0.95
             max_contracts = (safe_balance * leverage) / price
 
-            # 向下取整到0.01（OKX精度要求）
-            contracts = float(f"{max_contracts:.2f}")
+            # 保留4位小数精度，确保小于0.01的数不会被错误地四舍五入为0
+            contracts = float(f"{max_contracts:.4f}")
 
             # 确保不低于最小交易单位
             if contracts < 0.01:
