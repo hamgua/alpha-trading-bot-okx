@@ -7,12 +7,14 @@ AI客户端 - 支持单AI/多AI融合
 - 动态阈值可视化
 - 备用提供商自动切换
 - 信号优化集成 (AISignalIntegrator)
+- 信号缓存机制
 """
 
 import asyncio
+import hashlib
 import logging
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime
 
@@ -29,6 +31,56 @@ _signal_distribution: Dict[str, Dict[str, int]] = defaultdict(
     lambda: {"buy": 0, "hold": 0, "sell": 0, "total": 0}
 )
 _signal_distribution_lock = asyncio.Lock()
+
+
+class SignalCache:
+    """AI信号缓存"""
+
+    def __init__(self, ttl_seconds: int = 900):
+        self._cache: Dict[str, Tuple[str, float, float]] = {}
+        self._ttl = ttl_seconds
+
+    def _generate_key(self, market_data: Dict[str, Any]) -> str:
+        """生成缓存键"""
+        key_data = {
+            "price": market_data.get("price", 0),
+            "rsi": market_data.get("technical", {}).get("rsi", 50),
+            "trend": market_data.get("technical", {}).get("trend_direction", ""),
+        }
+        key_str = str(sorted(key_data.items()))
+        return hashlib.md5(key_str.encode()).hexdigest()
+
+    def get(self, market_data: Dict[str, Any]) -> Optional[str]:
+        """获取缓存的信号"""
+        key = self._generate_key(market_data)
+        if key in self._cache:
+            signal, timestamp, confidence = self._cache[key]
+            if time.time() - timestamp < self._ttl:
+                logger.info(f"[AI缓存] 命中缓存: {signal} (置信度: {confidence:.0%})")
+                return signal
+        return None
+
+    def set(self, market_data: Dict[str, Any], signal: str, confidence: float) -> None:
+        """设置缓存"""
+        key = self._generate_key(market_data)
+        self._cache[key] = (signal, time.time(), confidence)
+        logger.debug(f"[AI缓存] 已缓存信号: {signal}")
+
+    def clear(self) -> None:
+        """清除缓存"""
+        self._cache.clear()
+        logger.info("[AI缓存] 已清除")
+
+    def get_stats(self) -> Dict[str, Any]:
+        """获取缓存统计"""
+        valid_count = sum(
+            1 for _, (_, ts, _) in self._cache.items() if time.time() - ts < self._ttl
+        )
+        return {
+            "total_entries": len(self._cache),
+            "valid_entries": valid_count,
+            "ttl_seconds": self._ttl,
+        }
 
 
 async def log_signal_distribution(signal: str, source: str = "fusion") -> None:
@@ -72,11 +124,16 @@ class AIClient:
     MAX_DELAY = 10.0  # 最大延迟（秒）
     BACKOFF_FACTOR = 2.0  # 退避因子
 
+    # 缓存配置
+    DEFAULT_CACHE_TTL = 900  # 默认缓存时间：15分钟
+
     def __init__(
         self,
         config: Optional["AIConfig"] = None,
         api_keys: Optional[Dict[str, str]] = None,
         integrator_mode: str = "standard",
+        cache_ttl: int = DEFAULT_CACHE_TTL,
+        enable_cache: bool = True,
     ):
         from alpha_trading_bot.config.models import AIConfig
         from .fusion.base import get_fusion_strategy
@@ -87,6 +144,10 @@ class AIClient:
         self.config = config
         self.api_keys = api_keys or {}
         self._get_fusion_strategy = get_fusion_strategy
+
+        # 初始化缓存
+        self._enable_cache = enable_cache
+        self._cache = SignalCache(ttl_seconds=cache_ttl) if enable_cache else None
 
         # 初始化信号集成器 - 平衡模式：保留风控但放宽限制
         self.integrator = AISignalIntegrator(
@@ -100,6 +161,12 @@ class AIClient:
 
     async def get_signal(self, market_data: Dict[str, Any]) -> str:
         """获取交易信号，返回: buy / hold / sell"""
+        # 检查缓存
+        if self._enable_cache and self._cache:
+            cached_signal = self._cache.get(market_data)
+            if cached_signal:
+                return cached_signal
+
         # 获取原始信号
         if self.config.mode == "single":
             original_signal, original_confidence = await self._get_single_signal(
@@ -123,6 +190,10 @@ class AIClient:
         if result.adjustments_made:
             for adj in result.adjustments_made:
                 logger.info(f"  [集成优化] {adj}")
+
+        # 写入缓存
+        if self._enable_cache and self._cache:
+            self._cache.set(market_data, result.final_signal, result.final_confidence)
 
         return result.final_signal
 

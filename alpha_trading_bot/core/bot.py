@@ -63,6 +63,9 @@ class TradingBot:
                 config=self.config.ai, api_keys=self.config.ai.api_keys
             )
 
+            # 检查止损单恢复
+            await self._check_stop_order_recovery()
+
             self._initialized = True
             logger.info("初始化完成")
             return True
@@ -70,6 +73,60 @@ class TradingBot:
         except Exception as e:
             logger.error(f"初始化失败: {e}")
             return False
+
+    async def _check_stop_order_recovery(self) -> None:
+        """检查并恢复止损单"""
+        # 从交易所获取最新持仓状态
+        position_data = await self._exchange.get_position()
+        if position_data:
+            self.position_manager.update_from_exchange(position_data)
+
+        # 检查是否需要恢复止损单
+        if not self.position_manager.has_position():
+            return
+
+        # 查找交易所现有的止损单
+        exchange_stop_order_id = await self._get_existing_stop_order_id()
+
+        if exchange_stop_order_id:
+            logger.info(f"[止损恢复] 发现交易所止损单: {exchange_stop_order_id}")
+            self.position_manager.set_stop_order(exchange_stop_order_id)
+        elif self.position_manager.needs_stop_order_recovery():
+            logger.warning("[止损恢复] 有持仓但无止损单，需要重建止损单")
+            await self._recreate_stop_order()
+
+    async def _recreate_stop_order(self) -> None:
+        """重建止损单"""
+        position = self.position_manager.position
+        if not position:
+            return
+
+        # 获取当前价格
+        market_data = await self._exchange.get_market_data()
+        current_price = market_data.get("price", 0)
+
+        if current_price <= 0:
+            logger.error("[止损恢复] 无法获取当前价格")
+            return
+
+        # 计算止损价
+        stop_price = self.position_manager.calculate_stop_price(current_price)
+
+        logger.info(
+            f"[止损恢复] 创建止损单: 止损价={stop_price}, 数量={position.amount}"
+        )
+
+        try:
+            stop_order_id = await self._exchange.create_stop_loss(
+                symbol=self.config.exchange.symbol,
+                side="sell",
+                amount=position.amount,
+                stop_price=stop_price,
+            )
+            self.position_manager.set_stop_order(stop_order_id)
+            logger.info(f"[止损恢复] 止损单重建成功: {stop_order_id}")
+        except Exception as e:
+            logger.error(f"[止损恢复] 止损单重建失败: {e}")
 
     async def run(self) -> None:
         """主循环"""

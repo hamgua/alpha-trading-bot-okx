@@ -138,28 +138,6 @@ class PromptBuilder:
             provider=provider,
         )
 
-        return cls._format_prompt(
-            pos_side=pos_side if pos_side != "none" else "无持仓",
-            pos_amount=pos_amount,
-            entry_price=entry_price,
-            unrealized_pnl=unrealized_pnl,
-            pnl_percent=pnl_percent,
-            current_price=current_price,
-            rsi=rsi,
-            macd=macd,
-            macd_hist=macd_hist,
-            adx=adx,
-            atr_pct=atr_pct,
-            bb_pos=bb_pos,
-            trend_dir=trend_dir,
-            trend_strength=trend_strength,
-            recent_drop=recent_drop,
-            recent_rise=recent_rise,  # 新增
-            is_crashing=is_crashing,
-            is_rising=is_rising,  # 新增
-            is_oversold=is_oversold,  # 新增：超卖反弹模式
-        )
-
     @classmethod
     def _format_prompt(
         cls,
