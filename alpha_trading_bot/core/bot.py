@@ -259,6 +259,24 @@ class TradingBot:
             f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, 止损:{stop_price}"
         )
 
+    async def _get_existing_stop_order_id(self) -> Optional[str]:
+        """查询交易所中现有的止损单ID"""
+        try:
+            open_orders = await self._exchange.get_open_orders(
+                self.config.exchange.symbol
+            )
+            for order in open_orders:
+                if order.get("type") in ["stop_loss", "stop-loss", "trigger"]:
+                    stop_order_id = order.get("id")
+                    if stop_order_id:
+                        logger.info(f"[止损查询] 找到现有止损单: {stop_order_id}")
+                        return str(stop_order_id)
+            logger.debug("[止损查询] 未找到现有止损单")
+            return None
+        except Exception as e:
+            logger.error(f"[止损查询] 查询失败: {e}")
+            return None
+
     async def _update_stop_loss(self, current_price: float) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
         if not self.position_manager.has_position():
@@ -269,24 +287,21 @@ class TradingBot:
             "position should not be None when has_position is True"
         )
 
-        # 关键修复：先检查是否存在止损单
-        has_existing_stop_order = self.position_manager.stop_order_id is not None
+        local_stop_order_id = self.position_manager.stop_order_id
+        exchange_stop_order_id = await self._get_existing_stop_order_id()
 
-        # 计算新止损价
+        if exchange_stop_order_id and not local_stop_order_id:
+            logger.info(f"[止损更新] 发现交易所现有止损单: {exchange_stop_order_id}")
+            self.position_manager.set_stop_order(exchange_stop_order_id)
+            local_stop_order_id = exchange_stop_order_id
+
+        has_existing_stop_order = local_stop_order_id is not None
+
         new_stop = self.position_manager.calculate_stop_price(current_price)
         self.position_manager.log_stop_loss_info(current_price, new_stop)
 
-        # 如果没有止损单，直接创建
         if not has_existing_stop_order:
             logger.info("[止损更新] 当前无止损单，直接创建")
-            if self.position_manager.stop_order_id:
-                logger.info(
-                    f"[止损更新] 取消旧止损单: {self.position_manager.stop_order_id}"
-                )
-                await self._exchange.cancel_order(
-                    str(self.position_manager.stop_order_id),
-                    self.config.exchange.symbol,
-                )
             logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
             stop_order_id = await self._exchange.create_stop_loss(
                 symbol=self.config.exchange.symbol,
@@ -298,7 +313,6 @@ class TradingBot:
             logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
             return
 
-        # 容错判断
         tolerance = self.config.stop_loss.stop_loss_tolerance_percent
         entry_price = position.entry_price
 
@@ -323,25 +337,6 @@ class TradingBot:
             logger.info(f"[止损更新] 取消旧止损单: {old_stop_order_id}")
             await self._exchange.cancel_order(
                 str(old_stop_order_id), self.config.exchange.symbol
-            )
-
-        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
-        stop_order_id = await self._exchange.create_stop_loss(
-            symbol=self.config.exchange.symbol,
-            side="sell",
-            amount=position.amount,
-            stop_price=new_stop,
-        )
-
-        self.position_manager.set_stop_order(stop_order_id)
-        logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
-
-        if self.position_manager.stop_order_id:
-            logger.info(
-                f"[止损更新] 取消旧止损单: {self.position_manager.stop_order_id}"
-            )
-            await self._exchange.cancel_order(
-                str(self.position_manager.stop_order_id), self.config.exchange.symbol
             )
 
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")

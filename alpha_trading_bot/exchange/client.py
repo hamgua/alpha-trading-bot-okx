@@ -50,7 +50,9 @@ class ExchangeClient:
 
         # 初始化子服务
         self._account_service = create_account_service(self.exchange, self.symbol)
-        self._market_data_service = create_market_data_service(self.exchange, self.symbol)
+        self._market_data_service = create_market_data_service(
+            self.exchange, self.symbol
+        )
         self._order_service = create_order_service(self.exchange, self.symbol)
 
         await asyncio.get_event_loop().run_in_executor(
@@ -119,6 +121,17 @@ class ExchangeClient:
     async def cancel_order(self, order_id: str, symbol: str) -> bool:
         """取消订单"""
         return await self._order_service.cancel_order(order_id, symbol)
+
+    async def get_open_orders(self, symbol: str) -> list:
+        """获取当前未成交订单"""
+        try:
+            orders = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.exchange.fetch_open_orders(symbol)
+            )
+            return orders
+        except Exception as e:
+            logger.error(f"[订单查询] 获取开放订单失败: {e}")
+            return []
 
     async def cleanup(self) -> None:
         """清理"""
