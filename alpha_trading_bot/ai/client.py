@@ -207,9 +207,12 @@ class AIClient:
         response = await self._call_ai_with_retry(provider, market_data, api_key)
         signal, confidence = parse_response(response)
 
+        # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
+        confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
+
         await log_signal_distribution(signal, source=provider)
-        logger.info(f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}%")
-        return signal, confidence
+        logger.info(f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})")
+        return signal, confidence_normalized
 
     async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> tuple:
         """多AI融合模式 - 并行调用多个AI并融合结果"""
@@ -237,13 +240,15 @@ class AIClient:
 
             try:
                 signal, confidence = parse_response(response)
+                # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
+                confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
                 logger.debug(f"[AI原始响应] {provider}: {response}")
                 signals.append(
-                    {"provider": provider, "signal": signal, "confidence": confidence}
+                    {"provider": provider, "signal": signal, "confidence": confidence_normalized}
                 )
-                if confidence is not None:
-                    confidences[provider] = confidence
-                conf_str = f"{confidence}%" if confidence is not None else "N/A"
+                if confidence_normalized is not None:
+                    confidences[provider] = confidence_normalized
+                conf_str = f"{confidence}% (归一化={confidence_normalized})" if confidence is not None else "N/A"
                 logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={conf_str}")
             except Exception as e:
                 logger.error(f"[AI解析错误] {provider}: {e}")
@@ -322,11 +327,13 @@ class AIClient:
                     provider, market_data, api_key
                 )
                 signal, confidence = parse_response(response)
+                # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
+                confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
                 logger.info(
-                    f"[AI融合-备用] {provider}: 信号={signal}, 置信度={confidence}%"
+                    f"[AI融合-备用] {provider}: 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})"
                 )
                 await log_signal_distribution(signal, source=f"fallback_{provider}")
-                return signal, confidence if confidence else 0.40
+                return signal, confidence_normalized if confidence_normalized else 0.40
             except Exception as e:
                 logger.error(f"[AI融合-备用] {provider} 失败: {e}")
                 continue

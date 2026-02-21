@@ -38,6 +38,7 @@ class PositionManager:
         self._position: Optional[Position] = None
         self._entry_price: float = 0.0
         self._stop_order_id: Optional[str] = None
+        self._last_stop_price: float = 0.0  # 上次设置的止损价，用于容错比较
 
         # 初始化持久化管理器
         self._persistence = create_state_persistence(data_dir)
@@ -83,6 +84,11 @@ class PositionManager:
     def stop_order_id(self) -> Optional[str]:
         """获取止损单ID"""
         return self._stop_order_id
+
+    @property
+    def last_stop_price(self) -> float:
+        """获取上次设置的止损价"""
+        return self._last_stop_price
 
     def has_position(self) -> bool:
         """是否有持仓"""
@@ -168,15 +174,17 @@ class PositionManager:
                 f"盈利={pnl:.2f}%, 止损价={new_stop}"
             )
 
-    def set_stop_order(self, stop_order_id: str) -> None:
+    def set_stop_order(self, stop_order_id: str, stop_price: float = 0.0) -> None:
         """设置止损单ID（并持久化）"""
         self._stop_order_id = stop_order_id
+        if stop_price > 0:
+            self._last_stop_price = stop_price
 
         # 持久化更新止损单ID
         if self._position:
             self._persistence.update_stop_order(stop_order_id)
 
-        logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}")
+        logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
 
     def needs_stop_order_recovery(self) -> bool:
         """检查是否需要恢复止损单（有持仓但无止损单ID）"""
@@ -212,6 +220,7 @@ class PositionManager:
         self._position = None
         self._entry_price = 0.0
         self._stop_order_id = None
+        self._last_stop_price = 0.0
 
         # 持久化清空
         self._persistence.clear_position()

@@ -148,10 +148,29 @@ class TradingBot:
         finally:
             await self.cleanup()
 
+    # 交易周期全局超时（秒）- 防止 AI 调用或交易所调用挂起导致整个 bot 阻塞
+    TRADING_CYCLE_TIMEOUT = 300  # 5分钟
+
     async def _trading_cycle(self, first_run: bool = False) -> None:
-        """单次交易周期"""
+        """单次交易周期（带全局超时保护）"""
         # 1. 等待周期
         await self.scheduler.wait_for_next_cycle(first_run)
+
+        try:
+            await asyncio.wait_for(
+                self._execute_trading_cycle(),
+                timeout=self.TRADING_CYCLE_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"[交易周期] 交易周期超时 ({self.TRADING_CYCLE_TIMEOUT}秒)，强制结束本周期"
+            )
+        except Exception as e:
+            logger.error(f"[交易周期] 交易周期异常: {e}")
+            logger.exception("详细错误:")
+
+    async def _execute_trading_cycle(self) -> None:
+        """执行交易周期的核心逻辑"""
 
         logger.info("=" * 60)
         logger.info("开始新的交易周期")
@@ -189,9 +208,9 @@ class TradingBot:
         if has_position:
             pm = self.position_manager
             position_info = pm.position
-            assert position_info is not None, (
-                "position_info should not be None when has_position is True"
-            )
+            if position_info is None:
+                logger.error("[持仓状态] 数据不一致: has_position=True 但 position 为 None")
+                return
             logger.info(
                 f"[持仓状态] 持仓中 - 方向:{position_info.side}, 数量:{position_info.amount}张, 入场价:{position_info.entry_price}"
             )
@@ -296,10 +315,10 @@ class TradingBot:
             amount, price, self.config.exchange.symbol
         )
 
-        # 新开仓使用 99.5% 止损 (0.5% 止损比例)
-        stop_price = price * 0.995
+        # 统一使用 PositionManager 计算止损价
+        stop_price = self.position_manager.calculate_stop_price(price)
         logger.info(
-            f"[止损计算] 入场价={price}, 止损比例=0.5%(新开仓), 止损价={stop_price:.1f}"
+            f"[止损计算] 入场价={price}, 止损价={stop_price:.1f} (由PositionManager统一计算)"
         )
 
         stop_order_id = await self._exchange.create_stop_loss(
@@ -310,7 +329,7 @@ class TradingBot:
         )
         logger.info(f"[开仓] 止损单创建成功: 止损ID={stop_order_id}")
 
-        self.position_manager.set_stop_order(stop_order_id)
+        self.position_manager.set_stop_order(stop_order_id, stop_price)
         logger.info(
             f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, 止损:{stop_price}"
         )
@@ -322,10 +341,26 @@ class TradingBot:
                 self.config.exchange.symbol
             )
             for order in open_orders:
-                if order.get("type") in ["stop_loss", "stop-loss", "trigger"]:
-                    stop_order_id = order.get("id")
+                order_type = (order.get("type") or "").lower()
+                # OKX 止损单可能返回多种类型标识:
+                # - "limit" (带 stopLossPrice 参数提交的)
+                # - "stop_loss", "stop-loss", "trigger" (algo 订单)
+                # 同时检查 info 中的 algoId 和 stopLossPrice
+                info = order.get("info", {})
+                has_algo_id = bool(info.get("algoId"))
+                has_stop_price = bool(info.get("slTriggerPx") or info.get("stopLossPrice"))
+
+                is_stop_order = (
+                    order_type in ["stop_loss", "stop-loss", "trigger", "stop"]
+                    or has_algo_id
+                    or has_stop_price
+                )
+
+                if is_stop_order:
+                    # 优先使用 algoId，其次使用普通 id
+                    stop_order_id = info.get("algoId") or order.get("id")
                     if stop_order_id:
-                        logger.info(f"[止损查询] 找到现有止损单: {stop_order_id}")
+                        logger.info(f"[止损查询] 找到现有止损单: {stop_order_id} (type={order_type})")
                         return str(stop_order_id)
             logger.debug("[止损查询] 未找到现有止损单")
             return None
@@ -339,9 +374,9 @@ class TradingBot:
             return
 
         position = self.position_manager.position
-        assert position is not None, (
-            "position should not be None when has_position is True"
-        )
+        if position is None:
+            logger.error("[止损更新] 数据不一致: has_position=True 但 position 为 None")
+            return
 
         local_stop_order_id = self.position_manager.stop_order_id
         exchange_stop_order_id = await self._get_existing_stop_order_id()
@@ -363,20 +398,18 @@ class TradingBot:
                 position.amount, new_stop, current_price
             )
             if stop_order_id:
-                self.position_manager.set_stop_order(stop_order_id)
+                self.position_manager.set_stop_order(stop_order_id, new_stop)
                 logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
             else:
                 logger.error("[止损更新] 止损单创建失败，已达最大重试次数")
             return
 
         tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-        entry_price = position.entry_price
 
-        # 计算旧止损价 (用于比较变化率)
-        if current_price >= entry_price:
-            old_stop = current_price * 0.998  # 盈利状态
-        else:
-            old_stop = current_price * 0.995  # 亏损/新建仓状态
+        # 使用上次记录的止损价进行容错比较
+        old_stop = self.position_manager.last_stop_price
+        if old_stop <= 0:
+            old_stop = new_stop  # 无历史记录时默认不更新
 
         price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
 
@@ -402,7 +435,7 @@ class TradingBot:
             stop_price=new_stop,
         )
 
-        self.position_manager.set_stop_order(stop_order_id)
+        self.position_manager.set_stop_order(stop_order_id, new_stop)
         logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
 
     async def _create_stop_loss_with_retry(
@@ -464,9 +497,9 @@ class TradingBot:
             return
 
         position = self.position_manager.position
-        assert position is not None, (
-            "position should not be None when has_position is True"
-        )
+        if position is None:
+            logger.error("[平仓] 数据不一致: has_position=True 但 position 为 None")
+            return
 
         amount = position.amount
         logger.info(f"[平仓] 开始平仓流程, 当前价格: {price}, 数量: {amount}张")

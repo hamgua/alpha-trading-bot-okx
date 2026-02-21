@@ -174,6 +174,13 @@ class AISignalIntegrator:
             adjustments_made=[],
         )
 
+        # 置信度范围校验: 确保 confidence 在 0-1 范围内
+        if original_confidence > 1:
+            logger.warning(
+                f"[信号集成] 置信度 {original_confidence} 超出 0-1 范围，自动归一化"
+            )
+            original_confidence = original_confidence / 100.0
+
         # ========== 诊断日志：记录每个阶段的置信度 ==========
         conf_history = [(0, "原始", original_confidence)]
 
