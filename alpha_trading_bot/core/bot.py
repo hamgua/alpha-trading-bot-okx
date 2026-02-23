@@ -452,10 +452,15 @@ class TradingBot:
             # 交易所存在有效订单
             logger.info(f"[止损更新] 交易所现有止损单: {current_existing_id}")
             logger.info(f"[止损更新] 取消交易所现有止损单: {current_existing_id}")
-            cancel_success = await self._exchange.cancel_order(
+            cancel_result = await self._exchange.cancel_order(
                 str(current_existing_id), self.config.exchange.symbol
             )
-            if not cancel_success:
+            cancel_success, cancel_reason = cancel_result
+            if cancel_success:
+                logger.info(f"[止损更新] 止损单取消成功: {current_existing_id}")
+            elif cancel_reason == "already_gone":
+                logger.info(f"[止损更新] 止损单已不存在(可能已触发): {current_existing_id}")
+            else:
                 logger.warning(f"[止损更新] 取消止损单失败: {current_existing_id}")
         else:
             # 交易所无止损单
@@ -552,11 +557,18 @@ class TradingBot:
         if self.position_manager.stop_order_id:
             logger.info(f"[平仓] 取消旧止损单: {self.position_manager.stop_order_id}")
             try:
-                await self._exchange.cancel_order(
+                cancel_result = await self._exchange.cancel_order(
                     self.position_manager.stop_order_id, self.config.exchange.symbol
                 )
+                cancel_success, cancel_reason = cancel_result
+                if cancel_success:
+                    logger.info(f"[平仓] 止损单取消成功")
+                elif cancel_reason == "already_gone":
+                    logger.info(f"[平仓] 止损单已不存在(可能已触发)")
+                else:
+                    logger.warning(f"[平仓] 取消止损单失败")
             except Exception as e:
-                logger.warning(f"[平仓] 取消止损单失败: {e}")
+                logger.warning(f"[平仓] 取消止损单异常: {e}")
 
         self.position_manager.clear_position()
         logger.info(f"[平仓] 平仓完成 - 价格:{price}, 数量:{amount}张")

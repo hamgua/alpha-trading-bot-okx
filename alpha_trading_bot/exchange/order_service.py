@@ -239,23 +239,31 @@ class OrderService:
                 error_message=str(e),
             )
 
-    async def cancel_order(self, order_id: str, symbol: str) -> bool:
-        """取消订单"""
+    async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
+        """取消订单
+        
+        Returns:
+            tuple: (success: bool, reason: str)
+                - (True, "success") - 取消成功
+                - (False, "already_gone") - 订单已成交/取消/不存在
+                - (False, "failed") - 取消失败
+        """
         try:
             logger.info(f"[订单取消] 取消订单: ID={order_id}, symbol={symbol}")
             await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.exchange.cancel_order(order_id, symbol)
             )
             logger.info(f"[订单取消] 订单取消成功: {order_id}")
-            return True
+            return (True, "success")
         except Exception as e:
             error_msg = str(e)
             # 订单已成交/取消/不存在时，取消失败是正常的，降低日志级别
             if "51400" in error_msg or "does not exist" in error_msg or "filled" in error_msg:
                 logger.warning(f"[订单取消] 订单已不存在: {order_id}, 错误={error_msg}")
+                return (False, "already_gone")
             else:
                 logger.error(f"[订单取消] 取消订单失败: {order_id}, 错误={error_msg}")
-            return False
+                return (False, "failed")
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
         """

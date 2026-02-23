@@ -118,8 +118,12 @@ class ExchangeClient:
             symbol, side, amount, stop_price
         )
 
-    async def cancel_order(self, order_id: str, symbol: str) -> bool:
-        """取消订单"""
+    async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
+        """取消订单
+        
+        Returns:
+            tuple: (success: bool, reason: str)
+        """
         return await self._order_service.cancel_order(order_id, symbol)
 
     async def get_open_orders(self, symbol: str) -> list:
