@@ -335,17 +335,29 @@ class TradingBot:
         )
 
     async def _get_existing_stop_order_id(self) -> Optional[str]:
-        """查询交易所中现有的止损单ID"""
+        """查询交易所中现有的止损单ID（同时查询普通订单和算法订单）"""
+        symbol = self.config.exchange.symbol
+        
+        # 优先查询算法订单（OKX 止损单是 algo 订单）
         try:
-            open_orders = await self._exchange.get_open_orders(
-                self.config.exchange.symbol
-            )
+            algo_orders = await self._exchange.get_algo_orders(symbol)
+            for order in algo_orders:
+                info = order.get("info", {})
+                algo_id = info.get("algoId")
+                # 检查是否是止损单 (stop loss)
+                if algo_id:
+                    stop_price = info.get("slTriggerPx") or info.get("stopLossPrice")
+                    if stop_price:
+                        logger.info(f"[止损查询] 找到现有止损单(algo): {algo_id}, 止损价={stop_price}")
+                        return str(algo_id)
+        except Exception as e:
+            logger.warning(f"[止损查询] 查询算法订单失败: {e}")
+        
+        # 备用：查询普通订单
+        try:
+            open_orders = await self._exchange.get_open_orders(symbol)
             for order in open_orders:
                 order_type = (order.get("type") or "").lower()
-                # OKX 止损单可能返回多种类型标识:
-                # - "limit" (带 stopLossPrice 参数提交的)
-                # - "stop_loss", "stop-loss", "trigger" (algo 订单)
-                # 同时检查 info 中的 algoId 和 stopLossPrice
                 info = order.get("info", {})
                 has_algo_id = bool(info.get("algoId"))
                 has_stop_price = bool(info.get("slTriggerPx") or info.get("stopLossPrice"))
@@ -357,16 +369,15 @@ class TradingBot:
                 )
 
                 if is_stop_order:
-                    # 优先使用 algoId，其次使用普通 id
                     stop_order_id = info.get("algoId") or order.get("id")
                     if stop_order_id:
                         logger.info(f"[止损查询] 找到现有止损单: {stop_order_id} (type={order_type})")
                         return str(stop_order_id)
-            logger.debug("[止损查询] 未找到现有止损单")
-            return None
         except Exception as e:
-            logger.error(f"[止损查询] 查询失败: {e}")
-            return None
+            logger.warning(f"[止损查询] 查询普通订单失败: {e}")
+            
+        logger.debug("[止损查询] 未找到现有止损单")
+        return None
 
     async def _update_stop_loss(self, current_price: float) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
@@ -436,17 +447,22 @@ class TradingBot:
         # 规则2: 交易所不存在，本地旧订单存在 -> 无需取消，直接创建新订单
         # 规则3: 交易所存在，本地不存在 -> 取消交易所订单 -> 创建新订单
         
+        # 以交易所为主导：先输出交易所查询结果
         if current_existing_id:
-            # 交易所存在有效订单，需要取消（无论本地有没有）
+            # 交易所存在有效订单
+            logger.info(f"[止损更新] 交易所现有止损单: {current_existing_id}")
             logger.info(f"[止损更新] 取消交易所现有止损单: {current_existing_id}")
             cancel_success = await self._exchange.cancel_order(
                 str(current_existing_id), self.config.exchange.symbol
             )
             if not cancel_success:
                 logger.warning(f"[止损更新] 取消止损单失败: {current_existing_id}")
-        elif old_stop_order_id and not current_existing_id:
-            # 交易所不存在，但本地有记录，说明本地记录已失效
-            logger.info(f"[止损更新] 本地记录 {old_stop_order_id} 已失效，交易所无订单")
+        else:
+            # 交易所无止损单
+            logger.info("[止损更新] 交易所无现有止损单")
+            if old_stop_order_id:
+                # 交易所不存在，但本地有记录，说明本地记录已失效
+                logger.info(f"[止损更新] 本地记录 {old_stop_order_id} 已失效")
 
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
         stop_order_id = await self._exchange.create_stop_loss(

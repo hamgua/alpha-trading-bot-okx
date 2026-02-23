@@ -123,7 +123,7 @@ class ExchangeClient:
         return await self._order_service.cancel_order(order_id, symbol)
 
     async def get_open_orders(self, symbol: str) -> list:
-        """获取当前未成交订单"""
+        """获取当前未成交订单（普通订单）"""
         try:
             orders = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.exchange.fetch_open_orders(symbol)
@@ -131,6 +131,22 @@ class ExchangeClient:
             return orders
         except Exception as e:
             logger.error(f"[订单查询] 获取开放订单失败: {e}")
+            return []
+
+    async def get_algo_orders(self, symbol: str) -> list:
+        """获取当前未成交算法订单（止损单、止盈单等）"""
+        try:
+            # OKX algo 订单需要使用 instId 而不是 symbol
+            inst_id = symbol.replace("/", "-").replace(":USDT", "-SWAP")
+            algo_orders = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.exchange.fetch_algo_orders(
+                    {"instId": inst_id, "ordType": "conditional"}
+                ),
+            )
+            return algo_orders
+        except Exception as e:
+            logger.error(f"[算法订单查询] 获取算法订单失败: {e}")
             return []
 
     async def cleanup(self) -> None:
