@@ -139,18 +139,18 @@ class MarketDataService:
                 logger.warning("余额为0，无法开仓")
                 return 0.0
 
-            # OKX永续合约: BTC/USDT:USDT 最小交易单位为 0.01 张
+            # OKX永续合约: BTC/USDT:USDT 最小交易单位为 0.001 张
             # 计算公式: 合约数 = (余额 * 杠杆) / 价格
             # 保留5%缓冲避免爆仓
             safe_balance = balance * 0.95
             max_contracts = (safe_balance * leverage) / price
 
-            # 保留4位小数精度，确保小于0.01的数不会被错误地四舍五入为0
+            # 保留4位小数精度，确保小于0.001的数不会被错误地四舍五入为0
             contracts = float(f"{max_contracts:.4f}")
 
             # 确保不低于最小交易单位
-            if contracts < 0.01:
-                logger.warning(f"计算所得合约数 {contracts} 小于最小单位0.01")
+            if contracts < 0.001:
+                logger.warning(f"计算所得合约数 {contracts} 小于最小单位0.001")
                 return 0.0
 
             logger.info(
