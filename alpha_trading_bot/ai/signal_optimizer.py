@@ -59,7 +59,7 @@ class OptimizerConfig:
 
     # 信号优化参数调整为更积极以提高信号多样性
     # 异常信号过滤
-    confidence_floor: float = 0.35  # 降低最低置信度
+    confidence_floor: float = 0.45  # 提高最低置信度阈值
     confidence_ceiling: float = 0.95  # 保持最高置信度
     rapid_change_threshold: float = 0.25  # 降低快速变化阈值
 
@@ -72,8 +72,8 @@ class OptimizerConfig:
     high_volatility_threshold: float = 0.04  # 提高高波动阈值
 
     # 连续信号检查
-    consecutive_limit: int = 2  # 减少连续信号限制
-    cooldown_period: int = 1  # 减少冷却期
+    consecutive_limit: int = 3  # 提高连续信号限制
+    cooldown_period: int = 2  # 增加冷却期
 
 
 class SignalOptimizer:

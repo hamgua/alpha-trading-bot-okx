@@ -160,8 +160,8 @@ class HighPriceBuyOptimizer:
         # 判断是否为原始 BUY 信号（对 BUY 信号减少惩罚）
         is_original_buy = original_signal.upper() == "BUY"
 
-        # BUY 信号惩罚系数（减少惩罚幅度）
-        penalty_factor = 0.5 if is_original_buy else 1.0
+        # BUY 信号惩罚系数（不减少惩罚，统一标准）
+        penalty_factor = 1.0
 
         # 6.1 价格水平调整
         if price_level == "high":
