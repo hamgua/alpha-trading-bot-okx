@@ -416,12 +416,18 @@ class TradingBot:
 
         # 使用上次记录的止损价进行容错比较
         old_stop = self.position_manager.last_stop_price
+        
+        # 无历史记录时，强制更新（不跳过）
         if old_stop <= 0:
-            old_stop = new_stop  # 无历史记录时默认不更新
+            logger.info(f"[止损更新] 无历史止损价记录，强制创建止损单")
+            old_stop = new_stop  # 临时设置为 new_stop 以避免后续计算错误
+            force_update = True
+        else:
+            force_update = False
 
         price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
 
-        if price_diff_percent < tolerance:
+        if price_diff_percent < tolerance and not force_update:
             logger.info(
                 f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%({tolerance * current_price:.1f}美元), 跳过更新"
             )

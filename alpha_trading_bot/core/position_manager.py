@@ -182,9 +182,16 @@ class PositionManager:
         if stop_price > 0:
             self._last_stop_price = stop_price
 
-        # 持久化更新止损单ID
+        # 持久化更新（同时保存 last_stop_price）
         if self._position:
-            self._persistence.update_stop_order(stop_order_id)
+            self._persistence.save_position(
+                symbol=self._position.symbol,
+                side=self._position.side,
+                amount=self._position.amount,
+                entry_price=self._entry_price,
+                stop_order_id=stop_order_id,
+                last_stop_price=self._last_stop_price,
+            )
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
 
