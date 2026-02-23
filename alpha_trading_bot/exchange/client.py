@@ -136,12 +136,11 @@ class ExchangeClient:
     async def get_algo_orders(self, symbol: str) -> list:
         """获取当前未成交算法订单（止损单、止盈单等）"""
         try:
-            # OKX algo 订单需要使用 instId 而不是 symbol
-            inst_id = symbol.replace("/", "-").replace(":USDT", "-SWAP")
+            # OKX: 使用 fetch_open_orders 并传入 ordType 参数来查询算法订单
             algo_orders = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.fetch_algo_orders(
-                    {"instId": inst_id, "ordType": "conditional"}
+                lambda: self.exchange.fetch_open_orders(
+                    symbol, params={"ordType": "conditional", "trigger": True}
                 ),
             )
             return algo_orders
