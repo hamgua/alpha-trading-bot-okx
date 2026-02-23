@@ -452,7 +452,7 @@ class TradingBot:
             # 交易所存在有效订单
             logger.info(f"[止损更新] 交易所现有止损单: {current_existing_id}")
             logger.info(f"[止损更新] 取消交易所现有止损单: {current_existing_id}")
-            cancel_result = await self._exchange.cancel_order(
+            cancel_result = await self._exchange.cancel_algo_order(
                 str(current_existing_id), self.config.exchange.symbol
             )
             cancel_success, cancel_reason = cancel_result
@@ -557,7 +557,7 @@ class TradingBot:
         if self.position_manager.stop_order_id:
             logger.info(f"[平仓] 取消旧止损单: {self.position_manager.stop_order_id}")
             try:
-                cancel_result = await self._exchange.cancel_order(
+                cancel_result = await self._exchange.cancel_algo_order(
                     self.position_manager.stop_order_id, self.config.exchange.symbol
                 )
                 cancel_success, cancel_reason = cancel_result

@@ -265,6 +265,43 @@ class OrderService:
                 logger.error(f"[订单取消] 取消订单失败: {order_id}, 错误={error_msg}")
                 return (False, "failed")
 
+    async def cancel_algo_order(self, algo_id: str, symbol: str) -> tuple[bool, str]:
+        """取消算法单（止损单、止盈单等）
+        
+        Args:
+            algo_id: 算法单ID (algoId)
+            symbol: 交易对，如 BTC/USDT:USDT
+            
+        Returns:
+            tuple: (success: bool, reason: str)
+                - (True, "success") - 取消成功
+                - (False, "already_gone") - 订单已成交/取消/不存在
+                - (False, "failed") - 取消失败
+        """
+        try:
+            # 转换交易对格式: BTC/USDT:USDT -> BTC-USDT
+            inst_id = symbol.split("/")[0] + "-" + symbol.split("/")[1].split(":")[0]
+            
+            logger.info(f"[算法单取消] 取消算法单: ID={algo_id}, instId={inst_id}")
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.exchange.private_post_trade_cancel_algos([
+                    {"instId": inst_id, "algoId": algo_id}
+                ])
+            )
+            logger.info(f"[算法单取消] 算法单取消成功: {algo_id}")
+            return (True, "success")
+        except Exception as e:
+            error_msg = str(e)
+            # 订单已成交/取消/不存在时，取消失败是正常的
+            if "51400" in error_msg or "does not exist" in error_msg or "filled" in error_msg:
+                logger.warning(f"[算法单取消] 算法单已不存在: {algo_id}, 错误={error_msg}")
+                return (False, "already_gone")
+            else:
+                logger.error(f"[算法单取消] 取消算法单失败: {algo_id}, 错误={error_msg}")
+                return (False, "failed")
+
+
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
         """
         查询订单状态
