@@ -279,8 +279,11 @@ class OrderService:
                 - (False, "failed") - 取消失败
         """
         try:
-            # 转换交易对格式: BTC/USDT:USDT -> BTC-USDT
-            inst_id = symbol.split("/")[0] + "-" + symbol.split("/")[1].split(":")[0]
+            # 转换交易对格式: BTC/USDT:USDT -> BTC-USDT-SWAP (期货合约格式)
+            parts = symbol.split("/")
+            base = parts[0]
+            quote = parts[1].split(":")[0] if ":" in parts[1] else parts[1]
+            inst_id = f"{base}-{quote}-SWAP"
             
             logger.info(f"[算法单取消] 取消算法单: ID={algo_id}, instId={inst_id}")
             await asyncio.get_event_loop().run_in_executor(
