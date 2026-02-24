@@ -44,11 +44,11 @@ class BuyConditions:
 
     # 超卖反弹模式参数
     oversold_enabled: bool = True
-    oversold_rsi_max: float = 40  # 收紧到40，允许更多买入机会
-    oversold_momentum_min: float = 0.003  # 从0.005降低到0.003，更容易捕捉小幅反弹
-    oversold_trend_strength_min: float = 0.1  # 提高到0.1，需要一定趋势支撑
-    oversold_bb_position_max: float = 45  # 收紧到45
-    oversold_position_factor: float = 0.6  # 从0.5提高到0.6
+    oversold_rsi_max: float = 35  # 收紧到35，真正超卖才买入
+    oversold_momentum_min: float = 0.005  # 提高到0.005，需要明显反弹
+    oversold_trend_strength_min: float = 0.15  # 提高到0.15，需要一定趋势支撑
+    oversold_bb_position_max: float = 40  # 收紧到40
+    oversold_position_factor: float = 0.5  # 降低仓位系数
 
     # 强势支撑模式参数
     support_enabled: bool = True
