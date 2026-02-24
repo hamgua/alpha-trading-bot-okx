@@ -620,6 +620,21 @@ class AdaptiveTradingBot:
                     f"[ML学习] 优化权重: {optimized_weights}, 置信度={confidence:.2f}"
                 )
 
+                # 6. 应用优化后的权重到配置（内存中直接生效）
+                if optimized_weights and confidence > 0.5:
+                    try:
+                        old_weights = getattr(self.config.ai, 'fusion_weights', {})
+                        self.config.ai.fusion_weights = optimized_weights
+                        logger.info(
+                            f"[ML学习] ✅ 权重已应用: {old_weights} -> {optimized_weights}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[ML学习] 应用权重失败: {e}")
+                else:
+                    logger.info(
+                        f"[ML学习] 跳过应用: 置信度={confidence:.2f} <= 0.5"
+                    )
+
                 logger.info("[ML学习] 后台优化任务完成")
 
             except asyncio.CancelledError:
