@@ -229,6 +229,33 @@ class AdaptiveTradingBot:
                 f"趋势: {market_state.trend_strength:.2f}"
             )
 
+
+            # === P1: 自适应参数调整（基于市场环境和绩效） ===
+            # 分析市场环境并自动调整交易参数
+            adjusted_config = self.param_manager.analyze_and_adjust(
+                market_data=market_data,
+                recent_performance=None
+            )
+            current_params = self.param_manager.get_current_params()
+
+            # 应用调整后的参数到主配置（使AI客户端可以使用）
+            if current_params.get('fusion_threshold'):
+                self.config.ai.fusion_threshold = current_params['fusion_threshold']
+            if current_params.get('stop_loss_percent'):
+                self.config.ai.stop_loss_percent = current_params['stop_loss_percent']
+            if current_params.get('position_multiplier'):
+                self.config.ai.position_multiplier = current_params['position_multiplier']
+            # 应用参数到 AI 集成器（adaptive_buy_condition 和 signal_optimizer）
+            if self._ai_client:
+                self._ai_client.update_integrator_config(current_params)
+
+            logger.info(
+                f"[自适应] 参数已调整: "
+                f"阈值={current_params.get('fusion_threshold', 0):.2f}, "
+                f"止损={current_params.get('stop_loss_percent', 0):.2%}, "
+                f"仓位乘数={current_params.get('position_multiplier', 1):.2f}"
+            )
+
             # 4. 获取持仓状态
             position_data = await self._exchange.get_position()
             has_position = position_data.get("has_position", False)

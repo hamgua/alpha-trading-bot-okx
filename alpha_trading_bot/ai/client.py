@@ -159,6 +159,47 @@ class AIClient:
             )
         )
 
+    def update_integrator_config(self, params: Dict[str, float]) -> None:
+        """更新集成器配置（用于自适应参数调整）
+        
+        Args:
+            params: 参数字典，包含 adaptive_buy_condition 和 signal_optimizer 参数
+        """
+        from .adaptive_buy_condition import BuyConditions
+        from .signal_optimizer import OptimizerConfig
+        from .integrator import IntegrationConfig
+        
+        # 更新 AdaptiveBuyCondition 配置
+        if self.integrator.adaptive_buy:
+            adaptive_cfg = self.integrator.adaptive_buy.config
+            
+            if 'oversold_rsi_max' in params:
+                adaptive_cfg.oversold_rsi_max = params['oversold_rsi_max']
+            if 'oversold_momentum_min' in params:
+                adaptive_cfg.oversold_momentum_min = params['oversold_momentum_min']
+            if 'oversold_trend_strength_min' in params:
+                adaptive_cfg.oversold_trend_strength_min = params['oversold_trend_strength_min']
+            if 'oversold_bb_position_max' in params:
+                adaptive_cfg.oversold_bb_position_max = params['oversold_bb_position_max']
+            if 'oversold_position_factor' in params:
+                adaptive_cfg.oversold_position_factor = params['oversold_position_factor']
+            if 'support_price_position_max' in params:
+                adaptive_cfg.support_price_position_max = params['support_price_position_max']
+            if 'support_position_factor' in params:
+                adaptive_cfg.support_position_factor = params['support_position_factor']
+        
+        # 更新 SignalOptimizer 配置
+        if self.integrator.signal_optimizer:
+            optimizer_cfg = self.integrator.signal_optimizer.config
+            
+            if 'confidence_floor' in params:
+                optimizer_cfg.confidence_floor = params['confidence_floor']
+            if 'rapid_change_threshold' in params:
+                optimizer_cfg.rapid_change_threshold = params['rapid_change_threshold']
+        
+        logger.info(f"[AIClient] 集成器配置已更新: {list(params.keys())}")
+
+
     async def get_signal(self, market_data: Dict[str, Any]) -> str:
         """获取交易信号，返回: buy / hold / sell"""
         # 检查缓存

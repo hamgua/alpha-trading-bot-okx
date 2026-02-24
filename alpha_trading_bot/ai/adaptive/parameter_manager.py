@@ -31,6 +31,19 @@ class AdaptiveConfig:
     base_buy_rsi_threshold: float = 70.0
     base_buy_trend_strength: float = 0.15
 
+    # === 新增：adaptive_buy_condition 参数 ===
+    base_oversold_rsi_max: float = 38.0
+    base_oversold_momentum_min: float = 0.004
+    base_oversold_trend_strength_min: float = 0.12
+    base_oversold_bb_position_max: float = 42.0
+    base_oversold_position_factor: float = 0.55
+    base_support_price_position_max: float = 40.0
+    base_support_position_factor: float = 0.85
+
+    # === 新增：signal_optimizer 参数 ===
+    base_confidence_floor: float = 0.42
+    base_rapid_change_threshold: float = 0.20
+
     # 当前调整后的值
     current_fusion_threshold: float = 0.5
     current_stop_loss_percent: float = 0.005
@@ -38,6 +51,19 @@ class AdaptiveConfig:
     current_position_multiplier: float = 1.0
     current_buy_rsi_threshold: float = 70.0
     current_buy_trend_strength: float = 0.15
+
+    # === 新增：adaptive_buy_condition 当前值 ===
+    current_oversold_rsi_max: float = 38.0
+    current_oversold_momentum_min: float = 0.004
+    current_oversold_trend_strength_min: float = 0.12
+    current_oversold_bb_position_max: float = 42.0
+    current_oversold_position_factor: float = 0.55
+    current_support_price_position_max: float = 40.0
+    current_support_position_factor: float = 0.85
+
+    # === 新增：signal_optimizer 当前值 ===
+    current_confidence_floor: float = 0.42
+    current_rapid_change_threshold: float = 0.20
 
     # 最后更新时间
     last_updated: Optional[str] = None
@@ -51,6 +77,16 @@ class AdaptiveConfig:
             "position_multiplier": self.current_position_multiplier,
             "buy_rsi_threshold": self.current_buy_rsi_threshold,
             "buy_trend_strength": self.current_buy_trend_strength,
+            # === 新增 ===
+            "oversold_rsi_max": self.current_oversold_rsi_max,
+            "oversold_momentum_min": self.current_oversold_momentum_min,
+            "oversold_trend_strength_min": self.current_oversold_trend_strength_min,
+            "oversold_bb_position_max": self.current_oversold_bb_position_max,
+            "oversold_position_factor": self.current_oversold_position_factor,
+            "support_price_position_max": self.current_support_price_position_max,
+            "support_position_factor": self.current_support_position_factor,
+            "confidence_floor": self.current_confidence_floor,
+            "rapid_change_threshold": self.current_rapid_change_threshold,
         }
 
     def apply_adjustments(self, adjustments: Dict[str, float]) -> None:
@@ -65,9 +101,7 @@ class AdaptiveConfig:
 
         # 盈利止损
         if "stop_loss_profit_percent" in adjustments:
-            self.current_stop_loss_profit_percent = adjustments[
-                "stop_loss_profit_percent"
-            ]
+            self.current_stop_loss_profit_percent = adjustments["stop_loss_profit_percent"]
 
         # 仓位乘数
         if "position_multiplier" in adjustments:
@@ -81,6 +115,28 @@ class AdaptiveConfig:
         if "buy_trend_strength" in adjustments:
             self.current_buy_trend_strength = adjustments["buy_trend_strength"]
 
+        # === 新增：adaptive_buy_condition 参数 ===
+        if "oversold_rsi_max" in adjustments:
+            self.current_oversold_rsi_max = adjustments["oversold_rsi_max"]
+        if "oversold_momentum_min" in adjustments:
+            self.current_oversold_momentum_min = adjustments["oversold_momentum_min"]
+        if "oversold_trend_strength_min" in adjustments:
+            self.current_oversold_trend_strength_min = adjustments["oversold_trend_strength_min"]
+        if "oversold_bb_position_max" in adjustments:
+            self.current_oversold_bb_position_max = adjustments["oversold_bb_position_max"]
+        if "oversold_position_factor" in adjustments:
+            self.current_oversold_position_factor = adjustments["oversold_position_factor"]
+        if "support_price_position_max" in adjustments:
+            self.current_support_price_position_max = adjustments["support_price_position_max"]
+        if "support_position_factor" in adjustments:
+            self.current_support_position_factor = adjustments["support_position_factor"]
+
+        # === 新增：signal_optimizer 参数 ===
+        if "confidence_floor" in adjustments:
+            self.current_confidence_floor = adjustments["confidence_floor"]
+        if "rapid_change_threshold" in adjustments:
+            self.current_rapid_change_threshold = adjustments["rapid_change_threshold"]
+
         self.last_updated = datetime.now().isoformat()
 
     def reset_to_base(self) -> None:
@@ -91,6 +147,16 @@ class AdaptiveConfig:
         self.current_position_multiplier = self.base_position_multiplier
         self.current_buy_rsi_threshold = self.base_buy_rsi_threshold
         self.current_buy_trend_strength = self.base_buy_trend_strength
+        # === 新增 ===
+        self.current_oversold_rsi_max = self.base_oversold_rsi_max
+        self.current_oversold_momentum_min = self.base_oversold_momentum_min
+        self.current_oversold_trend_strength_min = self.base_oversold_trend_strength_min
+        self.current_oversold_bb_position_max = self.base_oversold_bb_position_max
+        self.current_oversold_position_factor = self.base_oversold_position_factor
+        self.current_support_price_position_max = self.base_support_price_position_max
+        self.current_support_position_factor = self.base_support_position_factor
+        self.current_confidence_floor = self.base_confidence_floor
+        self.current_rapid_change_threshold = self.base_rapid_change_threshold
         self.last_updated = datetime.now().isoformat()
 
 
