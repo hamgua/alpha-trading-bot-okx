@@ -27,9 +27,9 @@ class HighPriceBuyConfig:
     # 价格位置阈值（根据价格水平调整）
     price_position_threshold_low: float = 30  # 低价位时：<30%（从20提高）
     price_position_threshold_mid: float = 35  # 中价位时：<35%（从15提高）
-    price_position_threshold_high: float = (
-        45  # 高价位时：<45%（从10提高，允许更高价位买入）
-    )
+    price_position_threshold_high: float = 40  # 45→40，高价位时更严格过滤
+
+
 
     # 价格水平划分（基于近期价格范围的百分比）
     price_level_mid_threshold: float = 0.60  # 价格>近期60%为中高位（从70降低）

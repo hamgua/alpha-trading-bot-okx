@@ -35,16 +35,17 @@ class FusionConfig:
 
     strategy: FusionStrategyType = FusionStrategyType.CONSENSUS_BOOSTED
     threshold: float = 0.36
-    consensus_boost_full: float = 1.4
-    consensus_boost_partial: float = 1.2
+    consensus_boost_full: float = 1.25  # 1.4→1.25，降低全一致强化
+    consensus_boost_partial: float = 1.1  # 1.2→1.1，降低部分一致强化
     default_confidence: int = 70
     partial_consensus_threshold: float = 0.4
     kimi_buy_rebound_boost: float = 1.3
     rsi_rebound_low: float = 28
-    rsi_rebound_high: float = 72
-    rsi_high_suppression: float = 75
+    rsi_rebound_high: float = 70  # 72→70，让SELL更早触发
+    rsi_high_suppression: float = 72  # 75→72，高位抑制更早生效
     enable_rebound_mode: bool = True
-    buy_bias: float = 1.15
+    buy_bias: float = 1.0  # 1.15→1.0，移除买入偏置，保持信号平衡
+    sell_bias: float = 1.15  # 新增卖出偏置，当RSI>70时启用
 
 
 @dataclass
@@ -508,6 +509,39 @@ class ConsensusBoostedFusion:
                 weighted_scores[sig] /= total
 
         # 步骤4: 买入偏好 - 当buy与hold得分接近时，倾向买入
+        if self.config.buy_bias > 1.0:
+            buy_score = weighted_scores.get("buy", 0)
+            hold_score = weighted_scores.get("hold", 0)
+            # 如果buy得分在hold的85%以内，给buy一个偏好加成
+            if hold_score > 0 and buy_score >= hold_score * 0.85:
+                weighted_scores["buy"] *= self.config.buy_bias
+                logger.info(
+                    f"[融合] 买入偏好触发: buy={buy_score:.3f}, hold={hold_score:.3f}, "
+                    f"偏好系数={self.config.buy_bias}x"
+                )
+                # 重新归一化
+                total = sum(weighted_scores.values())
+                if total > 0:
+                    for sig in weighted_scores:
+                        weighted_scores[sig] /= total
+
+        # 步骤4.1: 卖出偏好 - 当RSI超买时，倾向SELL
+        if self.config.sell_bias > 1.0 and rsi > 70:
+            sell_score = weighted_scores.get("sell", 0)
+            hold_score = weighted_scores.get("hold", 0)
+            # 如果sell得分不为0，给予卖出偏好
+            if sell_score > 0:
+                weighted_scores["sell"] *= self.config.sell_bias
+                logger.info(
+                    f"[融合] 卖出偏好触发(RSI超买): RSI={rsi:.1f}, sell={sell_score:.3f}, "
+                    f"偏好系数={self.config.sell_bias}x"
+                )
+                # 重新归一化
+                total = sum(weighted_scores.values())
+                if total > 0:
+                    for sig in weighted_scores:
+                        weighted_scores[sig] /= total
+
         if self.config.buy_bias > 1.0:
             buy_score = weighted_scores.get("buy", 0)
             hold_score = weighted_scores.get("hold", 0)
