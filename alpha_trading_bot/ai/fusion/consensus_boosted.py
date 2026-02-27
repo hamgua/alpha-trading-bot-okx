@@ -162,7 +162,7 @@ class ConsensusBoostedFusion:
                     if confidences
                     else self.config.default_confidence
                 )
-                raw_scores[sig] += weight * (confidence / 100.0)
+                raw_scores[sig] += weight * confidence
 
             # 确定可能胜出的信号类型
             likely_winner = max(raw_scores, key=raw_scores.get)
@@ -215,7 +215,7 @@ class ConsensusBoostedFusion:
             if confidences:
                 confidence = confidences.get(provider, self.config.default_confidence)
 
-            adjusted_weight = weight * (confidence / 100.0)
+            adjusted_weight = weight * confidence
             weighted_scores[sig] += adjusted_weight
             total_weight += adjusted_weight
 
@@ -443,7 +443,7 @@ class ConsensusBoostedFusion:
             if confidences:
                 confidence = confidences.get(provider, self.config.default_confidence)
 
-            adjusted_weight = weight * (confidence / 100.0)
+            adjusted_weight = weight * confidence
 
             # Kimi BUY在反弹区间加权
             if (
