@@ -795,7 +795,8 @@ class AdaptiveTradingBot:
         # 使用 position_manager 的历史止损价进行容错判断
         old_stop = self.position_manager.last_stop_price
         
-        # 容错阈值（默认 0.5%，避免频繁更新）
+        #HB|        # 容错阈值（从配置读取）
+#KR|        tolerance = self.config.stop_loss.stop_loss_tolerance_percent
         tolerance = 0.005
         tolerance = 0.001
         
@@ -816,7 +817,46 @@ class AdaptiveTradingBot:
                 logger.info(f"[止损更新] 止损单取消成功")
             except Exception as e:
                 logger.warning(f"[止损更新] 取消止损单失败: {e}")
-        
+        #TK|        
+#XH|        # 创建新止损单（带重试机制）
+#HX|        amount = position_data.get("amount", 0.01)
+#NY|        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
+#QX|        stop_order_id = await self._create_stop_loss_with_retry(
+#JM|            amount=amount,
+#VR|            stop_price=new_stop_price,
+#WK|            current_price=current_price,
+#KP|            max_retries=2,
+#KW|        )
+#MK|        if stop_order_id:
+#JT|            self.position_manager.set_stop_order(stop_order_id, new_stop_price)
+#QS|            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+#ZR|        else:
+#PH|            logger.error("[止损更新] 止损单创建失败")
+
+    async def _create_stop_loss_with_retry(
+        self, amount: float, stop_price: float, current_price: float, max_retries: int = 2
+    ) -> Optional[str]:
+        """创建止损单（带重试机制）"""
+        for attempt in range(max_retries + 1):
+            try:
+                stop_order_id = await self._exchange.create_stop_loss(
+                    symbol=self._exchange.symbol, side="sell", amount=amount, stop_price=stop_price
+                )
+                if stop_order_id:
+                    return stop_order_id
+                if attempt < max_retries:
+                    stop_price = stop_price * 0.998
+                    logger.warning(f"[止损重试] 第{attempt+1}次失败，降低止损价至 {stop_price:.1f}")
+            except Exception as e:
+                if "SL trigger price" in str(e) and attempt < max_retries:
+                    stop_price = stop_price * 0.998
+                    logger.warning(f"[止损重试] 止损价过高，降低至 {stop_price:.1f}")
+                    continue
+                logger.error(f"[止损重试] 创建止损单失败: {e}")
+                break
+        return None
+
+    async def _get_existing_stop_order_id(self) -> Optional[str]:
         # 创建新止损单
         amount = position_data.get("amount", 0.01)
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
