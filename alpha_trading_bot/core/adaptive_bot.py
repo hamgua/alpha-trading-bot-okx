@@ -258,6 +258,23 @@ class AdaptiveTradingBot:
             # 4. 获取持仓状态
             position_data = await self._exchange.get_position() or {}
             has_position = bool(position_data.get("amount", 0) > 0)
+            position_side = position_data.get("side", "")
+
+            # 检查是否需要平空仓
+            is_short_to_close = position_side == "short_to_close"
+
+            if has_position:
+                # 更新 position_manager（确保止损更新使用最新持仓数据）
+                self.position_manager.update_from_exchange(position_data)
+                entry_price = position_data.get("entry_price", 0)
+                if is_short_to_close:
+                    logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
+                else:
+                    logger.info(f"[持仓] 有持仓: {entry_price}")
+            else:
+                logger.info("[持仓] 无持仓")
+            position_data = await self._exchange.get_position() or {}
+            has_position = bool(position_data.get("amount", 0) > 0)
             if has_position:
                 # 更新 position_manager（确保止损更新使用最新持仓数据）
                 self.position_manager.update_from_exchange(position_data)
@@ -312,6 +329,24 @@ class AdaptiveTradingBot:
                 )
 
             # 10. 信号决策
+            final_signal = self._make_decision(ai_signal, selected, market_data)
+
+            # 如果检测到空单需要平仓，强制平仓
+            if is_short_to_close:
+                logger.warning("[决策] 检测到空单，强制平仓")
+                final_signal = {
+                    "action": "close_short",
+                    "reason": "强制平空单",
+                    "confidence": 1.0,
+                    "strategy": "auto_close_short",
+                }
+
+            if final_signal["action"] == "skip":
+                if has_position and not is_short_to_close:
+                    await self._update_stop_loss(current_price, position_data)
+                logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
             if final_signal["action"] == "skip":
@@ -515,6 +550,30 @@ class AdaptiveTradingBot:
                 logger.warning("[学习] 无待平仓记录")
 
             # 调用交易所API平仓
+            symbol = self._exchange.symbol
+            amount = position_data.get("amount", 0.01)
+
+            # 平仓方向：根据持仓类型决定
+            if action == "close_short":
+                # 平空单 = 买入
+                logger.info(f"[执行] 平空单(买入): 价格={current_price}")
+                order_id = await self._exchange.create_order(
+                    symbol=symbol,
+                    side="buy",  # 买入平空单
+                    amount=amount,
+                    order_type="market",
+                )
+                logger.info(f"[执行] 平空单订单已提交: {order_id}")
+            else:
+                # 平多单 = 卖出
+                logger.info(f"[执行] 平多单(卖出): 价格={current_price}")
+                order_id = await self._exchange.create_order(
+                    symbol=symbol,
+                    side="sell",  # 卖出平多单
+                    amount=amount,
+                    order_type="market",
+                )
+                logger.info(f"[执行] 平多单订单已提交: {order_id}")
             symbol = self._exchange.symbol
             amount = position_data.get("amount", 0.01)
 
