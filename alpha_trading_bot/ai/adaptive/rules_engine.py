@@ -88,7 +88,7 @@ class VolatilityRule(AdaptiveRule):
         """评估波动率规则"""
         atr_percent = market_state.atr_percent
 
-        if atr_percent > 0.045:  # 极高波动
+        if atr_percent > 45:  # 极高波动  # 极高波动
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -102,7 +102,7 @@ class VolatilityRule(AdaptiveRule):
                 confidence=0.9,
             )
 
-        elif atr_percent > 0.035:  # 高波动
+        elif atr_percent > 35:  # 高波动  # 高波动
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -116,7 +116,7 @@ class VolatilityRule(AdaptiveRule):
                 confidence=0.85,
             )
 
-        elif atr_percent > 0.025:  # 中高波动
+        elif atr_percent > 20:  # 中高波动  # 中高波动
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,

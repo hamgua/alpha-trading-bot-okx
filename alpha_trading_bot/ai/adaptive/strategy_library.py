@@ -381,7 +381,7 @@ class SafeModeStrategy(BaseStrategy):
         reasons = []
 
         # 极高波动
-        if atr_percent > 0.05:
+        if atr_percent > 50:  # ATR% > 50%
             is_extreme = True
             reasons.append(f"波动率极高({atr_percent:.2%})")
 
@@ -427,7 +427,7 @@ class SafeModeStrategy(BaseStrategy):
             weight=2.0,
             priority=10,  # 最高优先级
             params={
-                "max_volatility": 0.05,
+                "max_volatility": 50,  # 50% ATR 阈值
                 "max_drop_1h": 0.03,
                 "min_trend": 0.1,
             },
