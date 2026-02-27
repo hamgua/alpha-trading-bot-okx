@@ -259,6 +259,8 @@ class AdaptiveTradingBot:
             position_data = await self._exchange.get_position() or {}
             has_position = bool(position_data.get("amount", 0) > 0)
             if has_position:
+                # 更新 position_manager（确保止损更新使用最新持仓数据）
+                self.position_manager.update_from_exchange(position_data)
                 entry_price = position_data.get("entry_price", 0)
                 logger.info(f"[持仓] 有持仓: {entry_price}")
             else:
