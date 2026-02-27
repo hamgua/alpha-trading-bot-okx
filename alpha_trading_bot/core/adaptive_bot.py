@@ -485,7 +485,11 @@ class AdaptiveTradingBot:
                 logger.info("[执行] 已有持仓，跳过开仓")
                 return
 
-            # 开仓
+            logger.info(f"[执行] 开仓: 价格={current_price}")
+            stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+            stop_loss_price = current_price * (1 - stop_loss_percent)
+            logger.info(f"[执行] 止损: {stop_loss_price:.1f} ({stop_loss_percent:.2%})")
+            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
             logger.info(f"[执行] 开仓: 价格={current_price}")
             stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
             stop_loss_price = current_price * (1 - stop_loss_percent)

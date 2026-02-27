@@ -119,6 +119,8 @@ class OrderService:
         """解析交易所订单响应"""
         order_id = order.get("id", "") or ""
         status_str = (order.get("status") or "unknown").lower()
+        symbol = order.get("symbol", "")
+        status_str = (order.get("status") or "unknown").lower()
         status_str = order.get("status", "unknown").lower()
         symbol = order.get("symbol", "")
         side = order.get("side", "")
