@@ -255,7 +255,102 @@ class AdaptiveTradingBot:
                 f"止损={current_params.get('stop_loss_percent', 0):.2%}, "
                 f"仓位乘数={current_params.get('position_multiplier', 1):.2f}"
             )
-            # 4. 获取持仓状态
+            # 4. 获取所有策略信号
+            strategy_signals = self.strategy_library.get_all_signals(market_data)
+            logger.info(f"[策略] {len(strategy_signals)} 个策略产生信号")
+
+            # 5. 获取AI融合信号
+            logger.info("[AI] 获取融合信号...")
+            ai_signal = await self._ai_client.get_signal(market_data)
+            ai_signal = SignalProcessor.process(ai_signal)
+            logger.info(f"[AI] 原始信号: {ai_signal}")
+
+            # 6. 策略选择（此时还没有持仓数据）
+            selected = self.strategy_manager.analyze_and_select(
+                market_data, {}  # 无持仓
+            )
+            logger.info(
+                f"[选择] {selected.strategy_type}: {selected.signal} "
+                f"(置信度: {selected.confidence:.0%})"
+            )
+            for reason in selected.reasons:
+                logger.info(f"  - {reason}")
+
+            # 7. 获取持仓状态
+            position_data = await self._exchange.get_position() or {}
+            has_position = bool(position_data.get("amount", 0) > 0)
+            position_side = position_data.get("side", "")
+            is_short_to_close = position_side == "short_to_close"
+
+            if has_position:
+                self.position_manager.update_from_exchange(position_data)
+                entry_price = position_data.get("entry_price", 0)
+                if is_short_to_close:
+                    logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
+                else:
+                    logger.info(f"[持仓] 有持仓: {entry_price}")
+            else:
+                logger.info("[持仓] 无持仓")
+
+            # 8. 风险状态评估
+            risk_state = self.risk_manager.assess_risk(market_data, position_data)
+            logger.info(
+                f"[风险] 等级: {risk_state.risk_level.value}, "
+                f"回撤: {risk_state.current_drawdown:.2%}, "
+                f"熔断: {'是' if risk_state.circuit_breaker_active else '否'}"
+            )
+
+            if risk_state.circuit_breaker_active:
+                logger.warning(f"[风险] 熔断中: {risk_state.circuit_breaker_reason}")
+                logger.info("跳过后续交易，等待下一个周期")
+                return
+
+            # 9. 规则评估
+            perf = self.performance_tracker.get_performance_metrics()
+            market_state = self.regime_detector.detect(market_data)
+            rule_result = self.rules_engine.evaluate_all(market_state, perf)
+
+            if rule_result["adjustments"]:
+                logger.info(
+                    f"[规则] 将应用 {len(rule_result['triggered_rules'])} 个规则: "
+                    f"{rule_result['triggered_rules']}"
+                )
+
+            # 10. 信号决策
+            final_signal = self._make_decision(ai_signal, selected, market_data)
+
+            # 强制平空仓
+            if is_short_to_close:
+                logger.warning("[决策] 检测到空单，强制平仓")
+                final_signal = {
+                    "action": "close_short",
+                    "reason": "强制平空单",
+                    "confidence": 1.0,
+                    "strategy": "auto_close_short",
+                }
+
+            # 有持仓时的处理
+            if has_position and not is_short_to_close:
+                if final_signal["action"] == "open":
+                    logger.info("[决策] 已有持仓，跳过开仓，更新止损")
+                    final_signal = {"action": "skip", "reason": "已有持仓"}
+
+            if final_signal["action"] == "skip":
+                if has_position and not is_short_to_close:
+                    await self._update_stop_loss(current_price, position_data)
+                logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
+
+            # 11. 执行交易
+            await self._execute_trade(
+                final_signal["action"],
+                current_price,
+                has_position,
+                position_data,
+                market_data,
+                selected_strategy=selected,
+            )
             position_data = await self._exchange.get_position() or {}
             has_position = bool(position_data.get("amount", 0) > 0)
             position_side = position_data.get("side", "")
@@ -273,15 +368,7 @@ class AdaptiveTradingBot:
                     logger.info(f"[持仓] 有持仓: {entry_price}")
             else:
                 logger.info("[持仓] 无持仓")
-            position_data = await self._exchange.get_position() or {}
-            has_position = bool(position_data.get("amount", 0) > 0)
-            if has_position:
-                # 更新 position_manager（确保止损更新使用最新持仓数据）
-                self.position_manager.update_from_exchange(position_data)
-                entry_price = position_data.get("entry_price", 0)
-                logger.info(f"[持仓] 有持仓: {entry_price}")
-            else:
-                logger.info("[持仓] 无持仓")
+
 
             # 5. 风险状态评估
             risk_state = self.risk_manager.assess_risk(market_data, position_data)
@@ -347,14 +434,7 @@ class AdaptiveTradingBot:
                 logger.info("[决策] 跳过交易，等待下一个周期")
                 logger.info("=" * 60)
                 return
-            final_signal = self._make_decision(ai_signal, selected, market_data)
 
-            if final_signal["action"] == "skip":
-                if has_position:
-                    await self._update_stop_loss(current_price, position_data)
-                logger.info("[决策] 跳过交易，等待下一个周期")
-                logger.info("=" * 60)
-                return
 
             # 11. 执行交易
             await self._execute_trade(
