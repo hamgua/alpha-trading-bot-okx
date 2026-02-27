@@ -17,6 +17,7 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,15 +26,13 @@ class HighPriceBuyConfig:
     """高位买入优化配置"""
 
     # 价格位置阈值（根据价格水平调整）
-    price_position_threshold_low: float = 30  # 低价位时：<30%（从20提高）
-    price_position_threshold_mid: float = 35  # 中价位时：<35%（从15提高）
-    price_position_threshold_high: float = 40  # 45→40，高价位时更严格过滤
-
-
+    price_position_threshold_low: float = 35  # 低价位时：30→35（放宽）
+    price_position_threshold_mid: float = 40  # 中价位时：35→40（放宽）
+    price_position_threshold_high: float = 45  # 高价位时：40→45（放宽）
 
     # 价格水平划分（基于近期价格范围的百分比）
-    price_level_mid_threshold: float = 0.60  # 价格>近期60%为中高位（从70降低）
-    price_level_high_threshold: float = 0.80  # 价格>近期80%为高位（从85降低）
+    price_level_mid_threshold: float = 0.65  # 价格>近期65%为中高位：60→65（放宽）
+    price_level_high_threshold: float = 0.82  # 价格>近期82%为高位：80→82（放宽）
 
     # RSI阈值（根据价格水平调整）
     rsi_threshold_low: float = 50  # 低价位RSI上限（从35提高）
@@ -46,12 +45,16 @@ class HighPriceBuyConfig:
     trend_strength_threshold_high: float = 0.30  # 高价位趋势强度（从0.45降低）
 
     # 价格位置上升惩罚
-    price_position_rise_threshold: float = 0.25  # 价格上涨位置>25%时惩罚（从15%提高）
-    price_position_rise_penalty: float = 0.10  # 惩罚幅度（从0.15降低）
+    price_position_rise_threshold: float = (
+        0.30  # 价格上涨位置>30%时惩罚：25%→30%（放宽）
+    )
+    price_position_rise_penalty: float = 0.08  # 惩罚幅度：10%→8%（减轻）
 
     # 近期高点检测
     recent_high_periods: int = 10  # 近期高点周期数
-    high_proximity_threshold: float = 0.05  # 价格>近期高点5%以内为接近高点（从3%提高）
+    high_proximity_threshold: float = (
+        0.08  # 价格>近期高点8%以内为接近高点：5%→8%（放宽）
+    )
 
 
 @dataclass
