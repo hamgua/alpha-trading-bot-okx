@@ -257,7 +257,7 @@ class AdaptiveTradingBot:
             )
 
             # 4. 获取持仓状态
-            position_data = await self._exchange.get_position()
+            position_data = await self._exchange.get_position() or {}
             has_position = position_data.get("has_position", False)
 
             if has_position:
@@ -315,6 +315,9 @@ class AdaptiveTradingBot:
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
             if final_signal["action"] == "skip":
+                logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
                 logger.info("[决策] 跳过交易，等待下一个周期")
                 return
 

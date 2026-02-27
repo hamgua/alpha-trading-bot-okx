@@ -171,7 +171,7 @@ class AIClient:
         
         # 更新 AdaptiveBuyCondition 配置
         if self.integrator.adaptive_buy:
-            adaptive_cfg = self.integrator.adaptive_buy.config
+            adaptive_cfg = self.integrator.adaptive_buy.conditions
             
             if 'oversold_rsi_max' in params:
                 adaptive_cfg.oversold_rsi_max = params['oversold_rsi_max']
