@@ -3,9 +3,9 @@
 纯Python实现，不依赖外部库
 """
 
-from typing import List, Dict, Any
+from typing import Any, Dict, List
 
-from .momentum import calculate_rsi, calculate_macd, calculate_ema
+from .momentum import calculate_ema, calculate_macd, calculate_rsi
 from .trend import calculate_adx, calculate_trend
 from .volatility import calculate_atr, calculate_bollinger_bands, calculate_true_range
 
@@ -27,13 +27,10 @@ __all__ = [
 
 
 def calculate_all_indicators(
-    prices: List[float],
-    highs: List[float],
-    lows: List[float],
-    closes: List[float]
+    prices: List[float], highs: List[float], lows: List[float], closes: List[float]
 ) -> Dict[str, Any]:
     """计算所有技术指标"""
-    result = {}
+    result: Dict[str, Any] = {}
 
     # RSI
     result["rsi"] = calculate_rsi(closes, 14)

@@ -373,6 +373,17 @@ class StatePersistence:
         try:
             if self.history_file.exists():
                 with open(self.history_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+        except Exception as e:
+            logger.warning(f"[持久化] 加载交易历史失败: {e}")
+
+        return []
+        """加载交易历史"""
+        try:
+            if self.history_file.exists():
+                with open(self.history_file, "r", encoding="utf-8") as f:
                     return json.load(f)
         except Exception as e:
             logger.warning(f"[持久化] 加载交易历史失败: {e}")

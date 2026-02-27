@@ -182,23 +182,11 @@ class SystemConfig:
 class Config:
     """主配置"""
 
-    exchange: Optional[ExchangeConfig] = None
-    trading: Optional[TradingConfig] = None
-    ai: Optional[AIConfig] = None
-    stop_loss: Optional[StopLossConfig] = None
-    system: Optional[SystemConfig] = None
-
-    def __post_init__(self):
-        if self.exchange is None:
-            self.exchange = ExchangeConfig()
-        if self.trading is None:
-            self.trading = TradingConfig()
-        if self.ai is None:
-            self.ai = AIConfig()
-        if self.stop_loss is None:
-            self.stop_loss = StopLossConfig()
-        if self.system is None:
-            self.system = SystemConfig()
+    exchange: ExchangeConfig = field(default_factory=ExchangeConfig)
+    trading: TradingConfig = field(default_factory=TradingConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
+    stop_loss: StopLossConfig = field(default_factory=StopLossConfig)
+    system: SystemConfig = field(default_factory=SystemConfig)
 
     def validate(self) -> List[str]:
         """验证所有配置，返回错误列表"""

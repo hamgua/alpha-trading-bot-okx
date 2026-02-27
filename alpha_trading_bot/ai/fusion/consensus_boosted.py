@@ -153,7 +153,7 @@ class ConsensusBoostedFusion:
             # 根据市场环境动态调整信号触发条件
 
             # 先计算原始得分，确定可能胜出的信号类型
-            raw_scores = {"buy": 0, "hold": 0, "sell": 0}
+            raw_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
             for s in signals:
                 sig = s["signal"]
                 weight = weights.get(s["provider"], 1.0)
@@ -204,7 +204,7 @@ class ConsensusBoostedFusion:
         """加权平均融合"""
         threshold = threshold or self.config.threshold
 
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0}
+        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
         total_weight = 0
 
         for s in signals:
@@ -427,7 +427,7 @@ class ConsensusBoostedFusion:
             )
 
         # 步骤1: 计算加权得分
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0}
+        weighted_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0}
         total_weight = 0
 
         # 检查是否有Kimi BUY信号
