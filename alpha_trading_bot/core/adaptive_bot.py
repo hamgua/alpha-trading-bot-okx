@@ -458,6 +458,24 @@ class AdaptiveTradingBot:
             )
             logger.info("[学习] 已记录开仓信号，用于后续学习")
 
+#KH|            # === P2: 检查余额和最小交易量 ===
+            symbol = self._exchange.symbol
+            balance = await self._exchange.get_balance()
+            if balance <= 0:
+                logger.warning("[开仓] 可用余额为0，无法开仓")
+                return
+
+            max_contracts = (balance * 0.95 * self.config.exchange.leverage) / current_price
+            if max_contracts < 0.01:
+                logger.warning(
+                    f"[开仓] 计算所得合约数 {max_contracts:.4f} 小于最小单位0.01，无法交易"
+                )
+                return
+
+#ZH|            # 调用交易所API开仓
+            amount = risk_params.get("suggested_position", 0.01)
+            stop_loss_price = risk_params.get("stop_loss_price")
+
             # 调用交易所API开仓
             symbol = self._exchange.symbol
             amount = risk_params.get("suggested_position", 0.01)
