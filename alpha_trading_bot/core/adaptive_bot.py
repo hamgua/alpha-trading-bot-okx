@@ -329,8 +329,10 @@ class AdaptiveTradingBot:
                     )
                     logger.info(f"[决策] 止损单已更新: {new_stop_price}")
                 logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
                 return
                 logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
                 return
 
             # 11. 执行交易
@@ -349,6 +351,7 @@ class AdaptiveTradingBot:
             return
 
         logger.info("[周期] 完成")
+        logger.info("=" * 60)
 
     def _make_decision(
         self,
