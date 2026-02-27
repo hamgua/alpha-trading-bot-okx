@@ -315,6 +315,16 @@ class AdaptiveTradingBot:
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
             if final_signal["action"] == "skip":
+                # 检查是否有持仓，有则更新止损（带容错判断）
+                if has_position:
+                    await self._update_stop_loss(current_price, position_data)
+                else:
+                    logger.info("[决策] 跳过交易，无持仓 -> 不操作")
+                logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
+
+#NB|            # 11. 执行交易
                 # 检查是否有持仓，有则更新止损
                 if has_position:
                     logger.info("[决策] 跳过交易，但有持仓 -> 更新止损")
@@ -771,3 +781,64 @@ class AdaptiveTradingBot:
             "performance": self.performance_tracker.get_performance_metrics().__dict__,
             "config_version": self.config_updater.get_summary()["version"],
         }
+
+
+    async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
+        """更新止损订单（带容错判断，避免频繁更新）"""
+        params = self.param_manager.get_current_params()
+        stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+        new_stop_price = current_price * (1 - stop_loss_percent)
+        
+        # 查询交易所现有止损单
+        existing_stop_id = await self._get_existing_stop_order_id()
+        
+        # 使用 position_manager 的历史止损价进行容错判断
+        old_stop = self.position_manager.last_stop_price
+        
+        # 容错阈值（默认 0.5%，避免频繁更新）
+        tolerance = 0.005
+        tolerance = 0.001
+        
+        if old_stop > 0:
+            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
+            if price_diff_percent < tolerance:
+                logger.info(
+                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%,"
+                    f" 跳过更新 (旧止损价={old_stop:.1f}, 新止损价={new_stop_price:.1f})"
+                )
+                return
+        
+        # 取消现有止损单
+        if existing_stop_id:
+            logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
+            try:
+                await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
+                logger.info(f"[止损更新] 止损单取消成功")
+            except Exception as e:
+                logger.warning(f"[止损更新] 取消止损单失败: {e}")
+        
+        # 创建新止损单
+        amount = position_data.get("amount", 0.01)
+        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
+        stop_order_id = await self._exchange.create_stop_loss(
+            symbol=self._exchange.symbol,
+            side="sell",
+            amount=amount,
+            stop_price=new_stop_price,
+        )
+        if stop_order_id:
+            self.position_manager.set_stop_order(stop_order_id, new_stop_price)
+            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+        else:
+            logger.error("[止损更新] 止损单创建失败")
+
+    async def _get_existing_stop_order_id(self) -> Optional[str]:
+        """查询交易所中现有的止损单ID"""
+        try:
+            algo_orders = await self._exchange.get_algo_orders(self._exchange.symbol)
+            for order in algo_orders:
+                if order.get("algoType") == "stop":
+                    return order.get("orderId")
+        except Exception as e:
+            logger.debug(f"[止损查询] 查询失败: {e}")
+        return None
