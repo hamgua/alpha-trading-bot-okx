@@ -351,101 +351,6 @@ class AdaptiveTradingBot:
                 market_data,
                 selected_strategy=selected,
             )
-            position_data = await self._exchange.get_position() or {}
-            has_position = bool(position_data.get("amount", 0) > 0)
-            position_side = position_data.get("side", "")
-
-            # 检查是否需要平空仓
-            is_short_to_close = position_side == "short_to_close"
-
-            if has_position:
-                # 更新 position_manager（确保止损更新使用最新持仓数据）
-                self.position_manager.update_from_exchange(position_data)
-                entry_price = position_data.get("entry_price", 0)
-                if is_short_to_close:
-                    logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
-                else:
-                    logger.info(f"[持仓] 有持仓: {entry_price}")
-            else:
-                logger.info("[持仓] 无持仓")
-
-
-            # 5. 风险状态评估
-            risk_state = self.risk_manager.assess_risk(market_data, position_data)
-            logger.info(
-                f"[风险] 等级: {risk_state.risk_level.value}, "
-                f"回撤: {risk_state.current_drawdown:.2%}, "
-                f"熔断: {'是' if risk_state.circuit_breaker_active else '否'}"
-            )
-
-            # 检查熔断
-            if risk_state.circuit_breaker_active:
-                logger.warning(f"[风险] 熔断中: {risk_state.circuit_breaker_reason}")
-                logger.info("跳过后续交易，等待下一个周期")
-                return
-
-            # 6. 获取所有策略信号
-            strategy_signals = self.strategy_library.get_all_signals(market_data)
-            logger.info(f"[策略] {len(strategy_signals)} 个策略产生信号")
-
-            # 7. 获取AI信号
-            logger.info("[AI] 获取融合信号...")
-            ai_signal = await self._ai_client.get_signal(market_data)
-            ai_signal = SignalProcessor.process(ai_signal)
-            logger.info(f"[AI] 原始信号: {ai_signal}")
-
-            # 8. 策略选择
-            selected = self.strategy_manager.analyze_and_select(
-                market_data, position_data
-            )
-            logger.info(
-                f"[选择] {selected.strategy_type}: {selected.signal} "
-                f"(置信度: {selected.confidence:.0%})"
-            )
-            for reason in selected.reasons:
-                logger.info(f"  - {reason}")
-
-            # 9. 规则评估（仅日志记录，实际应用在 _execute_trade 中）
-            perf = self.performance_tracker.get_performance_metrics()
-            rule_result = self.rules_engine.evaluate_all(market_state, perf)
-
-            if rule_result["adjustments"]:
-                logger.info(
-                    f"[规则] 将应用 {len(rule_result['triggered_rules'])} 个规则: "
-                    f"{rule_result['triggered_rules']}"
-                )
-
-            # 10. 信号决策
-            final_signal = self._make_decision(ai_signal, selected, market_data)
-
-            # 如果检测到空单需要平仓，强制平仓
-            if is_short_to_close:
-                logger.warning("[决策] 检测到空单，强制平仓")
-                final_signal = {
-                    "action": "close_short",
-                    "reason": "强制平空单",
-                    "confidence": 1.0,
-                    "strategy": "auto_close_short",
-                }
-
-            if final_signal["action"] == "skip":
-                if has_position and not is_short_to_close:
-                    await self._update_stop_loss(current_price, position_data)
-                logger.info("[决策] 跳过交易，等待下一个周期")
-                logger.info("=" * 60)
-                return
-
-
-            # 11. 执行交易
-            await self._execute_trade(
-                final_signal["action"],
-                current_price,
-                has_position,
-                position_data,
-                market_data,
-                selected_strategy=selected,
-            )
-
         except Exception as e:
             logger.error(f"[周期] 执行出错: {e}")
             logger.exception("详细错误:")
@@ -604,11 +509,13 @@ class AdaptiveTradingBot:
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
                 else:
                     logger.warning("[执行] 止损单创建失败")
-
         elif action == "close":
             if not has_position:
                 logger.info("[执行] 无持仓，跳过平仓")
                 return
+
+            # 平仓前先取消现有止损单
+            await self._cancel_stop_loss_before_close(position_data)
 
             # 平仓
             logger.info(f"[执行] 平仓: 价格={current_price}")
@@ -620,7 +527,6 @@ class AdaptiveTradingBot:
                 reason="signal_close",
             )
             if closed_trade:
-                # 更新策略权重（基于实际结果学习）
                 self._update_strategy_weights(closed_trade)
                 logger.info(
                     f"[学习] 平仓完成: 结果={closed_trade.outcome.value}, "
@@ -654,17 +560,6 @@ class AdaptiveTradingBot:
                     order_type="market",
                 )
                 logger.info(f"[执行] 平多单订单已提交: {order_id}")
-            symbol = self._exchange.symbol
-            amount = position_data.get("amount", 0.01)
-
-            # 下市价卖出单平仓
-            order_id = await self._exchange.create_order(
-                symbol=symbol,
-                side="sell",
-                amount=amount,
-                order_type="market",
-            )
-            logger.info(f"[执行] 平仓订单已提交: {order_id}")
 
         logger.info("[执行] 完成")
 
@@ -863,9 +758,22 @@ class AdaptiveTradingBot:
                     continue
                 logger.error(f"[止损重试] 创建止损单失败: {e}")
                 break
-        return None
+    async def _cancel_stop_loss_before_close(self, position_data: Dict[str, Any]) -> None:
+        """平仓前取消现有止损单"""
+        try:
+            existing_stop_id = await self._get_existing_stop_order_id()
+            if existing_stop_id:
+                logger.info(f"[平仓] 取消现有止损单: {existing_stop_id}")
+                await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
+                logger.info("[平仓] 止损单已取消")
+                self.position_manager.set_stop_order(None, 0)
+            else:
+                logger.debug("[平仓] 无现有止损单需要取消")
+        except Exception as e:
+            logger.warning(f"[平仓] 取消止损单失败: {e}")
 
     async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
+        """更新止损订单（带容错判断，避免频繁更新）"""
         """更新止损订单（带容错判断，避免频繁更新）"""
         params = self.param_manager.get_current_params()
         stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
