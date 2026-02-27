@@ -255,11 +255,9 @@ class AdaptiveTradingBot:
                 f"止损={current_params.get('stop_loss_percent', 0):.2%}, "
                 f"仓位乘数={current_params.get('position_multiplier', 1):.2f}"
             )
-
             # 4. 获取持仓状态
             position_data = await self._exchange.get_position() or {}
             has_position = bool(position_data.get("amount", 0) > 0)
-
             if has_position:
                 entry_price = position_data.get("entry_price", 0)
                 logger.info(f"[持仓] 有持仓: {entry_price}")
@@ -315,50 +313,8 @@ class AdaptiveTradingBot:
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
             if final_signal["action"] == "skip":
-                # 检查是否有持仓，有则更新止损（带容错判断）
                 if has_position:
                     await self._update_stop_loss(current_price, position_data)
-                else:
-                    logger.info("[决策] 跳过交易，无持仓 -> 不操作")
-                logger.info("[决策] 跳过交易，等待下一个周期")
-                logger.info("=" * 60)
-                return
-
-#NB|            # 11. 执行交易
-                # 检查是否有持仓，有则更新止损
-                if has_position:
-                    logger.info("[决策] 跳过交易，但有持仓 -> 更新止损")
-                    params = self.param_manager.get_current_params()
-                    stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-                    new_stop_price = current_price * (1 - stop_loss_percent)
-                    await self._exchange.create_stop_loss(
-                        symbol=self._exchange.symbol,
-                        side="sell",
-                        amount=position_data.get("amount", 0.01),
-                        stop_price=new_stop_price,
-                    )
-                    logger.info(f"[决策] 止损单已更新: {new_stop_price}")
-                else:
-                    logger.info("[决策] 跳过交易，无持仓 -> 不操作")
-                logger.info("[决策] 跳过交易，等待下一个周期")
-                logger.info("=" * 60)
-                return
-                # 检查是否有持仓，有则更新止损
-                if has_position:
-                    logger.info("[决策] 跳过交易，但有持仓 -> 更新止损")
-                    params = self.param_manager.get_current_params()
-                    stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-                    new_stop_price = current_price * (1 - stop_loss_percent)
-                    await self._exchange.create_stop_loss(
-                        symbol=self._exchange.symbol,
-                        side="sell",
-                        amount=position_data.get("amount", 0.01),
-                        stop_price=new_stop_price,
-                    )
-                    logger.info(f"[决策] 止损单已更新: {new_stop_price}")
-                logger.info("[决策] 跳过交易，等待下一个周期")
-                logger.info("=" * 60)
-                return
                 logger.info("[决策] 跳过交易，等待下一个周期")
                 logger.info("=" * 60)
                 return
@@ -471,20 +427,9 @@ class AdaptiveTradingBot:
         )
 
         if action == "skip":
-#KM|            # HOLD 信号 + 有持仓：更新止损
             if has_position:
                 logger.info("[执行] HOLD信号 + 有持仓 -> 更新止损")
-                stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-                new_stop_price = current_price * (1 - stop_loss_percent)
-                await self._exchange.create_stop_loss(
-                    symbol=self._exchange.symbol,
-                    side="sell",
-                    amount=position_data.get("amount", 0.01),
-                    stop_price=new_stop_price,
-                )
-                logger.info(f"[执行] 止损单已更新: {new_stop_price}")
-                return
-            return
+                await self._update_stop_loss(current_price, position_data)
             return
 
         # 类型断言
@@ -495,16 +440,8 @@ class AdaptiveTradingBot:
                 logger.info("[执行] 已有持仓，跳过开仓")
                 return
 
+            # 开仓
             logger.info(f"[执行] 开仓: 价格={current_price}")
-            stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-            stop_loss_price = current_price * (1 - stop_loss_percent)
-            logger.info(f"[执行] 止损: {stop_loss_price:.1f} ({stop_loss_percent:.2%})")
-            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
-            logger.info(f"[执行] 开仓: 价格={current_price}")
-            stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-            stop_loss_price = current_price * (1 - stop_loss_percent)
-            logger.info(f"[执行] 止损: {stop_loss_price:.1f} ({stop_loss_percent:.2%})")
-            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
             logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
             logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
 
@@ -537,34 +474,19 @@ class AdaptiveTradingBot:
             )
             logger.info(f"[执行] 开仓订单已提交: {order_id}")
 
-            # 如果有止损价，设置止损单
+            # 如果有止损价，设置止损单（带重试机制）
             if stop_loss_price:
-                await self._exchange.create_stop_loss(
-                    symbol=symbol,
-                    side="sell",
+                stop_order_id = await self._create_stop_loss_with_retry(
                     amount=amount,
                     stop_price=stop_loss_price,
+                    current_price=current_price,
+                    max_retries=2,
                 )
-                logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
-
-#KM|        elif action == "close":
-
-#KM|        # HOLD 信号 + 有持仓：更新止损
-        elif action in ["hold", "skip"]:
-            if has_position:
-                logger.info("[执行] HOLD信号 + 有持仓 -> 更新止损")
-                stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-                new_stop_price = current_price * (1 - stop_loss_percent)
-                await self._exchange.create_stop_loss(
-                    symbol=self._exchange.symbol,
-                    side="sell",
-                    amount=position_data.get("amount", 0.01),
-                    stop_price=new_stop_price,
-                )
-                logger.info(f"[执行] 止损单已更新: {new_stop_price}")
-                return
-
-#KM|        elif action == "close":
+                if stop_order_id:
+                    self.position_manager.set_stop_order(stop_order_id, stop_loss_price)
+                    logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
+                else:
+                    logger.warning("[执行] 止损单创建失败")
 
         elif action == "close":
             if not has_position:
@@ -771,76 +693,22 @@ class AdaptiveTradingBot:
 
         logger.info("清理完成")
 
-    def get_system_status(self) -> Dict[str, Any]:
-        """获取系统状态"""
-        return {
-            "running": self._running,
-            "initialized": self._initialized,
-            "risk": self.risk_manager.get_risk_summary(),
-            "strategies": self.strategy_library.get_strategy_summary(),
-            "performance": self.performance_tracker.get_performance_metrics().__dict__,
-            "config_version": self.config_updater.get_summary()["version"],
-        }
-
-
-    async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
-        """更新止损订单（带容错判断，避免频繁更新）"""
-        params = self.param_manager.get_current_params()
-        stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
-        new_stop_price = current_price * (1 - stop_loss_percent)
-        
-        # 查询交易所现有止损单
-        existing_stop_id = await self._get_existing_stop_order_id()
-        
-        # 使用 position_manager 的历史止损价进行容错判断
-        old_stop = self.position_manager.last_stop_price
-        
-        #HB|        # 容错阈值（从配置读取）
-#KR|        tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-        tolerance = 0.005
-        tolerance = 0.001
-        
-        if old_stop > 0:
-            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
-            if price_diff_percent < tolerance:
-                logger.info(
-                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%,"
-                    f" 跳过更新 (旧止损价={old_stop:.1f}, 新止损价={new_stop_price:.1f})"
-                )
-                return
-        
-        # 取消现有止损单
-        if existing_stop_id:
-            logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
-            try:
-                await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
-                logger.info(f"[止损更新] 止损单取消成功")
-            except Exception as e:
-                logger.warning(f"[止损更新] 取消止损单失败: {e}")
-        #TK|        
-#XH|        # 创建新止损单（带重试机制）
-#HX|        amount = position_data.get("amount", 0.01)
-#NY|        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
-#QX|        stop_order_id = await self._create_stop_loss_with_retry(
-#JM|            amount=amount,
-#VR|            stop_price=new_stop_price,
-#WK|            current_price=current_price,
-#KP|            max_retries=2,
-#KW|        )
-#MK|        if stop_order_id:
-#JT|            self.position_manager.set_stop_order(stop_order_id, new_stop_price)
-#QS|            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
-#ZR|        else:
-#PH|            logger.error("[止损更新] 止损单创建失败")
 
     async def _create_stop_loss_with_retry(
-        self, amount: float, stop_price: float, current_price: float, max_retries: int = 2
+        self,
+        amount: float,
+        stop_price: float,
+        current_price: float,
+        max_retries: int = 2,
     ) -> Optional[str]:
         """创建止损单（带重试机制）"""
         for attempt in range(max_retries + 1):
             try:
                 stop_order_id = await self._exchange.create_stop_loss(
-                    symbol=self._exchange.symbol, side="sell", amount=amount, stop_price=stop_price
+                    symbol=self._exchange.symbol,
+                    side="sell",
+                    amount=amount,
+                    stop_price=stop_price,
                 )
                 if stop_order_id:
                     return stop_order_id
@@ -856,15 +724,41 @@ class AdaptiveTradingBot:
                 break
         return None
 
-    async def _get_existing_stop_order_id(self) -> Optional[str]:
-        # 创建新止损单
+    async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
+        """更新止损订单（带容错判断，避免频繁更新）"""
+        params = self.param_manager.get_current_params()
+        stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+        new_stop_price = current_price * (1 - stop_loss_percent)
+
+        existing_stop_id = await self._get_existing_stop_order_id()
+        old_stop = self.position_manager.last_stop_price
+
+        # 容错阈值（从配置读取）
+        tolerance = self.config.stop_loss.stop_loss_tolerance_percent
+
+        if old_stop > 0:
+            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
+            if price_diff_percent < tolerance:
+                logger.info(
+                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
+                )
+                return
+
+        if existing_stop_id:
+            logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
+            try:
+                await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
+                logger.info(f"[止损更新] 止损单取消成功")
+            except Exception as e:
+                logger.warning(f"[止损更新] 取消止损单失败: {e}")
+
         amount = position_data.get("amount", 0.01)
         logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
-        stop_order_id = await self._exchange.create_stop_loss(
-            symbol=self._exchange.symbol,
-            side="sell",
+        stop_order_id = await self._create_stop_loss_with_retry(
             amount=amount,
             stop_price=new_stop_price,
+            current_price=current_price,
+            max_retries=2,
         )
         if stop_order_id:
             self.position_manager.set_stop_order(stop_order_id, new_stop_price)
@@ -882,3 +776,15 @@ class AdaptiveTradingBot:
         except Exception as e:
             logger.debug(f"[止损查询] 查询失败: {e}")
         return None
+
+
+    def get_system_status(self) -> Dict[str, Any]:
+        """获取系统状态"""
+        return {
+            "running": self._running,
+            "initialized": self._initialized,
+            "risk": self.risk_manager.get_risk_summary(),
+            "strategies": self.strategy_library.get_strategy_summary(),
+            "performance": self.performance_tracker.get_performance_metrics().__dict__,
+            "config_version": self.config_updater.get_summary()["version"],
+        }
