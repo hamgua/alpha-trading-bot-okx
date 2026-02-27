@@ -117,7 +117,8 @@ class OrderService:
         self, order: Dict, requested_amount: float
     ) -> OrderResult:
         """解析交易所订单响应"""
-        order_id = order.get("id", "")
+        order_id = order.get("id", "") or ""
+        status_str = (order.get("status") or "unknown").lower()
         status_str = order.get("status", "unknown").lower()
         symbol = order.get("symbol", "")
         side = order.get("side", "")
