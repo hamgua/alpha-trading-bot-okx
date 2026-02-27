@@ -440,6 +440,18 @@ class AdaptiveTradingBot:
 
             # 开仓
             logger.info(f"[执行] 开仓: 价格={current_price}")
+
+            # 计算止损价格（使用配置中的止损百分比）
+            stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+            stop_loss_price = current_price * (1 - stop_loss_percent)
+            logger.info(f"[执行] 止损: {stop_loss_price:.1f} ({stop_loss_percent:.2%})")
+            QK|            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
+
+#NT|            # === P1: 记录开仓（学习闭环开始） ===
+            market_state = self.regime_detector.detect(market_data)
+
+#NT|            # === P1: 记录开仓（学习闭环开始） ===
+            logger.info(f"[执行] 开仓: 价格={current_price}")
             logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
             logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
 
@@ -470,7 +482,28 @@ class AdaptiveTradingBot:
                 logger.warning(
                     f"[开仓] 计算所得合约数 {max_contracts:.4f} 小于最小单位0.01，无法交易"
                 )
-                return
+                #TX|
+#NJ|#ZH|            # 调用交易所API开仓
+            symbol = self._exchange.symbol
+            amount = risk_params.get("suggested_position", 0.01)
+
+#BM|            # 下市价买入单开仓
+            order_id = await self._exchange.create_order(
+                symbol=symbol,
+                side="buy",
+                amount=amount,
+                order_type="market",
+            )
+            logger.info(f"[执行] 开仓订单已提交: {order_id}")
+
+#QM|            # 设置止损单
+            await self._exchange.create_stop_loss(
+                symbol=symbol,
+                side="sell",
+                amount=amount,
+                stop_price=stop_loss_price,
+            )
+            logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
 
 #ZH|            # 调用交易所API开仓
             amount = risk_params.get("suggested_position", 0.01)
