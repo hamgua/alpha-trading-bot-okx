@@ -328,6 +328,24 @@ class AdaptiveTradingBot:
                         stop_price=new_stop_price,
                     )
                     logger.info(f"[决策] 止损单已更新: {new_stop_price}")
+                else:
+                    logger.info("[决策] 跳过交易，无持仓 -> 不操作")
+                logger.info("[决策] 跳过交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
+                # 检查是否有持仓，有则更新止损
+                if has_position:
+                    logger.info("[决策] 跳过交易，但有持仓 -> 更新止损")
+                    params = self.param_manager.get_current_params()
+                    stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+                    new_stop_price = current_price * (1 - stop_loss_percent)
+                    await self._exchange.create_stop_loss(
+                        symbol=self._exchange.symbol,
+                        side="sell",
+                        amount=position_data.get("amount", 0.01),
+                        stop_price=new_stop_price,
+                    )
+                    logger.info(f"[决策] 止损单已更新: {new_stop_price}")
                 logger.info("[决策] 跳过交易，等待下一个周期")
                 logger.info("=" * 60)
                 return
