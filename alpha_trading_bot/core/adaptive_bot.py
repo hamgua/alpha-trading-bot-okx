@@ -277,7 +277,10 @@ class AdaptiveTradingBot:
                 logger.info(f"  - {reason}")
 
             # 7. 获取持仓状态
-            position_data = await self._exchange.get_position() or {}
+            # 7. 获取持仓状态（带重试机制）
+            position_data = await self._exchange.get_position_with_retry(
+                max_retries=3, retry_delay=1.0
+            ) or {}
             has_position = bool(position_data.get("amount", 0) > 0)
             position_side = position_data.get("side", "")
             is_short_to_close = position_side == "short_to_close"
@@ -494,6 +497,17 @@ class AdaptiveTradingBot:
                 amount=amount,
                 order_type="market",
             )
+            order_id = await self._exchange.create_order(
+                symbol=symbol,
+                side="buy",
+                amount=amount,
+                order_type="market",
+            )
+            # P0: 验证订单是否创建成功
+            if not order_id:
+                logger.error("[执行] 开仓订单创建失败！尝试重新获取持仓状态验证")
+                await self._verify_and_recover_position()
+                return
             logger.info(f"[执行] 开仓订单已提交: {order_id}")
 
             # 如果有止损价，设置止损单（带重试机制）
@@ -549,6 +563,18 @@ class AdaptiveTradingBot:
                     amount=amount,
                     order_type="market",
                 )
+                logger.info(f"[执行] 平空单(买入): 价格={current_price}")
+                order_id = await self._exchange.create_order(
+                    symbol=symbol,
+                    side="buy",  # 买入平空单
+                    amount=amount,
+                    order_type="market",
+                )
+                # P0: 验证订单是否创建成功
+                if not order_id:
+                    logger.error("[执行] 平空单订单创建失败！尝试重新获取持仓状态验证")
+                    await self._verify_and_recover_position()
+                    return
                 logger.info(f"[执行] 平空单订单已提交: {order_id}")
             else:
                 # 平多单 = 卖出
@@ -559,6 +585,17 @@ class AdaptiveTradingBot:
                     amount=amount,
                     order_type="market",
                 )
+                order_id = await self._exchange.create_order(
+                    symbol=symbol,
+                    side="sell",  # 卖出平多单
+                    amount=amount,
+                    order_type="market",
+                )
+                # P0: 验证订单是否创建成功
+                if not order_id:
+                    logger.error("[执行] 平多单订单创建失败！尝试重新获取持仓状态验证")
+                    await self._verify_and_recover_position()
+                    return
                 logger.info(f"[执行] 平多单订单已提交: {order_id}")
 
         logger.info("[执行] 完成")
@@ -758,6 +795,46 @@ class AdaptiveTradingBot:
                     continue
                 logger.error(f"[止损重试] 创建止损单失败: {e}")
                 break
+
+    async def _verify_and_recover_position(self) -> None:
+        """
+        P0修复: 订单创建失败后重新获取并验证持仓状态
+
+        当订单创建失败时，重新从交易所获取持仓状态，
+        确保Bot内部状态与交易所实际状态一致。
+        """
+        try:
+            logger.info("[状态验证] 重新获取持仓状态验证...")
+            # P1: 使用带重试的获取持仓方法
+            position_data = await self._exchange.get_position_with_retry(
+                max_retries=3, retry_delay=1.0
+            )
+
+            if position_data and position_data.get("amount", 0) > 0:
+                side = position_data.get("side", "")
+                amount = position_data.get("amount", 0)
+                entry_price = position_data.get("entry_price", 0)
+
+                # 更新持仓管理器
+                self.position_manager.update_from_exchange(position_data)
+
+                # 检查是否为空单
+                if side == "short" or side == "short_to_close":
+                    logger.error(
+                        f"[状态验证] 检测到未平空单！数量={amount}, 入场价={entry_price}. "
+                        f"请手动处理或等待下一个周期重试平仓"
+                    )
+                else:
+                    logger.info(
+                        f"[状态验证] 持仓已更新: {side} {amount}@{entry_price}"
+                    )
+            else:
+                logger.info("[状态验证] 交易所无持仓")
+                # 清除内部持仓状态
+                self.position_manager.update_from_exchange({})
+
+        except Exception as e:
+            logger.error(f"[状态验证] 获取持仓失败: {e}")
     async def _cancel_stop_loss_before_close(self, position_data: Dict[str, Any]) -> None:
         """平仓前取消现有止损单"""
         try:

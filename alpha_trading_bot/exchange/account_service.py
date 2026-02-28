@@ -29,6 +29,42 @@ class AccountService:
             logger.error(f"获取余额失败: {e}")
             return 0.0
 
+    async def get_position_with_retry(
+        self, max_retries: int = 3, retry_delay: float = 1.0
+    ) -> Optional[Dict[str, Any]]:
+        """
+        P1修复: 获取持仓（带重试机制）
+
+        Args:
+            max_retries: 最大重试次数
+            retry_delay: 重试延迟（秒）
+
+        Returns:
+            持仓信息字典，无持仓时返回None
+        """
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                result = await self.get_position()
+                return result
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    logger.warning(
+                        f"[账户查询] 获取持仓失败 (尝试 {attempt + 1}/{max_retries}): {e}. "
+                        f"{retry_delay:.1f}秒后重试..."
+                    )
+                    await asyncio.sleep(retry_delay)
+                else:
+                    logger.error(
+                        f"[账户查询] 获取持仓失败 (已重试{max_retries}次): {e}"
+                    )
+
+        # 所有重试都失败，返回None但记录错误
+        logger.error(f"[账户查询] 多次重试后仍失败: {last_error}")
+        return None
+
     async def get_position(self) -> Optional[Dict[str, Any]]:
         """获取当前持仓（只支持做多，空单自动标记平仓）"""
         try:
