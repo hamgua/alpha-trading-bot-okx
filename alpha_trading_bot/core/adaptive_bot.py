@@ -354,6 +354,11 @@ class AdaptiveTradingBot:
                 market_data,
                 selected_strategy=selected,
             )
+            # 检测到空单平仓后，跳过后续所有交易，等待下一个周期
+            if final_signal.get("action") == "close_short":
+                logger.warning("[决策] 空单已平仓，跳过后续交易，等待下一个周期")
+                logger.info("=" * 60)
+                return
         except Exception as e:
             logger.error(f"[周期] 执行出错: {e}")
             logger.exception("详细错误:")
