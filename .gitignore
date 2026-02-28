@@ -163,3 +163,6 @@ cache/
 
 # claude
 .claude
+
+# .opencode
+.opencode
