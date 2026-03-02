@@ -415,6 +415,19 @@ class AdaptiveTradingBot:
             else:
                 action = "close"
                 reason = "AI信号卖出"
+        elif ai_signal.upper() == "SHORT":
+            # AI 明确要求做空
+            has_position = market_data.get("has_position", False)
+            if not has_position and self.config.trading.allow_short_selling:
+                action = "sell"  # 开空仓
+                reason = "AI信号做空"
+            elif has_position:
+                # 有持仓时，先平仓再开空（这里简化为平仓）
+                action = "close"
+                reason = "AI做空信号，先平仓"
+            else:
+                action = "skip"
+                reason = "不允许做空"
 
         else:
             # HOLD信号，参考策略选择

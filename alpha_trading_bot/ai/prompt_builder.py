@@ -14,10 +14,10 @@ class PromptBuilder:
     BUY_BB_POSITION = 70
     BUY_ADX_THRESHOLD = 8
 
-    # 卖出条件阈值 - 收紧以减少卖出
-    SELL_RSI_THRESHOLD = 80  # 提高RSI阈值（原75），更难点卖出
-    SELL_BB_POSITION = 90  # 提高布林带位置（原85）
-    SELL_STOP_LOSS_PERCENT = 3.0  # 放宽止损（原2.0）
+    SELL_RSI_THRESHOLD = 75  # 降低RSI阈值，更容易卖出
+    SELL_BB_POSITION = 80  # 降低布林带位置，更容易卖出
+    SELL_STOP_LOSS_PERCENT = 2.5  # 收紧止损
+
 
     # 观望条件阈值 - 收紧以减少观望
     WATCH_TREND_STRENGTH = 0.15  # 降低趋势强度阈值（原0.2）
@@ -264,8 +264,17 @@ class PromptBuilder:
    - RSI > {cls.SELL_RSI_THRESHOLD} 或 布林带位置 > {cls.SELL_BB_POSITION}%（超买）
    - MACD Histogram < 0（转空头）
    - 趋势方向转 "down"
-   - 浮亏 > {cls.SELL_STOP_LOSS_PERCENT}%（触发止损）
-   - ⚠️ 暴跌期间（1小时跌幅 > -2%），有持仓则优先考虑减仓或止损
+   WP|   - ⚠️ 暴跌期间（1小时跌幅 > -2%），有持仓则优先考虑减仓或止损
+
+#SH|4. 做空条件（无持仓时，满足任一可考虑做空）:
+#KM|   - 趋势方向为 "down" 且 趋势强度 > 0.25（明确下跌趋势）
+#JT|   - RSI > {cls.SELL_RSI_THRESHOLD}（超买区域，可做空）
+#KM|   - 布林带位置 > {cls.SELL_BB_POSITION}%（价格在中轨上方，可做空）
+#MF|   - MACD Histogram < -0.001（空头动能）
+#NR|   - ⚠️ 禁止逆势做空（趋势为"up"时绝不做空）
+#NR|   - ⚠️ 禁止在支撑位做空（价格位置 < 30%）
+#KT|
+#KT|5. 持仓观望条件:
 
 4. 持仓观望条件:
    - 多指标信号冲突
@@ -301,8 +310,10 @@ class PromptBuilder:
 buy | confidence: 75%
 或
 hold | confidence: 70%
-或
-sell | confidence: 80%
+BP|sell | confidence: 80%
+#TH|或
+#BP|short | confidence: 75%
+TH|
 
 【置信度计算规则】（用于内心推理，不要输出）
 
@@ -334,17 +345,30 @@ sell | confidence: 80%
 - -15% ATR > 5%（高波动，风险较大）  # 降低惩罚（原-20%）
 - 置信度范围：50%-90%
 
-卖出置信度计算：
-- 基础置信度：50%  # 降低基础卖出置信度（原55%）
+- 基础置信度：55%  # 提高基础卖出置信度
 - +10% 趋势明确向下（strength > 0.4）
 - +10% RSI > 75（超买区域）
 - +10% MACD Histogram < 0（空头动能）
-- +10% ADX > 25（有趋势）
-- +10% 布林带位置 > 75%（价格在中轨上方）
+- +10% 布林带位置 > {cls.SELL_BB_POSITION}%（价格在中轨上方）
+
 - +10% 持仓浮亏 > -3%（触发止损保护）  # 放宽（原-2%）
 - -15% 趋势为 "up"  # 提高惩罚（原-20%）
-- -15% RSI < 40（超卖区域）  # 提高惩罚（原-20%）
-- 置信度范围：45%-90%
+
+#NP|做空置信度计算：
+#TT|- 基础置信度：55%  # 与卖出相同
+#TT|- +10% 趋势明确向下（strength > 0.3）
+#TT|- +10% RSI > 75（超买区域）
+#TT|- +10% MACD Histogram < -0.001（空头动能）
+#TT|- +10% ADX > 20（有趋势）
+#TT|- +10% 布林带位置 > 75%
+#TT|- +10% 价格位置 > 60%（不在低位）
+#TT|- -15% 趋势为 "up"  # 逆势不做空
+#TT|- -15% 价格位置 < 30%（低位不做空）
+#TT|- -15% ATR > 5%（高波动惩罚）
+#TT|- 置信度范围：50%-85%
+
+
+#NP|持有置信度计算：
 
 持有置信度计算：
 - 基础置信度：40%

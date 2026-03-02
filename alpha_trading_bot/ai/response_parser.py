@@ -13,7 +13,7 @@ class ResponseParser:
     """解析AI响应，提取信号和置信度"""
 
     # 有效信号列表
-    VALID_SIGNALS = ["buy", "hold", "sell"]
+    VALID_SIGNALS = ["buy", "hold", "sell", "short"]
 
     @classmethod
     def parse(cls, response: str) -> Tuple[str, Optional[int]]:
@@ -25,14 +25,14 @@ class ResponseParser:
 
         Returns:
             Tuple[信号, 置信度]
-            信号: buy/hold/sell
+            信号: buy/hold/sell/short
             置信度: 0-100，None表示无法解析
         """
         response = response.lower().strip()
 
         # 尝试提取信号和置信度
         match = re.search(
-            r"^(buy|hold|sell)\s*\|?\s*confidence:\s*(\d+)%?", response
+            r"^(buy|hold|sell|short)\s*\|?\s*confidence:\s*(\d+)%?", response
         )
 
         if match:
@@ -48,11 +48,10 @@ class ResponseParser:
     @classmethod
     def _simple_parse(cls, response: str) -> str:
         """简单解析 - 只提取信号"""
-        if (
-            "buy" in response
-            and "hold" not in response
-            and "sell" not in response
-        ):
+        # 优先检查 short（避免与 buy 冲突）
+        if "short" in response and "buy" not in response:
+            return "short"
+        elif "buy" in response and "sell" not in response and "hold" not in response:
             return "buy"
         elif "sell" in response and "hold" not in response:
             return "sell"
