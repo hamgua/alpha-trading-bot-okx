@@ -415,19 +415,6 @@ class AdaptiveTradingBot:
             else:
                 action = "close"
                 reason = "AI信号卖出"
-        elif ai_signal.upper() == "SHORT":
-            # AI 明确要求做空
-            has_position = market_data.get("has_position", False)
-            if not has_position and self.config.trading.allow_short_selling:
-                action = "sell"  # 开空仓
-                reason = "AI信号做空"
-            elif has_position:
-                # 有持仓时，先平仓再开空（这里简化为平仓）
-                action = "close"
-                reason = "AI做空信号，先平仓"
-            else:
-                action = "skip"
-                reason = "不允许做空"
 
         else:
             # HOLD信号，参考策略选择
@@ -532,6 +519,18 @@ class AdaptiveTradingBot:
             amount = risk_params.get("suggested_position", 0.01)
             stop_loss_price = risk_params.get("stop_loss_price")
 
+            # 计算止盈价 (根据持仓方向)
+            if position_side == "short":
+                # 做空止盈: 价格下跌触发 (止盈价 < 入场价)
+                take_profit_percent = 0.06  # 6% 止盈
+                take_profit_price = current_price * (1 - take_profit_percent)
+                logger.info(f"[执行-做空] 止盈价={take_profit_price:.1f} (价格下跌{take_profit_percent*100}%触发)")
+            else:
+                # 做多止盈: 价格上涨触发 (止盈价 > 入场价)
+                take_profit_percent = 0.06  # 6% 止盈
+                take_profit_price = current_price * (1 + take_profit_percent)
+                logger.info(f"[执行-做多] 止盈价={take_profit_price:.1f} (价格上涨{take_profit_percent*100}%触发)")
+
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
             order_side = "buy" if position_side == "long" else "sell"
             
@@ -571,7 +570,8 @@ class AdaptiveTradingBot:
                     amount=amount,
                     stop_price=stop_loss_price,
                     current_price=current_price,
-                    max_retries=2,
+                    position_side=position_side,
+max_retries=2,
                 )
                 if stop_order_id:
                     self.position_manager.set_stop_order(stop_order_id, stop_loss_price)

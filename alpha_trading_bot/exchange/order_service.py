@@ -239,6 +239,70 @@ class OrderService:
                 stop_price=stop_price,
                 amount=amount,
                 status=OrderStatus.REJECTED,
+            )
+
+    async def create_take_profit(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        take_profit_price: float,
+    ) -> StopOrderResult:
+        """
+        创建止盈单
+
+        Args:
+            symbol: 交易对
+            side: 方向
+            amount: 数量
+            take_profit_price: 止盈价
+
+        Returns:
+            StopOrderResult: 止盈单执行结果
+        """
+        params = {
+            "tdMode": "cross",
+            "posMode": "one_way",
+            "takeProfitPrice": take_profit_price,
+            "closePosition": True,
+        }
+
+        logger.info(
+            f"[止盈单创建] 提交止盈单: symbol={symbol}, side={side}, "
+            f"amount={amount}, take_profit_price={take_profit_price}"
+        )
+
+        try:
+            order = await asyncio.get_event_loop().run_in_executor(
+                self.exchange.create_order,
+                symbol,
+                "market",
+                side,
+                amount,
+                params,
+            )
+
+            algo_id = order.get("info", {}).get("algoId", order.get("id", ""))
+            self._stop_orders[str(take_profit_price)] = str(algo_id)
+
+            logger.info(
+                f"[止盈单创建] 止盈单成功: ID={algo_id}, 止盈价={take_profit_price}, 数量={amount}"
+            )
+
+            return StopOrderResult(
+                order_id=str(algo_id),
+                stop_price=take_profit_price,
+                amount=amount,
+                status=OrderStatus.OPEN,
+            )
+
+        except Exception as e:
+            logger.error(f"[止盈单创建] 止盈单失败: {e}")
+            return StopOrderResult(
+                order_id="",
+                stop_price=take_profit_price,
+                amount=amount,
+                status=OrderStatus.REJECTED,
                 error_message=str(e),
             )
 

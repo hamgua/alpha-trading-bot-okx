@@ -32,6 +32,8 @@ class PositionState:
     unrealized_pnl: float = 0.0
     stop_order_id: Optional[str] = None
     last_stop_price: float = 0.0  # 上次设置的止损价
+    take_profit_order_id: Optional[str] = None  # 止盈单ID
+    last_take_profit_price: float = 0.0  # 上次设置的止盈价
     updated_at: str = ""
 
 

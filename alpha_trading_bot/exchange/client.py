@@ -118,6 +118,18 @@ class ExchangeClient:
             symbol, side, amount, stop_price
         )
 
+    async def create_take_profit(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        take_profit_price: float,
+    ) -> str:
+        """创建止盈单"""
+        return await self._order_service.create_take_profit(
+            symbol, side, amount, take_profit_price
+        )
+
     async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
         """取消订单
         

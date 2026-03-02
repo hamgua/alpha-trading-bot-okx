@@ -39,6 +39,8 @@ class PositionManager:
         self._entry_price: float = 0.0
         self._stop_order_id: Optional[str] = None
         self._last_stop_price: float = 0.0  # 上次设置的止损价，用于容错比较
+        self._take_profit_order_id: Optional[str] = None  # 止盈单ID
+        self._last_take_profit_price: float = 0.0  # 上次设置的止盈价
 
         # 初始化持久化管理器
         self._persistence = create_state_persistence(data_dir)
@@ -379,6 +381,25 @@ class PositionManager:
             )
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
+
+    def set_take_profit_order(self, take_profit_order_id: str, take_profit_price: float = 0.0) -> None:
+        """设置止盈单ID（并持久化）"""
+        self._take_profit_order_id = take_profit_order_id
+        if take_profit_price > 0:
+            self._last_take_profit_price = take_profit_price
+
+        # 持久化更新
+        if self._position:
+            self._persistence.save_position(
+                symbol=self._position.symbol,
+                side=self._position.side,
+                amount=self._position.amount,
+                entry_price=self._entry_price,
+                take_profit_order_id=take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
+            )
+
+        logger.debug(f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}")
 
     def needs_stop_order_recovery(self) -> bool:
         """检查是否需要恢复止损单（有持仓但无止损单ID）"""
