@@ -915,8 +915,8 @@ max_retries=2,
         except Exception as e:
             logger.warning(f"[平仓] 取消止损单失败: {e}")
 
-    async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
+        params = self.param_manager.get_current_params()
         stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         logger.info(f"[止损调试] stop_loss_percent={stop_loss_percent}")
 #WX|
