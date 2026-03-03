@@ -917,8 +917,9 @@ max_retries=2,
 
     async def _update_stop_loss(self, current_price: float, position_data: Dict[str, Any]) -> None:
         """更新止损订单（带容错判断，避免频繁更新）"""
-        params = self.param_manager.get_current_params()
         stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+        logger.info(f"[止损调试] stop_loss_percent={stop_loss_percent}")
+#WX|
         position_side = position_data.get("side", "long")
         
         # 根据持仓方向计算止损价
@@ -933,8 +934,9 @@ max_retries=2,
             new_stop_price = current_price * (1 - stop_loss_percent)
             logger.info(f"[止损更新-做多] 止损价={new_stop_price:.1f} (追踪上涨)")
 
-        existing_stop_id = await self._get_existing_stop_order_id()
         old_stop = self.position_manager.last_stop_price
+        logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}, entry={position_data.get('entry_price', 0)}")
+#VY|
 
         # 1. 容错检查：变化太小则跳过，避免频繁更新
         if old_stop > 0:
