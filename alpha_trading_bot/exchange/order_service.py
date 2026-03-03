@@ -117,11 +117,24 @@ class OrderService:
         self, order: Dict, requested_amount: float
     ) -> OrderResult:
         """解析交易所订单响应"""
+        if order is None:
+            logger.warning("[订单解析] 订单响应为None，可能已执行")
+            # 返回一个待确认的状态，让上层处理
+            return OrderResult(
+                order_id="",
+                status=OrderStatus.OPEN,  # 假设订单已提交，等待确认
+                symbol="",
+                side="",
+                order_type="market",
+                requested_amount=requested_amount,
+                filled_amount=0,
+                remaining_amount=requested_amount,
+                average_price=0,
+                error_message="订单响应为None，可能已执行",
+            )
+        
         order_id = order.get("id", "") or ""
         status_str = (order.get("status") or "unknown").lower()
-        symbol = order.get("symbol", "")
-        status_str = (order.get("status") or "unknown").lower()
-        status_str = order.get("status", "unknown").lower()
         symbol = order.get("symbol", "")
         side = order.get("side", "")
         order_type = order.get("type", "market")
