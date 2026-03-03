@@ -924,6 +924,8 @@ max_retries=2,
             logger.info("[止损更新] 交易所无现有止损单")
 
         # === P0: 根据盈亏动态调整止损百分比 ===
+        params = self.param_manager.get_current_params()
+        base_stop_loss = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         base_stop_loss = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         entry_price = position_data.get('entry_price', 0)
         
