@@ -939,7 +939,7 @@ max_retries=2,
                 logger.info(
                     f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
                 )
-                # 根据方向进行不同的容错检查
+                return
                 if old_stop > 0:
                     if position_side == "long":
                         # 做多: 止损价应该上升才更新
