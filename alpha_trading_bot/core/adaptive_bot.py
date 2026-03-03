@@ -398,23 +398,29 @@ class AdaptiveTradingBot:
         if ai_signal.upper() == "BUY":
             action = "open"
             reason = "AI信号买入"
-        elif ai_signal.upper() == "SELL":
-            # 检查是否可以做空 (无持仓时)
-            # 注意: 这里需要调用者判断 has_position，后续会传入
-            # 暂时通过 market_data 传递是否有持仓的信息
+        elif ai_signal.upper() in ["SELL", "SHORT"]:
+            # 获取持仓状态
             has_position = market_data.get("has_position", False)
             
-            if not has_position and self.config.trading.allow_short_selling:
-                # 无持仓 + 允许做空 = 开空仓
-                action = "sell"
-                reason = "AI信号做空"
-            elif selected.signal.upper() == "SELL":
-                # 有持仓 + SELL信号 = 平仓
-                action = "close"
-                reason = "AI+策略共振卖出"
-            else:
-                action = "close"
-                reason = "AI信号卖出"
+            # SHORT 信号：无持仓时做空，有持仓时平仓
+            if ai_signal.upper() == "SHORT":
+                if not has_position and self.config.trading.allow_short_selling:
+                    action = "sell"  # 做空
+                    reason = "AI信号做空"
+                elif has_position:
+                    action = "close"  # 平仓
+                    reason = "AI信号平仓"
+                else:
+                    action = "skip"
+                    reason = "禁止做空"
+            # SELL 信号：保持原有逻辑，用于平仓
+            elif ai_signal.upper() == "SELL":
+                if selected.signal.upper() == "SELL":
+                    action = "close"
+                    reason = "AI+策略共振卖出"
+                else:
+                    action = "close"
+                    reason = "AI信号卖出"
 
         else:
             # HOLD信号，参考策略选择

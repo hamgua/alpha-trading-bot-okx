@@ -260,13 +260,10 @@ class PromptBuilder:
    - ⚠️ 1h跌幅 < -2.5% 时，禁止抄底
    - ⚠️ 暴跌期间（1h跌幅 > -2%）禁止开仓
 
-3. 卖出/平仓条件（满足任一）:
-   - RSI > {cls.SELL_RSI_THRESHOLD} 或 布林带位置 > {cls.SELL_BB_POSITION}%（超买）
-   - MACD Histogram < 0（转空头）
-   - 趋势方向转 "down"
-   WP|   - ⚠️ 暴跌期间（1小时跌幅 > -2%），有持仓则优先考虑减仓或止损
+267#BV|   - ⚠️ 暴跌期间（1小时跌幅 > -2%），有持仓则优先考虑减仓或止损
+#RY|
+#RY|4. 做空条件（无持仓时，满足任一可考虑做空，使用 short 信号输出）:
 
-#SH|4. 做空条件（无持仓时，满足任一可考虑做空）:
 #KM|   - 趋势方向为 "down" 且 趋势强度 > 0.25（明确下跌趋势）
 #JT|   - RSI > {cls.SELL_RSI_THRESHOLD}（超买区域，可做空）
 #KM|   - 布林带位置 > {cls.SELL_BB_POSITION}%（价格在中轨上方，可做空）
@@ -275,8 +272,6 @@ class PromptBuilder:
 #NR|   - ⚠️ 禁止在支撑位做空（价格位置 < 30%）
 #KT|
 #KT|5. 持仓观望条件:
-
-4. 持仓观望条件:
    - 多指标信号冲突
    - 趋势强度 < {cls.WATCH_TREND_STRENGTH}
    - ADX < {cls.WATCH_ADX_THRESHOLD}（无明显趋势）
