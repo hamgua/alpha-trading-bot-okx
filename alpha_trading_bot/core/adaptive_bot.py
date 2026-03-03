@@ -918,14 +918,9 @@ max_retries=2,
         """更新止损订单（带容错判断，避免频繁更新）"""
         # === P0: 先查询交易所实际止损单状态 ===
         existing_stop_id = await self._get_existing_stop_order_id()
-        if existing_stop_id:
-            logger.info(f"[止损更新] 检测到交易所现有止损单: {existing_stop_id}")
-        else:
-            logger.info("[止损更新] 交易所无现有止损单")
-
-        # === P0: 根据盈亏动态调整止损百分比 ===
+        
+        # === P1: 获取参数和计算止损百分比 ===
         params = self.param_manager.get_current_params()
-        base_stop_loss = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         base_stop_loss = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
         entry_price = position_data.get('entry_price', 0)
         
@@ -940,26 +935,22 @@ max_retries=2,
             logger.info(f"[止损调整] 亏损/保本({current_price} <= {entry_price}) → 较大止损: {stop_loss_percent}")
         
         logger.info(f"[止损调试] stop_loss_percent={stop_loss_percent}")
-
-
-
         
-        # 根据持仓方向计算止损价
+        # 获取持仓方向
+        position_side = position_data.get("side", "long")
+        
+        # 计算新止损价
         if position_side == "short":
-            # 做空: 止损价 = 当前价格 × (1 + 止损百分比)
-            # 价格下跌时，止损价下降（锁定更多利润）
             new_stop_price = current_price * (1 + stop_loss_percent)
-            logger.info(f"[止损更新-做空] 止损价={new_stop_price:.1f} (追踪下跌)")
+            logger.info(f"[止损更新-做空] 止损价={new_stop_price:.1f}")
         else:
-            # 做多: 止损价 = 当前价格 × (1 - 止损百分比)
-            # 价格上涨时，止损价上升（锁定更多利润）
             new_stop_price = current_price * (1 - stop_loss_percent)
-            logger.info(f"[止损更新-做多] 止损价={new_stop_price:.1f} (追踪上涨)")
-        # === P1: 交易所无止损单时，直接创建（忽略old_stop本地缓存）===
+            logger.info(f"[止损更新-做多] 止损价={new_stop_price:.1f}")
+        
+        # === P2: 交易所无止损单时，直接创建 ===
         if not existing_stop_id:
             logger.info("[止损更新] 交易所无止损单，直接创建新止损单")
             amount = position_data.get("amount", 0.01)
-            logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
             stop_order_id = await self._create_stop_loss_with_retry(
                 amount=amount,
                 stop_price=new_stop_price,
@@ -973,94 +964,41 @@ max_retries=2,
             else:
                 logger.error("[止损更新] 止损单创建失败")
             return
-
-        # === P2: 交易所有止损单，检查是否需要更新 ===
+        
+        # === P3: 交易所有止损单，检查是否需要更新 ===
+        logger.info(f"[止损更新] 检测到交易所现有止损单: {existing_stop_id}")
         old_stop = self.position_manager.last_stop_price
-        logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}, entry={position_data.get('entry_price', 0)}")
-
-        # 1. 容错检查：变化太小则跳过，避免频繁更新
+        logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}")
+        
+        # 容错检查：变化太小则跳过
         if old_stop > 0:
             tolerance = self.config.stop_loss.stop_loss_tolerance_percent
             price_diff_percent = abs(new_stop_price - old_stop) / old_stop
             if price_diff_percent < tolerance:
-                logger.info(
-                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
-                )
+                logger.info(f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新")
                 return
-
-        # 2. 方向检查：做多时止损价只能上升，做空时止损价只能下降
+        
+        # 方向检查：做多时止损价只能上升，做空时只能下降
         if old_stop > 0:
             if position_side == "long":
-                # 做多: 止损价只能上升，不能下降
                 if new_stop_price <= old_stop:
                     logger.info(f"[止损更新-做多] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
                     return
             else:
-                # 做空: 止损价只能下降，不能上升
                 if new_stop_price >= old_stop:
                     logger.info(f"[止损更新-做空] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
                     return
-
-        # 3. 取消旧止损单
+        
+        # 取消旧止损单
         logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
         try:
             await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
-            logger.info(f"[止损更新] 止损单取消成功")
+            logger.info("[止损更新] 止损单取消成功")
         except Exception as e:
             logger.warning(f"[止损更新] 取消止损单失败: {e}")
-
+        
+        # 创建新止损单
         amount = position_data.get("amount", 0.01)
-        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
-        stop_order_id = await self._create_stop_loss_with_retry(
-            amount=amount,
-            stop_price=new_stop_price,
-            current_price=current_price,
-            position_side=position_side,
-            max_retries=2,
-        )
-        if stop_order_id:
-            self.position_manager.set_stop_order(stop_order_id, new_stop_price)
-            logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
-        else:
-            logger.error("[止损更新] 止损单创建失败")
-        old_stop = self.position_manager.last_stop_price
-        logger.info(f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}, entry={position_data.get('entry_price', 0)}")
-#VY|
-
-        # 1. 容错检查：变化太小则跳过，避免频繁更新
-        if old_stop > 0:
-            tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
-            if price_diff_percent < tolerance:
-                logger.info(
-                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
-                )
-                return
-
-        # 2. 方向检查：做多时止损价只能上升，做空时止损价只能下降
-        if old_stop > 0:
-            if position_side == "long":
-                # 做多: 止损价只能上升，不能下降
-                if new_stop_price <= old_stop:
-                    logger.info(f"[止损更新-做多] 止损价未上升({new_stop_price:.1f} <= {old_stop:.1f}), 跳过更新")
-                    return
-            else:
-                # 做空: 止损价只能下降，不能上升
-                if new_stop_price >= old_stop:
-                    logger.info(f"[止损更新-做空] 止损价未下降({new_stop_price:.1f} >= {old_stop:.1f}), 跳过更新")
-                    return
-
-        # 3. 取消旧止损单
-        if existing_stop_id:
-            logger.info(f"[止损更新] 取消现有止损单: {existing_stop_id}")
-            try:
-                await self._exchange.cancel_algo_order(str(existing_stop_id), self._exchange.symbol)
-                logger.info(f"[止损更新] 止损单取消成功")
-            except Exception as e:
-                logger.warning(f"[止损更新] 取消止损单失败: {e}")
-
-        amount = position_data.get("amount", 0.01)
-        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop_price:.1f}")
         stop_order_id = await self._create_stop_loss_with_retry(
             amount=amount,
             stop_price=new_stop_price,
