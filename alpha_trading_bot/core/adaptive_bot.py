@@ -923,12 +923,24 @@ max_retries=2,
         else:
             logger.info("[止损更新] 交易所无现有止损单")
 
-        params = self.param_manager.get_current_params()
-
-        stop_loss_percent = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+        # === P0: 根据盈亏动态调整止损百分比 ===
+        base_stop_loss = params.get('stop_loss_percent', self.config.ai.stop_loss_percent or 0.02)
+        entry_price = position_data.get('entry_price', 0)
+        
+        # 动态调整止损百分比
+        if current_price > entry_price:
+            # 有盈利：用较小止损锁定利润
+            stop_loss_percent = min(base_stop_loss, 0.002)
+            logger.info(f"[止损调整] 有盈利({current_price} > {entry_price}) → 较小止损: {stop_loss_percent}")
+        else:
+            # 亏损/保本：用较大止损给回调空间
+            stop_loss_percent = max(base_stop_loss, 0.005)
+            logger.info(f"[止损调整] 亏损/保本({current_price} <= {entry_price}) → 较大止损: {stop_loss_percent}")
+        
         logger.info(f"[止损调试] stop_loss_percent={stop_loss_percent}")
-#WX|
-        position_side = position_data.get("side", "long")
+
+
+
         
         # 根据持仓方向计算止损价
         if position_side == "short":
