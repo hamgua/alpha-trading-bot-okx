@@ -470,7 +470,7 @@ class AdaptiveTradingBot:
 
         # 应用风险控制（传入规则调整）
         risk_params = self.risk_manager.calculate_trade_params(
-            {"side": action, "price": current_price},
+            {"side": action, "price": current_price, "entry_price": current_price},
             market_data,
             risk_score=0.5,
             rule_adjustments=rule_adjustments,
