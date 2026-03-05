@@ -24,7 +24,7 @@ def calculate_rsi(prices: List[float], period: int = 14) -> float:
     if len(prices) < period + 1:
         return 50.0
 
-    deltas = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+    deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
     gains = [d if d > 0 else 0 for d in deltas]
     losses = [-d if d < 0 else 0 for d in deltas]
 
@@ -62,5 +62,5 @@ def calculate_macd(
     return {
         "macd": macd_line[-1] if macd_line else 0,
         "signal": signal_ema[-1] if signal_ema else 0,
-        "histogram": histogram
+        "histogram": histogram,
     }

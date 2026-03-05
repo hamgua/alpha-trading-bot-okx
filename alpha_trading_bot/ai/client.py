@@ -161,44 +161,51 @@ class AIClient:
 
     def update_integrator_config(self, params: Dict[str, float]) -> None:
         """更新集成器配置（用于自适应参数调整）
-        
+
         Args:
             params: 参数字典，包含 adaptive_buy_condition 和 signal_optimizer 参数
         """
         from .adaptive_buy_condition import BuyConditions
         from .signal_optimizer import OptimizerConfig
         from .integrator import IntegrationConfig
-        
+
         # 更新 AdaptiveBuyCondition 配置
         if self.integrator.adaptive_buy:
             adaptive_cfg = self.integrator.adaptive_buy.conditions
-            
-            if 'oversold_rsi_max' in params:
-                adaptive_cfg.oversold_rsi_max = params['oversold_rsi_max']
-            if 'oversold_momentum_min' in params:
-                adaptive_cfg.oversold_momentum_min = params['oversold_momentum_min']
-            if 'oversold_trend_strength_min' in params:
-                adaptive_cfg.oversold_trend_strength_min = params['oversold_trend_strength_min']
-            if 'oversold_bb_position_max' in params:
-                adaptive_cfg.oversold_bb_position_max = params['oversold_bb_position_max']
-            if 'oversold_position_factor' in params:
-                adaptive_cfg.oversold_position_factor = params['oversold_position_factor']
-            if 'support_price_position_max' in params:
-                adaptive_cfg.support_price_position_max = params['support_price_position_max']
-            if 'support_position_factor' in params:
-                adaptive_cfg.support_position_factor = params['support_position_factor']
-        
+
+            if "oversold_rsi_max" in params:
+                adaptive_cfg.oversold_rsi_max = params["oversold_rsi_max"]
+            if "oversold_momentum_min" in params:
+                adaptive_cfg.oversold_momentum_min = params["oversold_momentum_min"]
+            if "oversold_trend_strength_min" in params:
+                adaptive_cfg.oversold_trend_strength_min = params[
+                    "oversold_trend_strength_min"
+                ]
+            if "oversold_bb_position_max" in params:
+                adaptive_cfg.oversold_bb_position_max = params[
+                    "oversold_bb_position_max"
+                ]
+            if "oversold_position_factor" in params:
+                adaptive_cfg.oversold_position_factor = params[
+                    "oversold_position_factor"
+                ]
+            if "support_price_position_max" in params:
+                adaptive_cfg.support_price_position_max = params[
+                    "support_price_position_max"
+                ]
+            if "support_position_factor" in params:
+                adaptive_cfg.support_position_factor = params["support_position_factor"]
+
         # 更新 SignalOptimizer 配置
         if self.integrator.signal_optimizer:
             optimizer_cfg = self.integrator.signal_optimizer.config
-            
-            if 'confidence_floor' in params:
-                optimizer_cfg.confidence_floor = params['confidence_floor']
-            if 'rapid_change_threshold' in params:
-                optimizer_cfg.rapid_change_threshold = params['rapid_change_threshold']
-        
-        logger.info(f"[AIClient] 集成器配置已更新: {list(params.keys())}")
 
+            if "confidence_floor" in params:
+                optimizer_cfg.confidence_floor = params["confidence_floor"]
+            if "rapid_change_threshold" in params:
+                optimizer_cfg.rapid_change_threshold = params["rapid_change_threshold"]
+
+        logger.info(f"[AIClient] 集成器配置已更新: {list(params.keys())}")
 
     async def get_signal(self, market_data: Dict[str, Any]) -> str:
         """获取交易信号，返回: buy / hold / sell"""
@@ -249,10 +256,16 @@ class AIClient:
         signal, confidence = parse_response(response)
 
         # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
-        confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
+        confidence_normalized = (
+            confidence / 100.0
+            if confidence is not None and confidence > 1
+            else confidence
+        )
 
         await log_signal_distribution(signal, source=provider)
-        logger.info(f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})")
+        logger.info(
+            f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})"
+        )
         return signal, confidence_normalized
 
     async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> tuple:
@@ -282,14 +295,26 @@ class AIClient:
             try:
                 signal, confidence = parse_response(response)
                 # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
-                confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
+                confidence_normalized = (
+                    confidence / 100.0
+                    if confidence is not None and confidence > 1
+                    else confidence
+                )
                 logger.debug(f"[AI原始响应] {provider}: {response}")
                 signals.append(
-                    {"provider": provider, "signal": signal, "confidence": confidence_normalized}
+                    {
+                        "provider": provider,
+                        "signal": signal,
+                        "confidence": confidence_normalized,
+                    }
                 )
                 if confidence_normalized is not None:
                     confidences[provider] = confidence_normalized
-                conf_str = f"{confidence}% (归一化={confidence_normalized})" if confidence is not None else "N/A"
+                conf_str = (
+                    f"{confidence}% (归一化={confidence_normalized})"
+                    if confidence is not None
+                    else "N/A"
+                )
                 logger.info(f"[AI响应] {provider}: 信号={signal}, 置信度={conf_str}")
             except Exception as e:
                 logger.error(f"[AI解析错误] {provider}: {e}")
@@ -369,7 +394,11 @@ class AIClient:
                 )
                 signal, confidence = parse_response(response)
                 # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
-                confidence_normalized = confidence / 100.0 if confidence is not None and confidence > 1 else confidence
+                confidence_normalized = (
+                    confidence / 100.0
+                    if confidence is not None and confidence > 1
+                    else confidence
+                )
                 logger.info(
                     f"[AI融合-备用] {provider}: 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})"
                 )

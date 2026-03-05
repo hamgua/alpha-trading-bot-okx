@@ -35,6 +35,7 @@ class ExchangeConfig:
             errors.append(f"杠杆倍数 {self.leverage} 不在有效范围 (1-125)")
         return errors
 
+
 @dataclass
 class TradingConfig:
     """交易配置"""
@@ -51,7 +52,6 @@ class TradingConfig:
         if self.random_offset_range < 0:
             errors.append(f"随机偏移范围 {self.random_offset_range} 不能为负数")
         return errors
-
 
 
 @dataclass
@@ -220,9 +220,9 @@ class Config:
             trading=TradingConfig(
                 cycle_minutes=int(os.getenv("CYCLE_MINUTES", "15")),
                 random_offset_range=int(os.getenv("RANDOM_OFFSET_RANGE", "180")),
-                allow_short_selling=os.getenv("ALLOW_SHORT_SELLING", "true").lower() == "true",
+                allow_short_selling=os.getenv("ALLOW_SHORT_SELLING", "true").lower()
+                == "true",
             ),
-
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(
                 stop_loss_percent=float(os.getenv("STOP_LOSS_PERCENT", "0.005")),

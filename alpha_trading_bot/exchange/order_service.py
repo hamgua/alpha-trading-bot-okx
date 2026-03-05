@@ -132,7 +132,7 @@ class OrderService:
                 average_price=0,
                 error_message="订单响应为None，可能已执行",
             )
-        
+
         order_id = order.get("id", "") or ""
         status_str = (order.get("status") or "unknown").lower()
         symbol = order.get("symbol", "")
@@ -321,7 +321,7 @@ class OrderService:
 
     async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
         """取消订单
-        
+
         Returns:
             tuple: (success: bool, reason: str)
                 - (True, "success") - 取消成功
@@ -338,7 +338,11 @@ class OrderService:
         except Exception as e:
             error_msg = str(e)
             # 订单已成交/取消/不存在时，取消失败是正常的，降低日志级别
-            if "51400" in error_msg or "does not exist" in error_msg or "filled" in error_msg:
+            if (
+                "51400" in error_msg
+                or "does not exist" in error_msg
+                or "filled" in error_msg
+            ):
                 logger.warning(f"[订单取消] 订单已不存在: {order_id}, 错误={error_msg}")
                 return (False, "already_gone")
             else:
@@ -347,11 +351,11 @@ class OrderService:
 
     async def cancel_algo_order(self, algo_id: str, symbol: str) -> tuple[bool, str]:
         """取消算法单（止损单、止盈单等）
-        
+
         Args:
             algo_id: 算法单ID (algoId)
             symbol: 交易对，如 BTC/USDT:USDT
-            
+
         Returns:
             tuple: (success: bool, reason: str)
                 - (True, "success") - 取消成功
@@ -364,26 +368,33 @@ class OrderService:
             base = parts[0]
             quote = parts[1].split(":")[0] if ":" in parts[1] else parts[1]
             inst_id = f"{base}-{quote}-SWAP"
-            
+
             logger.info(f"[算法单取消] 取消算法单: ID={algo_id}, instId={inst_id}")
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.private_post_trade_cancel_algos([
-                    {"instId": inst_id, "algoId": algo_id}
-                ])
+                lambda: self.exchange.private_post_trade_cancel_algos(
+                    [{"instId": inst_id, "algoId": algo_id}]
+                ),
             )
             logger.info(f"[算法单取消] 算法单取消成功: {algo_id}")
             return (True, "success")
         except Exception as e:
             error_msg = str(e)
             # 订单已成交/取消/不存在时，取消失败是正常的
-            if "51400" in error_msg or "does not exist" in error_msg or "filled" in error_msg:
-                logger.warning(f"[算法单取消] 算法单已不存在: {algo_id}, 错误={error_msg}")
+            if (
+                "51400" in error_msg
+                or "does not exist" in error_msg
+                or "filled" in error_msg
+            ):
+                logger.warning(
+                    f"[算法单取消] 算法单已不存在: {algo_id}, 错误={error_msg}"
+                )
                 return (False, "already_gone")
             else:
-                logger.error(f"[算法单取消] 取消算法单失败: {algo_id}, 错误={error_msg}")
+                logger.error(
+                    f"[算法单取消] 取消算法单失败: {algo_id}, 错误={error_msg}"
+                )
                 return (False, "failed")
-
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
         """

@@ -83,7 +83,9 @@ class ExchangeClient:
         self, max_retries: int = 3, retry_delay: float = 1.0
     ) -> Optional[Dict[str, Any]]:
         """获取当前持仓（带重试机制）"""
-        return await self._account_service.get_position_with_retry(max_retries, retry_delay)
+        return await self._account_service.get_position_with_retry(
+            max_retries, retry_delay
+        )
 
     async def get_ohlcv(self, timeframe: str = "1h", limit: int = 100):
         """获取K线数据"""
@@ -138,7 +140,7 @@ class ExchangeClient:
 
     async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
         """取消订单
-        
+
         Returns:
             tuple: (success: bool, reason: str)
         """
@@ -146,12 +148,11 @@ class ExchangeClient:
 
     async def cancel_algo_order(self, algo_id: str, symbol: str) -> tuple[bool, str]:
         """取消算法单（止损单、止盈单等）
-        
+
         Returns:
             tuple: (success: bool, reason: str)
         """
         return await self._order_service.cancel_algo_order(algo_id, symbol)
-
 
     async def get_open_orders(self, symbol: str) -> list:
         """获取当前未成交订单（普通订单）"""

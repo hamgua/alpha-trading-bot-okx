@@ -2,7 +2,13 @@
 Alpha Trading Bot - 精简版
 """
 
-from .config.models import Config, ExchangeConfig, TradingConfig, AIConfig, StopLossConfig
+from .config.models import (
+    Config,
+    ExchangeConfig,
+    TradingConfig,
+    AIConfig,
+    StopLossConfig,
+)
 from .core.bot import TradingBot, main
 
 __version__ = "4.0.0"

@@ -101,7 +101,9 @@ class AdaptiveConfig:
 
         # 盈利止损
         if "stop_loss_profit_percent" in adjustments:
-            self.current_stop_loss_profit_percent = adjustments["stop_loss_profit_percent"]
+            self.current_stop_loss_profit_percent = adjustments[
+                "stop_loss_profit_percent"
+            ]
 
         # 仓位乘数
         if "position_multiplier" in adjustments:
@@ -121,15 +123,25 @@ class AdaptiveConfig:
         if "oversold_momentum_min" in adjustments:
             self.current_oversold_momentum_min = adjustments["oversold_momentum_min"]
         if "oversold_trend_strength_min" in adjustments:
-            self.current_oversold_trend_strength_min = adjustments["oversold_trend_strength_min"]
+            self.current_oversold_trend_strength_min = adjustments[
+                "oversold_trend_strength_min"
+            ]
         if "oversold_bb_position_max" in adjustments:
-            self.current_oversold_bb_position_max = adjustments["oversold_bb_position_max"]
+            self.current_oversold_bb_position_max = adjustments[
+                "oversold_bb_position_max"
+            ]
         if "oversold_position_factor" in adjustments:
-            self.current_oversold_position_factor = adjustments["oversold_position_factor"]
+            self.current_oversold_position_factor = adjustments[
+                "oversold_position_factor"
+            ]
         if "support_price_position_max" in adjustments:
-            self.current_support_price_position_max = adjustments["support_price_position_max"]
+            self.current_support_price_position_max = adjustments[
+                "support_price_position_max"
+            ]
         if "support_position_factor" in adjustments:
-            self.current_support_position_factor = adjustments["support_position_factor"]
+            self.current_support_position_factor = adjustments[
+                "support_position_factor"
+            ]
 
         # === 新增：signal_optimizer 参数 ===
         if "confidence_floor" in adjustments:

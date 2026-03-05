@@ -231,9 +231,11 @@ class MLLearningIntegrator:
         """
         return {
             "is_running": self._is_running,
-            "last_optimize_time": self._last_optimize_time.isoformat()
-            if self._last_optimize_time
-            else None,
+            "last_optimize_time": (
+                self._last_optimize_time.isoformat()
+                if self._last_optimize_time
+                else None
+            ),
             "auto_interval_hours": self.auto_interval / 3600,
             "performance_report": self.weight_optimizer.get_performance_report(),
         }

@@ -89,6 +89,7 @@ class PositionManager:
     def entry_price(self) -> float:
         """获取入场价"""
         return self._entry_price
+
     def position(self) -> Optional[Position]:
         """获取当前持仓"""
         return self._position
@@ -382,7 +383,9 @@ class PositionManager:
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
 
-    def set_take_profit_order(self, take_profit_order_id: str, take_profit_price: float = 0.0) -> None:
+    def set_take_profit_order(
+        self, take_profit_order_id: str, take_profit_price: float = 0.0
+    ) -> None:
         """设置止盈单ID（并持久化）"""
         self._take_profit_order_id = take_profit_order_id
         if take_profit_price > 0:
@@ -399,7 +402,9 @@ class PositionManager:
                 last_take_profit_price=self._last_take_profit_price,
             )
 
-        logger.debug(f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}")
+        logger.debug(
+            f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}"
+        )
 
     def needs_stop_order_recovery(self) -> bool:
         """检查是否需要恢复止损单（有持仓但无止损单ID）"""
@@ -440,7 +445,9 @@ class PositionManager:
         # 持久化清空
         self._persistence.clear_position()
 
-    def update_position(self, amount: float, entry_price: float, symbol: str, side: str = "long") -> None:
+    def update_position(
+        self, amount: float, entry_price: float, symbol: str, side: str = "long"
+    ) -> None:
         """
         更新持仓信息（开仓后调用，并持久化）
 

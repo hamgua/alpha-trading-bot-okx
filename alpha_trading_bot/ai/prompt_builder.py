@@ -18,7 +18,6 @@ class PromptBuilder:
     SELL_BB_POSITION = 80  # 降低布林带位置，更容易卖出
     SELL_STOP_LOSS_PERCENT = 2.5  # 收紧止损
 
-
     # 观望条件阈值 - 收紧以减少观望
     WATCH_TREND_STRENGTH = 0.15  # 降低趋势强度阈值（原0.2）
     WATCH_ADX_THRESHOLD = 30  # 提高ADX阈值（原25）
@@ -109,9 +108,7 @@ class PromptBuilder:
         )
 
         # Kimi 高波动风险提示
-        is_kimi_high_volatility = (
-            provider == "kimi" and atr_pct > 0.05  # ATR > 5%
-        )
+        is_kimi_high_volatility = provider == "kimi" and atr_pct > 0.05  # ATR > 5%
 
         return cls._format_prompt(
             pos_side=pos_side if pos_side != "none" else "无持仓",

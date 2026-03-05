@@ -22,15 +22,19 @@ warnings.warn(
 # 向后兼容：直接转发到根 main.py 的 adaptive 模式
 if __name__ == "__main__":
     import os
+
     os.environ.setdefault("BOT_MODE", "adaptive")
 
     # 导入并运行根入口
     from pathlib import Path
+
     sys.path.insert(0, str(Path(__file__).parent.parent))
 
     import asyncio
+
     # 动态导入根 main 的 main 函数
     import importlib.util
+
     spec = importlib.util.spec_from_file_location(
         "root_main", str(Path(__file__).parent.parent / "main.py")
     )

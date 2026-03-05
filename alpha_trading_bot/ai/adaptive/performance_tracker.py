@@ -262,9 +262,11 @@ class PerformanceTracker:
             profit_factor=profit_factor,
             total_pnl=total_pnl,
             sharpe_ratio=sharpe,
-            max_drawdown=self._current_max_drawdown
-            if hasattr(self, "_current_max_drawdown")
-            else 0,
+            max_drawdown=(
+                self._current_max_drawdown
+                if hasattr(self, "_current_max_drawdown")
+                else 0
+            ),
             consecutive_wins=consecutive_wins,
             consecutive_losses=consecutive_losses,
             last_outcome=closed_trades[-1].outcome if closed_trades else None,

@@ -92,9 +92,11 @@ class PerformanceTracker:
             "correct": len(correct),
             "partial": len(partial),
             "wrong": len(wrong),
-            "win_rate": (len(correct) + len(partial) * 0.5) / len(provider_records)
-            if provider_records
-            else 0,
+            "win_rate": (
+                (len(correct) + len(partial) * 0.5) / len(provider_records)
+                if provider_records
+                else 0
+            ),
             "avg_return": sum(returns) / len(returns) if returns else 0,
             "best_return": max(returns) if returns else 0,
             "worst_return": min(returns) if returns else 0,

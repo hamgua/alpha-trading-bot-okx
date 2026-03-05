@@ -311,9 +311,11 @@ class TrendReversalDetector:
             "confidence": min(confidence, 0.35),
             "current_rsi": current_rsi,
             "rsi_trend": rsi_trend,
-            "oversold_level": self.rsi_oversold - current_rsi
-            if current_rsi < self.rsi_oversold
-            else 0,
+            "oversold_level": (
+                self.rsi_oversold - current_rsi
+                if current_rsi < self.rsi_oversold
+                else 0
+            ),
             "reason": reason,
         }
 

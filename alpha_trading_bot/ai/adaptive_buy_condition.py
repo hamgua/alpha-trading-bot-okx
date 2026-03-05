@@ -64,8 +64,6 @@ class BuyConditions:
     confirmation_position_factor: float = 0.9  # 保持0.9
 
 
-
-
 class AdaptiveBuyCondition:
     """
     自适应买入条件判断

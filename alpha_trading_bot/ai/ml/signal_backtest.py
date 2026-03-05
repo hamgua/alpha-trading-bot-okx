@@ -184,22 +184,26 @@ class SignalBacktestLearner:
                         pnl = exit_price - entry_price
 
                         return {
-                            "entry_time": df.iloc[0]["timestamp"]
-                            if "timestamp" in df.columns
-                            else signal_time,
+                            "entry_time": (
+                                df.iloc[0]["timestamp"]
+                                if "timestamp" in df.columns
+                                else signal_time
+                            ),
                             "entry_price": entry_price,
-                            "exit_time": df.iloc[-1]["timestamp"]
-                            if "timestamp" in df.columns
-                            else end_dt.isoformat(),
+                            "exit_time": (
+                                df.iloc[-1]["timestamp"]
+                                if "timestamp" in df.columns
+                                else end_dt.isoformat()
+                            ),
                             "exit_price": exit_price,
                             "pnl": pnl,
                             "pnl_percent": pnl_percent,
-                            "high": df["high"].max()
-                            if "high" in df.columns
-                            else exit_price,
-                            "low": df["low"].min()
-                            if "low" in df.columns
-                            else entry_price,
+                            "high": (
+                                df["high"].max() if "high" in df.columns else exit_price
+                            ),
+                            "low": (
+                                df["low"].min() if "low" in df.columns else entry_price
+                            ),
                             "source": "market_data",
                         }
             except Exception as e:
@@ -255,13 +259,17 @@ class SignalBacktestLearner:
             pnl = exit_price - entry_price
 
             return {
-                "entry_time": df.iloc[0]["timestamp"]
-                if "timestamp" in df.columns
-                else signal_time,
+                "entry_time": (
+                    df.iloc[0]["timestamp"]
+                    if "timestamp" in df.columns
+                    else signal_time
+                ),
                 "entry_price": entry_price,
-                "exit_time": df.iloc[-1]["timestamp"]
-                if "timestamp" in df.columns
-                else end_dt.isoformat(),
+                "exit_time": (
+                    df.iloc[-1]["timestamp"]
+                    if "timestamp" in df.columns
+                    else end_dt.isoformat()
+                ),
                 "exit_price": exit_price,
                 "pnl": pnl,
                 "pnl_percent": pnl_percent,
@@ -394,10 +402,11 @@ class SignalBacktestLearner:
                 "winning_signals": p_wins,
                 "win_rate": p_wins / p_total if p_total > 0 else 0,
                 "average_return": provider_df["pnl_percent"].mean(),
-                "profit_factor": (p_wins_mean * p_wins)
-                / (p_losses_mean * (p_total - p_wins))
-                if p_total - p_wins > 0
-                else 1.0,
+                "profit_factor": (
+                    (p_wins_mean * p_wins) / (p_losses_mean * (p_total - p_wins))
+                    if p_total - p_wins > 0
+                    else 1.0
+                ),
                 "avg_confidence": provider_df["confidence"].mean(),
             }
 
