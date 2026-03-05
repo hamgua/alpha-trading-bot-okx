@@ -561,7 +561,7 @@ class AdaptiveTradingBot:
             )
 
 
-#YV|            # P0: 验证订单是否创建成功
+
 
             # P0: 验证订单是否创建成功
             if not order_id:
@@ -577,7 +577,7 @@ class AdaptiveTradingBot:
                     stop_price=stop_loss_price,
                     current_price=current_price,
                     position_side=position_side,
-max_retries=3,
+                    max_retries=3,
                 )
                 if stop_order_id:
                     self.position_manager.set_stop_order(stop_order_id, stop_loss_price)
