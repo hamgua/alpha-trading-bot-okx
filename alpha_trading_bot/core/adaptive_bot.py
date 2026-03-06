@@ -396,11 +396,40 @@ class AdaptiveTradingBot:
                 "confidence": 1.0,
                 "strategy": "safe_mode",
             }
-
         # AI信号优先
         if ai_signal.upper() == "BUY":
             action = "open"
             reason = "AI信号买入"
+        elif ai_signal.upper() == "SHORT":
+            # SHORT 信号：专用于做空开仓
+            # 有持仓时，应该用 SELL 信号来平仓，而不是 SHORT
+            has_position = market_data.get("has_position", False)
+
+            if not has_position and self.config.trading.allow_short_selling:
+                action = "sell"  # 做空开仓
+                reason = "AI信号做空"
+            elif has_position:
+                # 有持仓时，SHORT 信号也应该平仓（但这种情况应该优先使用 SELL）
+                action = "close"
+                reason = "AI信号SHORT+有持仓，平仓"
+            else:
+                action = "skip"
+                reason = "禁止做空（未开启做空功能）"
+        elif ai_signal.upper() == "SELL":
+            # SELL 信号：专用于平仓
+            has_position = market_data.get("has_position", False)
+
+            if not has_position:
+                # 无持仓时收到 SELL 信号，应该忽略
+                action = "skip"
+                reason = "SELL信号+无持仓，忽略"
+            else:
+                if selected.signal.upper() == "SELL":
+                    action = "close"
+                    reason = "AI+策略共振卖出"
+                else:
+                    action = "close"
+                    reason = "AI信号卖出"
         elif ai_signal.upper() in ["SELL", "SHORT"]:
             # 获取持仓状态
             has_position = market_data.get("has_position", False)

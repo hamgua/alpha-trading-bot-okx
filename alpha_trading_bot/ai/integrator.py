@@ -284,6 +284,50 @@ class AISignalIntegrator:
                     f"持续下跌检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
 
+        # ===== 0.5. SHORT信号专用处理 =====
+        if original_signal.upper() == "SHORT":
+            logger.info("[信号集成] 检测到 SHORT 信号（趋势下跌苗头），应用做空优化...")
+
+            # 获取市场数据
+            technical = market_data.get("technical", {})
+            trend_direction = technical.get("trend_direction", "neutral")
+            trend_strength = technical.get("trend_strength", 0)
+            price_position = technical.get("price_position", 0.5)
+
+            # SHORT 信号的风险检查
+            # 1. 趋势检查：SHORT 信号需要趋势向下
+            if trend_direction not in ["down", "neutral"]:
+                logger.warning("[SHORT优化] 趋势向上时做空风险高，降低置信度")
+                old_conf = original_confidence
+                original_confidence *= 0.7
+                result.adjustments_made.append(
+                    f"SHORT优化: 趋势非下跌，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                )
+
+            # 2. 价格位置检查：价格太低时不建议做空（接近支撑位）
+            if price_position < 0.20:  # 20%以下
+                logger.warning("[SHORT优化] 价格位置过低（<20%），做空风险高")
+                old_conf = original_confidence
+                original_confidence *= 0.6
+                result.adjustments_made.append(
+                    f"SHORT优化: 低价位做空风险高，置信度降低40% ({old_conf:.0%}→{original_confidence:.0%})"
+                )
+            elif price_position < 0.35:  # 35%以下
+                old_conf = original_confidence
+                original_confidence *= 0.8
+                result.adjustments_made.append(
+                    f"SHORT优化: 价格偏低（<35%），置信度降低20% ({old_conf:.0%}→{original_confidence:.0%})"
+                )
+
+            # 3. 如果在持续下跌趋势中，SHORT 信号应该增强（这是顺势）
+            if decline_result and decline_result.is_detected:
+                old_conf = original_confidence
+                original_confidence = min(original_confidence * 1.2, 0.95)
+                result.adjustments_made.append(
+                    f"SHORT优化: 持续下跌趋势中，置信度增加20% ({old_conf:.0%}→{original_confidence:.0%})"
+                )
+
+            conf_history.append((0.5, "SHORT优化", original_confidence))
         # 1. AdaptiveBuyCondition
         if self.adaptive_buy and self.config.enable_adaptive_buy:
             try:
@@ -408,6 +452,25 @@ class AISignalIntegrator:
                         f"BTC检测: 低位机会，置信度增加15% ({old_conf:.0%}→{original_confidence:.0%})"
                     )
                     conf_history.append((3, "BTC低位", original_confidence))
+
+                # SHORT 信号的特殊处理：低位是风险，高位是机会
+                if original_signal == "SHORT":
+                    # 低位做空是风险
+                    if btc_result.is_low_opportunity:
+                        old_conf = original_confidence
+                        original_confidence *= 0.7
+                        result.adjustments_made.append(
+                            f"BTC检测: SHORT+低价位风险高，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((3, "BTC低位SHORT", original_confidence))
+                    # 高位做空是机会
+                    elif btc_result.is_high_risk:
+                        old_conf = original_confidence
+                        original_confidence *= 1.15
+                        result.adjustments_made.append(
+                            f"BTC检测: SHORT+高位机会，置信度增加15% ({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((3, "BTC高位SHORT", original_confidence))
 
             except Exception as e:
                 import traceback
