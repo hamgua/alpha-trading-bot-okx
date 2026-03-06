@@ -265,6 +265,7 @@ class AdaptiveBuyCondition:
         recent_change: float,
         trend_strength: float,
         trend_direction: str,
+        bb_position: float,
     ) -> Dict[str, Any]:
         """
         检查超卖反弹模式
