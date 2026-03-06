@@ -179,7 +179,7 @@ class AdaptiveBuyCondition:
         # 2. 超卖反弹模式检查
         if self.conditions.oversold_enabled:
             oversold_result = self._check_oversold_rebound_mode(
-                rsi, recent_change, trend_direction, trend_strength, bb_position
+                rsi, recent_change, trend_strength, trend_direction, bb_position
             )
             results["oversold_rebound"] = oversold_result
 
