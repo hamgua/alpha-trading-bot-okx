@@ -6,6 +6,7 @@ AI信号优化集成器
 2. SignalOptimizer - 信号优化器
 3. HighPriceBuyOptimizer - 高位买入优化器
 4. BTCPriceLevelDetector - BTC价格水平检测
+5. SustainedDeclineDetector - 持续下跌检测
 
 使用方式：
 from alpha_trading_bot.ai.integrator import AISignalIntegrator
@@ -26,6 +27,11 @@ from .adaptive_buy_condition import (
 from .signal_optimizer import SignalOptimizer, OptimizerConfig, OptimizedSignal
 from .high_price_buy_optimizer import HighPriceBuyOptimizer, HighPriceBuyConfig
 from .btc_price_detector import BTCPriceLevelDetector, BTCPriceLevelConfig
+from .sustained_decline_detector import (
+    SustainedDeclineDetector,
+    SustainedDeclineConfig,
+    DeclineDetectionResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +45,7 @@ class IntegrationConfig:
     enable_signal_optimizer: bool = True
     enable_high_price_filter: bool = True
     enable_btc_detector: bool = True
+    enable_sustained_decline_detector: bool = True  # 新增：持续下跌检测
 
     # AdaptiveBuyCondition配置
     adaptive_buy_config: Optional[BuyConditions] = None
@@ -51,6 +58,9 @@ class IntegrationConfig:
 
     # BTC价格检测配置
     btc_detector_config: Optional[BTCPriceLevelConfig] = None
+
+    # 持续下跌检测配置
+    sustained_decline_config: Optional[SustainedDeclineConfig] = None
 
 
 @dataclass
@@ -65,6 +75,7 @@ class IntegratedSignalResult:
     optimized_signal: Optional[OptimizedSignal] = None
     high_price_result: Optional[Dict] = None
     btc_level_result: Optional[Dict] = None
+    sustained_decline_result: Optional[DeclineDetectionResult] = None  # 新增
 
     # 最终结果
     final_signal: str = "HOLD"
@@ -74,6 +85,7 @@ class IntegratedSignalResult:
     price_level: str = "mid"
     is_high_risk: bool = False
     is_low_opportunity: bool = False
+    is_sustained_decline: bool = False  # 新增：是否检测到持续下跌
     adjustments_made: list = None
 
 
@@ -82,10 +94,11 @@ class AISignalIntegrator:
     AI信号优化集成器
 
     信号处理流程：
-    1. AdaptiveBuyCondition → 判断是否应该买入
-    2. SignalOptimizer → 优化信号和置信度
-    3. HighPriceBuyOptimizer → 高位信号过滤
+    1. SustainedDeclineDetector → 检测持续下跌趋势（新增，最先执行）
+    2. AdaptiveBuyCondition → 判断是否应该买入
+    3. SignalOptimizer → 优化信号和置信度
     4. BTCPriceLevelDetector → 价格水平检测
+    5. HighPriceBuyOptimizer → 高位信号过滤
 
     最终输出优化后的信号
     """
@@ -105,6 +118,9 @@ class AISignalIntegrator:
         logger.info(f"  - 信号优化: {self.config.enable_signal_optimizer}")
         logger.info(f"  - 高位过滤: {self.config.enable_high_price_filter}")
         logger.info(f"  - BTC检测: {self.config.enable_btc_detector}")
+        logger.info(
+            f"  - 持续下跌检测: {self.config.enable_sustained_decline_detector}"
+        )
 
     def _init_modules(self):
         """初始化各模块"""
@@ -136,6 +152,15 @@ class AISignalIntegrator:
         else:
             self.btc_detector = None
 
+        # SustainedDeclineDetector - 持续下跌检测
+        if self.config.enable_sustained_decline_detector:
+            decline_config = (
+                self.config.sustained_decline_config or SustainedDeclineConfig()
+            )
+            self.sustained_decline_detector = SustainedDeclineDetector(decline_config)
+        else:
+            self.sustained_decline_detector = None
+
     def process(
         self,
         market_data: Dict[str, Any],
@@ -161,6 +186,7 @@ class AISignalIntegrator:
                     },
                     "price_history": List[float],
                     "hourly_changes": List[float],
+                    "cycle_start_price": float,  # 新增：周期开始价格
                 }
             original_signal: 原始信号
             original_confidence: 原始置信度
@@ -184,6 +210,80 @@ class AISignalIntegrator:
         # ========== 诊断日志：记录每个阶段的置信度 ==========
         conf_history = [(0, "原始", original_confidence)]
 
+        # ===== 0. 持续下跌检测 (新增，最先执行) =====
+        decline_result = None
+        if (
+            self.sustained_decline_detector
+            and self.config.enable_sustained_decline_detector
+        ):
+            try:
+                decline_result = self.sustained_decline_detector.detect(
+                    market_data=market_data
+                )
+                result.sustained_decline_result = decline_result
+                result.is_sustained_decline = decline_result.is_detected
+
+                # 如果检测到持续下跌，根据结果调整信号
+                if decline_result.is_detected:
+                    # 记录检测到的下跌级别
+                    if decline_result.decline_level == "severe":
+                        logger.warning(
+                            f"[持续下跌检测] ⚠️ 检测到严重下跌趋势: "
+                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}% "
+                            f"(严重级别)"
+                        )
+                    elif decline_result.decline_level == "moderate":
+                        logger.warning(
+                            f"[持续下跌检测] ⚠️ 检测到中度下跌趋势: "
+                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}%"
+                        )
+                    else:
+                        logger.info(
+                            f"[持续下跌检测] ℹ️ 检测到轻度下跌趋势: "
+                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}%"
+                        )
+
+                    # 根据下跌级别调整信号
+                    if decline_result.should_block_buy:
+                        # 严重下跌，完全阻断BUY信号
+                        if original_signal == "BUY":
+                            original_signal = "HOLD"
+                            result.adjustments_made.append(
+                                "持续下跌检测: 严重下跌趋势，完全阻断BUY信号"
+                            )
+                            logger.warning("[持续下跌检测] 🚫 完全阻断BUY信号")
+                    else:
+                        # 非完全阻断情况下，降低BUY置信度或增加SELL置信度
+                        if original_signal == "BUY" and decline_result.buy_penalty > 0:
+                            old_conf = original_confidence
+                            original_confidence = max(
+                                original_confidence - decline_result.buy_penalty, 0.35
+                            )
+                            result.adjustments_made.append(
+                                f"持续下跌检测: BUY信号置信度降低{decline_result.buy_penalty:.0%} "
+                                f"({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                            conf_history.append((0.5, "下跌检测", original_confidence))
+
+                        # 如果是SELL信号，增加置信度
+                        if original_signal == "SELL" and decline_result.sell_boost > 0:
+                            old_conf = original_confidence
+                            original_confidence = min(
+                                original_confidence + decline_result.sell_boost, 0.95
+                            )
+                            result.adjustments_made.append(
+                                f"持续下跌检测: SELL信号置信度增加{decline_result.sell_boost:.0%} "
+                                f"({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                            conf_history.append((0.5, "下跌检测", original_confidence))
+
+            except Exception as e:
+                import traceback
+
+                logger.warning(
+                    f"持续下跌检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+                )
+
         # 1. AdaptiveBuyCondition
         if self.adaptive_buy and self.config.enable_adaptive_buy:
             try:
@@ -192,9 +292,28 @@ class AISignalIntegrator:
 
                 # 如果买入条件判断可以买入，提高置信度
                 if buy_result.can_buy:
-                    original_confidence = max(
-                        original_confidence, buy_result.confidence
-                    )
+                    # 检查是否在持续下跌趋势中，如果是则谨慎对待
+                    if (
+                        decline_result
+                        and decline_result.is_detected
+                        and not decline_result.should_block_buy
+                    ):
+                        # 持续下跌趋势中，降低买入条件的置信度加成
+                        adjusted_buy_conf = buy_result.confidence * (
+                            1 - decline_result.buy_penalty
+                        )
+                        original_confidence = max(
+                            original_confidence, adjusted_buy_conf
+                        )
+                        if adjusted_buy_conf < buy_result.confidence:
+                            result.adjustments_made.append(
+                                f"自适应买入: {buy_result.mode}模式通过，但持续下跌趋势降低权重"
+                            )
+                    else:
+                        original_confidence = max(
+                            original_confidence, buy_result.confidence
+                        )
+
                     original_signal = "BUY"
                     result.adjustments_made.append(
                         f"自适应买入: {buy_result.mode}模式通过"
@@ -205,7 +324,10 @@ class AISignalIntegrator:
 
             except Exception as e:
                 import traceback
-                logger.warning(f"AdaptiveBuyCondition处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
+
+                logger.warning(
+                    f"AdaptiveBuyCondition处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+                )
 
         # 2. SignalOptimizer
         if self.signal_optimizer and self.config.enable_signal_optimizer:
@@ -233,7 +355,10 @@ class AISignalIntegrator:
 
             except Exception as e:
                 import traceback
-                logger.warning(f"SignalOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
+
+                logger.warning(
+                    f"SignalOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+                )
 
         # 3. BTC价格水平检测
         if self.btc_detector and self.config.enable_btc_detector:
@@ -255,6 +380,19 @@ class AISignalIntegrator:
 
                 # 如果是高风险，降低置信度
                 if btc_result.is_high_risk and original_signal == "BUY":
+                    # 如果已经在持续下跌中，风险更大
+                    penalty = (
+                        0.35
+                        if (decline_result and decline_result.is_detected)
+                        else 0.30
+                    )
+                    old_conf = original_confidence
+                    original_confidence *= 1 - penalty
+                    result.adjustments_made.append(
+                        f"BTC检测: 高位风险+持续下跌，置信度降低{penalty * 100:.0f}% ({old_conf:.0%}→{original_confidence:.0%})"
+                    )
+                    conf_history.append((3, "BTC高位", original_confidence))
+                elif btc_result.is_high_risk and original_signal == "BUY":
                     old_conf = original_confidence
                     original_confidence *= 0.7
                     result.adjustments_made.append(
@@ -273,13 +411,25 @@ class AISignalIntegrator:
 
             except Exception as e:
                 import traceback
-                logger.warning(f"BTC价格检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
+
+                logger.warning(
+                    f"BTC价格检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+                )
 
         # 4. HighPriceBuyOptimizer
         if self.high_price_optimizer and self.config.enable_high_price_filter:
             try:
+                # 传递持续下跌检测结果给高位优化器
+                market_data_with_decline = dict(market_data)
+                if decline_result:
+                    market_data_with_decline["sustained_decline"] = {
+                        "is_detected": decline_result.is_detected,
+                        "decline_level": decline_result.decline_level,
+                        "buy_penalty": decline_result.buy_penalty,
+                    }
+
                 optimized = self.high_price_optimizer.optimize_high_price_buy(
-                    market_data=market_data,
+                    market_data=market_data_with_decline,
                     original_confidence=original_confidence,
                     original_can_buy=(original_signal == "BUY"),
                     buy_mode=result.price_level,
@@ -305,7 +455,10 @@ class AISignalIntegrator:
 
             except Exception as e:
                 import traceback
-                logger.warning(f"HighPriceBuyOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}")
+
+                logger.warning(
+                    f"HighPriceBuyOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+                )
 
         # 5. 最终结果
         result.final_signal = original_signal
@@ -342,12 +495,19 @@ class AISignalIntegrator:
         if self.btc_detector:
             stats["btc_detector"] = self.btc_detector.get_info()
 
+        if self.sustained_decline_detector:
+            stats["sustained_decline_detector"] = (
+                self.sustained_decline_detector.get_info()
+            )
+
         return stats
 
     def reset(self):
         """重置所有模块"""
         if self.signal_optimizer:
             self.signal_optimizer.reset()
+        if self.sustained_decline_detector:
+            self.sustained_decline_detector.reset_cycle()
         logger.info("[AI信号集成器] 已重置")
 
 
@@ -373,18 +533,21 @@ def create_integrator(
             enable_signal_optimizer=True,
             enable_high_price_filter=True,
             enable_btc_detector=True,
+            enable_sustained_decline_detector=True,
         ),
         "high_price_filter": IntegrationConfig(
             enable_adaptive_buy=True,
             enable_signal_optimizer=True,
             enable_high_price_filter=True,
             enable_btc_detector=False,
+            enable_sustained_decline_detector=True,
         ),
         "btc_focused": IntegrationConfig(
             enable_adaptive_buy=True,
             enable_signal_optimizer=True,
             enable_high_price_filter=True,
             enable_btc_detector=True,
+            enable_sustained_decline_detector=True,
             btc_detector_config=BTCPriceLevelConfig(
                 high_threshold=0.99,  # 更保守
                 low_threshold=0.01,  # 更敏感
@@ -395,6 +558,7 @@ def create_integrator(
             enable_signal_optimizer=False,
             enable_high_price_filter=False,
             enable_btc_detector=False,
+            enable_sustained_decline_detector=False,
         ),
     }
 
