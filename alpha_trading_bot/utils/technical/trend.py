@@ -61,14 +61,18 @@ def calculate_adx(
 def calculate_trend(
     prices: List[float], short_period: int = 10, long_period: int = 20
 ) -> Dict[str, Any]:
-    """计算趋势方向和强度"""
+    """计算趋势方向和强度
+
+    综合使用MA差距和近期价格变化来计算趋势强度，
+    使得在价格快速变动时也能正确反映趋势强度。
+    """
     if len(prices) < long_period + 1:
         return {"direction": "neutral", "strength": 0.0}
 
     short_ma = sum(prices[-short_period:]) / short_period
     long_ma = sum(prices[-long_period:]) / long_period
 
-    # 方向
+    # 方向判断
     if prices[-1] > short_ma > long_ma:
         direction = "up"
     elif prices[-1] < short_ma < long_ma:
@@ -76,17 +80,24 @@ def calculate_trend(
     else:
         direction = "neutral"
 
-    # 强度 (基于短期均线与长期均线的距离)
-    # 当趋势向上时: short_ma > long_ma，强度 = (short_ma - long_ma) / long_ma
-    # 当趋势向下时: short_ma < long_ma，强度 = (long_ma - short_ma) / long_ma
+    # 强度计算：综合MA差距和价格变化
     if long_ma > 0:
+        # 1. MA差距强度
         ma_distance = abs(short_ma - long_ma) / long_ma
-        strength = min(1.0, ma_distance * 10)  # 放大差距以获得更有意义的强度值
+        ma_strength = min(1.0, ma_distance * 10)
+
+        # 2. 近期价格变化强度（捕捉快速下跌/上涨）
+        lookback = min(10, len(prices) - 1)
+        if lookback > 0 and prices[-lookback] > 0:
+            price_change = (prices[-1] - prices[-lookback]) / prices[-lookback]
+            # 放大价格变化影响：3%变化 → 0.3强度
+            price_strength = min(1.0, abs(price_change) * 10)
+        else:
+            price_strength = 0.0
+
+        # 取两者最大值，任一指标强则趋势强度高
+        strength = max(ma_strength, price_strength)
     else:
         strength = 0.0
-
-    return {"direction": direction, "strength": strength}
-    price_change = (prices[-1] - prices[0]) / prices[0] if prices[0] > 0 else 0
-    strength = min(1.0, abs(price_change) * 10)
 
     return {"direction": direction, "strength": strength}
