@@ -60,9 +60,10 @@ class MarketDataService:
         if len(closes) >= 50:
             technical_data = calculate_all_indicators(closes, highs, lows, closes)
 
-        # 计算跌幅
+        # 计算跌幅和涨幅
         recent_drop = self._calculate_recent_drop(closes)
         short_term_drop = self._calculate_short_term_drop(closes)  # 最近3根K线跌幅
+        short_term_rise = self._calculate_short_term_rise(closes)  # 最近3根K线涨幅
         hourly_changes = self._calculate_hourly_changes(closes)
 
         return {
@@ -75,6 +76,7 @@ class MarketDataService:
             "technical": technical_data,
             "recent_drop_percent": recent_drop,
             "short_term_drop_percent": short_term_drop,  # 最近3根K线跌幅
+            "short_term_rise_percent": short_term_rise,  # 最近3根K线涨幅
             "price_history": closes,
             "hourly_changes": hourly_changes,
         }
@@ -124,6 +126,29 @@ class MarketDataService:
         if start_price > 0:
             drop_percent = (end_price - start_price) / start_price
             return drop_percent
+
+        return 0.0
+
+    def _calculate_short_term_rise(self, closes: List[float]) -> float:
+        """
+        计算短期涨幅（最近3根K线，约15分钟）
+
+        Args:
+            closes: 收盘价列表（最新在最后）
+
+        Returns:
+            涨幅比例（正数表示上涨），0表示无法计算
+        """
+        if len(closes) < 4:  # 需要至少4个价格来计算3根K线变化
+            return 0.0
+
+        # 取最近3根K线的涨幅（从第4根到第1根）
+        start_price = closes[-4]  # 4根K线前的价格
+        end_price = closes[-1]  # 最新价格
+
+        if start_price > 0:
+            rise_percent = (end_price - start_price) / start_price
+            return rise_percent
 
         return 0.0
 

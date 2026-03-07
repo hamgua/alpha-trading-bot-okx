@@ -355,6 +355,48 @@ class AISignalIntegrator:
                     f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
                     f"短期跌幅{short_term_drop:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
                 )
+                original_signal = "SHORT"
+                # 设置一个基础置信度
+                if is_sustained_decline:
+                    original_confidence = 0.60  # 持续下跌时更高
+                else:
+                    original_confidence = 0.50  # 一般下跌趋势
+                result.adjustments_made.append(
+                    f"信号转换: HOLD→SHORT (下跌趋势)"
+                )
+                conf_history.append((0.6, "下跌转换", original_confidence))
+
+        # ===== 0.7. 上涨趋势中 HOLD 转 BUY =====
+        # 如果趋势向上但 AI 返回 hold，可以考虑转换为 buy
+        if original_signal.upper() == "HOLD":
+            technical = market_data.get("technical", {})
+            trend_direction = technical.get("trend_direction", "neutral")
+            trend_strength = technical.get("trend_strength", 0)
+            price_position = technical.get("price_position", 0.5)
+            
+            # 获取短期涨幅（最近3根K线约15分钟）
+            short_term_rise = market_data.get("short_term_rise_percent", 0)
+
+            # 检查是否满足买入条件
+            is_uptrend = trend_direction == "up"
+            has_strength = trend_strength > 0.05  # 有一定趋势强度
+            has_significant_rise = short_term_rise > 0.5  # 最近3根K线涨幅超过0.5%即视为显著
+            not_too_high = price_position < 0.80  # 不在极高位置
+
+            # 上涨趋势 + (有一定强度 或 显著涨幅) + 不是极高位置 → 转换为 BUY
+            if is_uptrend and (has_strength or has_significant_rise) and not_too_high:
+                logger.info(
+                    f"[信号转换] HOLD→BUY: 趋势向上(强度{trend_strength:.2f}), "
+                    f"短期涨幅{short_term_rise:.2f}%, 价格位置{price_position*100:.0f}%"
+                )
+                original_signal = "BUY"
+                original_confidence = 0.55  # 设置一个基础置信度
+                result.adjustments_made.append(
+                    f"信号转换: HOLD→BUY (上涨趋势)"
+                )
+                conf_history.append((0.55, "上涨转换", original_confidence))
+
+        # 1. AdaptiveBuyCondition
             
             # 获取近期跌幅（最近2个周期约30分钟）
             recent_drop = market_data.get("recent_drop_percent", 0)
