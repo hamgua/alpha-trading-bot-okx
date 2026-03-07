@@ -135,7 +135,7 @@ class ConsensusBoostedFusion:
             return FusionResult(
                 signal="hold",
                 confidence=0.6,
-                scores={"buy": 0, "hold": 1, "sell": 0},
+                scores={"buy": 0, "hold": 1, "sell": 0, "short": 0},
                 threshold=threshold or self.config.threshold,
                 is_valid=False,
                 consensus_ratio=0.0,
@@ -198,7 +198,7 @@ class ConsensusBoostedFusion:
 
     def _count_signals(self, signals: List[Dict[str, str]]) -> Dict[str, int]:
         """统计各信号数量"""
-        counts = {"buy": 0, "hold": 0, "sell": 0}
+        counts = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
         for s in signals:
             sig = s["signal"]
             if sig in counts:
@@ -338,7 +338,7 @@ class ConsensusBoostedFusion:
             return FusionResult(
                 signal="hold",
                 confidence=0.6,
-                scores={"buy": 0, "hold": 1, "sell": 0},
+                scores={"buy": 0, "hold": 1, "sell": 0, "short": 0},
                 threshold=threshold,
                 is_valid=False,
                 consensus_ratio=consensus_ratio,
