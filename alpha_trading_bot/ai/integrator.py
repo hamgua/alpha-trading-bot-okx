@@ -337,6 +337,25 @@ class AISignalIntegrator:
             trend_strength = technical.get("trend_strength", 0)
             price_position = technical.get("price_position", 0.5)
             
+            # 获取短期跌幅（最近3根K线约15分钟）
+            short_term_drop = market_data.get("short_term_drop_percent", 0)
+
+            # 检查是否满足做空条件
+            is_downtrend = trend_direction == "down"
+            has_strength = trend_strength > 0.05  # 降低阈值从 0.10 到 0.05
+            has_significant_drop = short_term_drop < -0.5  # 最近3根K线跌幅超过0.5%即视为显著
+            not_too_low = price_position > 0.20  # 不在极低位
+            is_sustained_decline = (
+                decline_result and decline_result.is_detected
+            )
+
+            # 下跌趋势 + (有一定强度 或 显著跌幅) + 不是极低位 → 转换为 SHORT
+            if is_downtrend and (has_strength or has_significant_drop) and not_too_low:
+                logger.info(
+                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                    f"短期跌幅{short_term_drop:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
+                )
+            
             # 获取近期跌幅（最近2个周期约30分钟）
             recent_drop = market_data.get("recent_drop_percent", 0)
 
