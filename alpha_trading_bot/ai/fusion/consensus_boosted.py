@@ -46,6 +46,7 @@ class FusionConfig:
     enable_rebound_mode: bool = True
     buy_bias: float = 1.0  # 1.15→1.0，移除买入偏置，保持信号平衡
     sell_bias: float = 1.15  # 新增卖出偏置，当RSI>70时启用
+    short_bias: float = 1.2  # 新增做空偏置，趋势向下时启用
 
 
 @dataclass
@@ -552,6 +553,26 @@ class ConsensusBoostedFusion:
                 if total > 0:
                     for sig in weighted_scores:
                         weighted_scores[sig] /= total
+
+        # 步骤4.2: 做空偏好 - 当趋势向下时，倾向SHORT
+        if self.config.short_bias > 1.0 and market_data:
+            technical = market_data.get("technical", {})
+            trend_direction = technical.get("trend_direction", "neutral")
+            if trend_direction == "down":
+                short_score = weighted_scores.get("short", 0)
+                if short_score > 0:
+                    weighted_scores["short"] *= self.config.short_bias
+                    logger.info(
+                        f"[融合] 做空偏好触发(趋势向下): short={short_score:.3f}, "
+                        f"偏好系数={self.config.short_bias}x"
+                    )
+                    total = sum(weighted_scores.values())
+                    if total > 0:
+                        for sig in weighted_scores:
+                            weighted_scores[sig] /= total
+
+        if self.config.buy_bias > 1.0:
+            buy_score = weighted_scores.get("buy", 0)
 
         if self.config.buy_bias > 1.0:
             buy_score = weighted_scores.get("buy", 0)
