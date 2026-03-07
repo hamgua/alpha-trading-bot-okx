@@ -208,7 +208,7 @@ class SustainedDeclineDetector:
 
         # 如果没有找到周期开始价格，使用daily_change估算
         if not start_price or start_price == current_price:
-            daily_change = market_data.get("daily_change_percent", 0)
+            daily_change = market_data.get("change_percent", 0)
             # 从日跌幅估算周期高点（假设当前价格）
             if daily_change < 0:
                 # start_price = current_price / (1 + daily_change/100)
@@ -241,7 +241,7 @@ class SustainedDeclineDetector:
             start_time=start_time,
             hourly_changes=hourly_changes,
             recent_change=market_data.get("recent_change_percent", 0),
-            daily_change=market_data.get("daily_change_percent", 0),
+            daily_change=market_data.get("change_percent", 0),
         )
 
         # 判断是否为持续下跌

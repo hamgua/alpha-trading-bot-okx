@@ -76,7 +76,16 @@ def calculate_trend(
     else:
         direction = "neutral"
 
-    # 强度 (基于价格与均线的距离)
+    # 强度 (基于短期均线与长期均线的距离)
+    # 当趋势向上时: short_ma > long_ma，强度 = (short_ma - long_ma) / long_ma
+    # 当趋势向下时: short_ma < long_ma，强度 = (long_ma - short_ma) / long_ma
+    if long_ma > 0:
+        ma_distance = abs(short_ma - long_ma) / long_ma
+        strength = min(1.0, ma_distance * 10)  # 放大差距以获得更有意义的强度值
+    else:
+        strength = 0.0
+
+    return {"direction": direction, "strength": strength}
     price_change = (prices[-1] - prices[0]) / prices[0] if prices[0] > 0 else 0
     strength = min(1.0, abs(price_change) * 10)
 
