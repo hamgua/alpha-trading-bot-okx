@@ -336,6 +336,26 @@ class AISignalIntegrator:
             trend_direction = technical.get("trend_direction", "neutral")
             trend_strength = technical.get("trend_strength", 0)
             price_position = technical.get("price_position", 0.5)
+            
+            # 获取日跌幅
+            change_percent = market_data.get("change_percent", 0)
+            recent_drop = market_data.get("recent_drop_percent", 0)
+
+            # 检查是否满足做空条件
+            is_downtrend = trend_direction == "down"
+            has_strength = trend_strength > 0.05  # 降低阈值从 0.10 到 0.05
+            has_significant_drop = change_percent < -2.0 or recent_drop < -1.5  # 日跌幅显著或近期跌幅显著
+            not_too_low = price_position > 0.20  # 不在极低位
+            is_sustained_decline = (
+                decline_result and decline_result.is_detected
+            )
+
+            # 下跌趋势 + (有一定强度 或 显著跌幅) + 不是极低位 → 转换为 SHORT
+            if is_downtrend and (has_strength or has_significant_drop) and not_too_low:
+                logger.info(
+                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
+                    f"日跌幅{change_percent:.2f}%, 价格位置{price_position*100:.0f}%, 持续下跌={is_sustained_decline}"
+                )
 
             # 检查是否满足做空条件
             is_downtrend = trend_direction == "down"
