@@ -385,10 +385,21 @@ class AdaptiveTradingBot:
         融合AI信号和策略选择的结果
         """
         # === P2: SafeMode 强制暂停检查 ===
-        if (
+        # 注意：下跌趋势中，即使安全模式也允许 SHORT 信号
+        is_safe_mode = (
             selected.strategy_type == "safe_mode"
             or "safe_mode" in selected.strategy_type
-        ):
+        )
+
+        # 检查是否为下跌趋势
+        technical = market_data.get("technical", {})
+        trend_direction = technical.get("trend_direction", "neutral")
+        is_downtrend = trend_direction == "down"
+
+        # 下跌趋势中允许 SHORT 信号，即使在安全模式
+        if is_safe_mode and is_downtrend and ai_signal.upper() == "SHORT":
+            logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
+        elif is_safe_mode:
             logger.warning(f"[安全] 安全模式触发: {selected.reasons}")
             return {
                 "action": "skip",
