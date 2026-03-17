@@ -268,7 +268,8 @@ class AdaptiveTradingBot:
 
             # 6. 策略选择（此时还没有持仓数据）
             selected = self.strategy_manager.analyze_and_select(
-                market_data, {}  # 无持仓
+                market_data,
+                {},  # 无持仓
             )
             logger.info(
                 f"[选择] {selected.strategy_type}: {selected.signal} "
@@ -530,7 +531,6 @@ class AdaptiveTradingBot:
         assert self._exchange is not None, "Exchange client not initialized"
         # 开仓操作: action = "open" (做多) 或 action = "sell" (做空)
         if action in ["open", "sell"]:
-
             if has_position:
                 logger.info("[执行] 已有持仓，跳过开仓")
                 return
@@ -575,14 +575,14 @@ class AdaptiveTradingBot:
                 take_profit_percent = 0.06  # 6% 止盈
                 take_profit_price = current_price * (1 - take_profit_percent)
                 logger.info(
-                    f"[执行-做空] 止盈价={take_profit_price:.1f} (价格下跌{take_profit_percent*100}%触发)"
+                    f"[执行-做空] 止盈价={take_profit_price:.1f} (价格下跌{take_profit_percent * 100}%触发)"
                 )
             else:
                 # 做多止盈: 价格上涨触发 (止盈价 > 入场价)
                 take_profit_percent = 0.06  # 6% 止盈
                 take_profit_price = current_price * (1 + take_profit_percent)
                 logger.info(
-                    f"[执行-做多] 止盈价={take_profit_price:.1f} (价格上涨{take_profit_percent*100}%触发)"
+                    f"[执行-做多] 止盈价={take_profit_price:.1f} (价格上涨{take_profit_percent * 100}%触发)"
                 )
 
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
@@ -656,53 +656,35 @@ class AdaptiveTradingBot:
                 logger.warning("[学习] 无待平仓记录")
 
             # 调用交易所API平仓
+            # 根据持仓方向决定平仓方式：做空持仓用"buy"平，做多用"sell"平
             symbol = self._exchange.symbol
             amount = position_data.get("amount", 0.01)
+            position_side = position_data.get("side", "long")
 
             # 平仓方向：根据持仓类型决定
-            if action == "close_short":
+            if position_side in ["short", "short_to_close"]:
                 # 平空单 = 买入
                 logger.info(f"[执行] 平空单(买入): 价格={current_price}")
-                order_id = await self._exchange.create_order(
-                    symbol=symbol,
-                    side="buy",  # 买入平空单
-                    amount=amount,
-                    order_type="market",
-                )
-                logger.info(f"[执行] 平空单(买入): 价格={current_price}")
-                order_id = await self._exchange.create_order(
-                    symbol=symbol,
-                    side="buy",  # 买入平空单
-                    amount=amount,
-                    order_type="market",
-                )
-                # P0: 验证订单是否创建成功
-                if not order_id:
-                    logger.error("[执行] 平空单订单创建失败！尝试重新获取持仓状态验证")
-                    await self._verify_and_recover_position()
-                    return
-                logger.info(f"[执行] 平空单订单已提交: {order_id}")
+                close_side = "buy"
             else:
                 # 平多单 = 卖出
                 logger.info(f"[执行] 平多单(卖出): 价格={current_price}")
-                order_id = await self._exchange.create_order(
-                    symbol=symbol,
-                    side="sell",  # 卖出平多单
-                    amount=amount,
-                    order_type="market",
+                close_side = "sell"
+
+            order_id = await self._exchange.create_order(
+                symbol=symbol,
+                side=close_side,
+                amount=amount,
+                order_type="market",
+            )
+            # P0: 验证订单是否创建成功
+            if not order_id:
+                logger.error(
+                    f"[执行] 平{position_side}单订单创建失败！尝试重新获取持仓状态验证"
                 )
-                order_id = await self._exchange.create_order(
-                    symbol=symbol,
-                    side="sell",  # 卖出平多单
-                    amount=amount,
-                    order_type="market",
-                )
-                # P0: 验证订单是否创建成功
-                if not order_id:
-                    logger.error("[执行] 平多单订单创建失败！尝试重新获取持仓状态验证")
-                    await self._verify_and_recover_position()
-                    return
-                logger.info(f"[执行] 平多单订单已提交: {order_id}")
+                await self._verify_and_recover_position()
+                return
+            logger.info(f"[执行] 平仓订单已提交: {order_id}")
 
         logger.info("[执行] 完成")
 
@@ -896,7 +878,7 @@ class AdaptiveTradingBot:
                 if attempt < max_retries:
                     stop_price = stop_price * 0.995
                     logger.warning(
-                        f"[止损重试] 第{attempt+1}次失败，降低止损价至 {stop_price:.1f}"
+                        f"[止损重试] 第{attempt + 1}次失败，降低止损价至 {stop_price:.1f}"
                     )
             except Exception as e:
                 if "SL trigger price" in str(e) and attempt < max_retries:
@@ -1032,7 +1014,7 @@ class AdaptiveTradingBot:
             price_diff_percent = abs(new_stop_price - old_stop) / old_stop
             if price_diff_percent < tolerance:
                 logger.info(
-                    f"[止损更新] 变化率:{price_diff_percent*100:.4f}% < 容错:{tolerance*100}%, 跳过更新"
+                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%, 跳过更新"
                 )
                 return
 
