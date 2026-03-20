@@ -59,10 +59,12 @@ from .dynamic_sell_condition import (
     SellConditions,
     DynamicSellCondition,
 )
-from .prompt_optimizer import (
-    MarketRegime,
+from .prompt_context import (
+    TrendRegime,
     MomentumStrength,
     MarketContext,
+)
+from .prompt_optimizer import (
     PromptConfig,
     OptimizedPromptBuilder,
     AdaptivePromptSelector,
@@ -138,8 +140,9 @@ __all__ = [
     "SellConditions",
     "DynamicSellCondition",
     # Prompt优化器 (P1)
-    "MarketRegime",
+    "TrendRegime",
     "MomentumStrength",
+    # 市场上下文 (P1)
     "MarketContext",
     "PromptConfig",
     "OptimizedPromptBuilder",

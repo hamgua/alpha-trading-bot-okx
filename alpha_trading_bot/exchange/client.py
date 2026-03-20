@@ -6,7 +6,7 @@
 import asyncio
 import ccxt
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from .account_service import AccountService, create_account_service
 from .market_data import MarketDataService, create_market_data_service
@@ -91,7 +91,9 @@ class ExchangeClient:
             max_retries, retry_delay
         )
 
-    async def get_ohlcv(self, timeframe: str = "1h", limit: int = 100):
+    async def get_ohlcv(
+        self, timeframe: str = "1h", limit: int = 100
+    ) -> List[List[float]]:
         """获取K线数据"""
         return await self._market_data_service.get_ohlcv(timeframe, limit)
 

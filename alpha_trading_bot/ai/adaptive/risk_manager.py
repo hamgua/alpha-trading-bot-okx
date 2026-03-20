@@ -470,7 +470,7 @@ class RiskControlManager:
                 side = signal.get("side", "")
                 # 做多/开仓: 止损价 = 入场价 * (1 - 止损百分比)
                 # 做空: 止损价 = 入场价 * (1 + 止损百分比)
-                if is_buy:
+                if side.lower() == "buy":
                     signal["stop_loss_price"] = signal.get("price", 0) * (
                         1 - stop_loss_pct
                     )

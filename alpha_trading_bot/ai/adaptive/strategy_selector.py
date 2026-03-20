@@ -170,7 +170,12 @@ class StrategySelector:
         all_signals = [ai_signal] + strategy_signals
 
         # 按置信度加权
-        signal_scores: Dict[str, float] = {"buy": 0.0, "hold": 0.0, "sell": 0.0, "short": 0.0}
+        signal_scores: Dict[str, float] = {
+            "buy": 0.0,
+            "hold": 0.0,
+            "sell": 0.0,
+            "short": 0.0,
+        }
         total_weight = 0.0
 
         for signal in all_signals:

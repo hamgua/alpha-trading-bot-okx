@@ -15,48 +15,11 @@
 import logging
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
 
+from .prompt_context import TrendRegime, MomentumStrength, MarketContext
+
 logger = logging.getLogger(__name__)
-
-
-class MarketRegime(Enum):
-    """市场状态分类"""
-
-    STRONG_UPTREND = "strong_uptrend"  # 强上涨趋势
-    WEAK_UPTREND = "weak_uptrend"  # 弱上涨趋势
-    SIDEWAYS = "sideways"  # 震荡整理
-    WEAK_DOWNTREND = "weak_downtrend"  # 弱下跌趋势
-    STRONG_DOWNTREND = "strong_downtrend"  # 强下跌趋势
-
-
-class MomentumStrength(Enum):
-    """动量强度分类"""
-
-    STRONG_POSITIVE = "strong_positive"  # 强动量上涨
-    WEAK_POSITIVE = "weak_positive"  # 弱动量上涨
-    NEUTRAL = "neutral"  # 无明显动量
-    WEAK_NEGATIVE = "weak_negative"  # 弱动量下跌
-    STRONG_NEGATIVE = "strong_negative"  # 强动量下跌
-
-
-@dataclass
-class MarketContext:
-    """市场上下文信息"""
-
-    regime: MarketRegime = MarketRegime.SIDEWAYS
-    momentum: MomentumStrength = MomentumStrength.NEUTRAL
-    momentum_percent: float = 0.0
-    trend_strength: float = 0.0
-    confidence: float = 0.5
-
-    # 额外上下文
-    consecutive_direction: int = 0  # 连续同向周期数
-    volatility_level: str = "normal"  # high/normal/low
-    recent_high: float = 0.0
-    recent_low: float = 0.0
-    price_position: float = 0.5  # 0-1，价格在近期区间的位置
 
 
 @dataclass
@@ -132,16 +95,16 @@ class OptimizedPromptBuilder:
         # 趋势强度判断
         if trend_direction == "up":
             if trend_strength >= self.config.strong_trend_threshold:
-                regime = MarketRegime.STRONG_UPTREND
+                regime = TrendRegime.STRONG_UPTREND
             else:
-                regime = MarketRegime.WEAK_UPTREND
+                regime = TrendRegime.WEAK_UPTREND
         elif trend_direction == "down":
             if trend_strength >= self.config.strong_trend_threshold:
-                regime = MarketRegime.STRONG_DOWNTREND
+                regime = TrendRegime.STRONG_DOWNTREND
             else:
-                regime = MarketRegime.WEAK_DOWNTREND
+                regime = TrendRegime.WEAK_DOWNTREND
         else:
-            regime = MarketRegime.SIDEWAYS
+            regime = TrendRegime.SIDEWAYS
 
         # 动量判断
         if recent_change > self.config.strong_momentum_threshold:
@@ -180,11 +143,11 @@ class OptimizedPromptBuilder:
         """根据市场状态选择对应的决策模板"""
 
         templates = {
-            MarketRegime.STRONG_UPTREND: self._template_strong_uptrend,
-            MarketRegime.WEAK_UPTREND: self._template_weak_uptrend,
-            MarketRegime.SIDEWAYS: self._template_sideways,
-            MarketRegime.WEAK_DOWNTREND: self._template_weak_downtrend,
-            MarketRegime.STRONG_DOWNTREND: self._template_strong_downtrend,
+            TrendRegime.STRONG_UPTREND: self._template_strong_uptrend,
+            TrendRegime.WEAK_UPTREND: self._template_weak_uptrend,
+            TrendRegime.SIDEWAYS: self._template_sideways,
+            TrendRegime.WEAK_DOWNTREND: self._template_weak_downtrend,
+            TrendRegime.STRONG_DOWNTREND: self._template_strong_downtrend,
         }
 
         return templates.get(context.regime, self._template_sideways)()
@@ -598,11 +561,11 @@ class AdaptivePromptSelector:
 
         # 基于市场状态选择基础类型
         if market_context.regime in [
-            MarketRegime.STRONG_UPTREND,
-            MarketRegime.WEAK_UPTREND,
+            TrendRegime.STRONG_UPTREND,
+            TrendRegime.WEAK_UPTREND,
         ]:
             base_type = "aggressive"
-        elif market_context.regime == MarketRegime.SIDEWAYS:
+        elif market_context.regime == TrendRegime.SIDEWAYS:
             base_type = "moderate"
         else:
             base_type = "conservative"
@@ -617,7 +580,7 @@ class AdaptivePromptSelector:
         return base_type
 
     def _adjust_for_performance(
-        self, base_type: str, performance: Dict[str, float], regime: MarketRegime
+        self, base_type: str, performance: Dict[str, float], regime: TrendRegime
     ) -> str:
         """根据历史表现调整策略类型"""
 

@@ -90,7 +90,6 @@ class PositionManager:
         """获取入场价"""
         return self._entry_price
 
-
     @property
     def stop_order_id(self) -> Optional[str]:
         """获取止损单ID"""

@@ -18,6 +18,9 @@ from typing import Dict, Any, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime
 
+import aiohttp
+
+from alpha_trading_bot.config.models import AIConfig
 from .providers import get_provider_config
 from .prompt_builder import build_prompt
 from .response_parser import parse_response
@@ -135,7 +138,6 @@ class AIClient:
         cache_ttl: int = DEFAULT_CACHE_TTL,
         enable_cache: bool = True,
     ):
-        from alpha_trading_bot.config.models import AIConfig
         from .fusion.base import get_fusion_strategy
 
         if config is None:
@@ -478,8 +480,6 @@ class AIClient:
         self, provider: str, market_data: Dict[str, Any], api_key: str
     ) -> str:
         """调用单个AI - 差异化"""
-        import aiohttp
-
         # 获取提供商配置
         from .providers import get_provider_config
 
@@ -524,8 +524,6 @@ class AIClient:
 
     def _get_timeout_config(self, provider: str) -> "aiohttp.ClientTimeout":
         """获取提供商特定超时配置"""
-        import aiohttp
-
         timeout_map = {
             "kimi": 90,  # Kimi 晚间慢，增加到 90 秒
             "deepseek": 60,

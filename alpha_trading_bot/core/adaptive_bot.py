@@ -566,7 +566,10 @@ class AdaptiveTradingBot:
 
             # 调用交易所API开仓
             symbol = self._exchange.symbol
-            amount = risk_params.get("suggested_position", 0.01)
+            suggested_amount = risk_params.get("suggested_position", 0.01)
+            # 限制仓位不超过最大仓位 (0.01 BTC，符合OKX最小交易单位和配置要求)
+            max_amount = 0.01
+            amount = min(suggested_amount, max_amount)
             stop_loss_price = risk_params.get("stop_loss_price")
 
             # 计算止盈价 (根据持仓方向)

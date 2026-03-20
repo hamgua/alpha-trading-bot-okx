@@ -37,6 +37,6 @@ class MajorityFusion(FusionStrategy):
                 return sig
 
         # 未达阈值，取最多的
-        max_sig: str = max(signal_counts, key=signal_counts.get)  # type: ignore[arg-type]
+        max_sig: str = max(signal_counts, key=lambda k: signal_counts.get(k, 0))
         self._log_result("多数表决-降级", max_sig, f"max count")
         return max_sig

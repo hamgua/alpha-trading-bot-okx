@@ -212,13 +212,18 @@ class SustainedDeclineDetector:
             # 从日跌幅估算周期高点（假设当前价格）
             if daily_change < 0:
                 # start_price = current_price / (1 + daily_change/100)
-                start_price = current_price * (1 - daily_change / 100) if daily_change != 0 else current_price
+                start_price = (
+                    current_price * (1 - daily_change / 100)
+                    if daily_change != 0
+                    else current_price
+                )
             else:
                 start_price = current_price
-            logger.info(f"[持续下跌检测] 使用日跌幅估算周期高点: {start_price} (日跌幅: {daily_change}%)")
+            logger.info(
+                f"[持续下跌检测] 使用日跌幅估算周期高点: {start_price} (日跌幅: {daily_change}%)"
+            )
 
-        start_time = (
-        )
+        start_time = ()
         start_time = (
             market_data.get("cycle_start_time")
             or cycle_start_time
@@ -507,7 +512,7 @@ class SustainedDeclineDetector:
             "moderate_threshold": self.config.moderate_decline_threshold,
             "severe_threshold": self.config.severe_decline_threshold,
             "current_cycle_high": self._cycle_high_price,
-            "cycle_high_time": self._cycle_high_time.isoformat()
-            if self._cycle_high_time
-            else None,
+            "cycle_high_time": (
+                self._cycle_high_time.isoformat() if self._cycle_high_time else None
+            ),
         }

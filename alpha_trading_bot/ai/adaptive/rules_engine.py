@@ -15,6 +15,9 @@ from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
+from .market_regime import MarketRegimeState
+from .performance_tracker import PerformanceMetrics
+
 
 class RuleCategory(Enum):
     """规则类别"""

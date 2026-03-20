@@ -4,7 +4,7 @@ ML Module - 机器学习优化模块
 
 from .weight_optimizer import WeightOptimizer, get_optimized_weights
 from .performance_tracker import PerformanceTracker, get_performance_summary
-from .ab_test_framework import ABTestFramework, run_ab_test, StrategyType
+from .ab_test_framework import ABTestFramework, run_ab_test, ABTestVariant
 from .trend_detector import (
     EnhancedTrendDetector,
     TrendDirection,
@@ -24,10 +24,12 @@ from .monitoring_dashboard import (
 )
 from ..prompt_optimizer import (
     OptimizedPromptBuilder,
-    MarketRegime,
+    build_optimized_prompt,
+)
+from ..prompt_context import (
+    TrendRegime,
     MomentumStrength,
     MarketContext,
-    build_optimized_prompt,
 )
 
 __all__ = [
@@ -37,7 +39,7 @@ __all__ = [
     "get_performance_summary",
     "ABTestFramework",
     "run_ab_test",
-    "StrategyType",
+    "ABTestVariant",
     "EnhancedTrendDetector",
     "TrendDirection",
     "TrendState",
@@ -50,7 +52,7 @@ __all__ = [
     "AlertManager",
     "get_dashboard_status",
     "OptimizedPromptBuilder",
-    "MarketRegime",
+    "TrendRegime",
     "MomentumStrength",
     "MarketContext",
     "build_optimized_prompt",

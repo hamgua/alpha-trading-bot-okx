@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class StrategyType(Enum):
+class ABTestVariant(Enum):
     CONSENSUS_BOOSTED = "consensus_boosted"
     ADAPTIVE = "adaptive"
     WEIGHTED = "weighted"
@@ -37,15 +37,15 @@ class ABTestFramework:
 
     def __init__(self, data_dir: str = "data/ab_tests"):
         self.data_dir = data_dir
-        self.control_strategy = StrategyType.CONSENSUS_BOOSTED
-        self.test_strategy = StrategyType.ADAPTIVE
+        self.control_strategy = ABTestVariant.CONSENSUS_BOOSTED
+        self.test_strategy = ABTestVariant.ADAPTIVE
         self.traffic_split = 0.2
         self._ensure_data_dir()
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
 
-    def assign_variant(self, user_id: str) -> StrategyType:
+    def assign_variant(self, user_id: str) -> ABTestVariant:
         """分配测试变体"""
         hash_input = f"{user_id}_{datetime.now().date()}"
         hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
@@ -58,7 +58,7 @@ class ABTestFramework:
     def record_result(
         self,
         user_id: str,
-        strategy: StrategyType,
+        strategy: ABTestVariant,
         signal: str,
         outcome: str,
         return_pct: float,
@@ -86,14 +86,14 @@ class ABTestFramework:
             return {}
 
         results = {
-            StrategyType.CONSENSUS_BOOSTED: ABTestResult(strategy="consensus_boosted"),
-            StrategyType.ADAPTIVE: ABTestResult(strategy="adaptive"),
+            ABTestVariant.CONSENSUS_BOOSTED: ABTestResult(strategy="consensus_boosted"),
+            ABTestVariant.ADAPTIVE: ABTestResult(strategy="adaptive"),
         }
 
         with open(filepath, "r") as f:
             for line in f:
                 data = json.loads(line)
-                strategy = StrategyType(data["strategy"])
+                strategy = ABTestVariant(data["strategy"])
                 r = results[strategy]
                 r.signals += 1
 
@@ -119,8 +119,8 @@ class ABTestFramework:
         if not results:
             return None
 
-        control = results.get(StrategyType.CONSENSUS_BOOSTED)
-        test = results.get(StrategyType.ADAPTIVE)
+        control = results.get(ABTestVariant.CONSENSUS_BOOSTED)
+        test = results.get(ABTestVariant.ADAPTIVE)
 
         if not control or not test:
             return None
@@ -146,7 +146,7 @@ def run_ab_test(
     framework = ABTestFramework()
     variant = framework.assign_variant(user_id)
 
-    if variant == StrategyType.ADAPTIVE:
+    if variant == ABTestVariant.ADAPTIVE:
         result = adaptive_func(market_data)
         strategy = "adaptive"
     else:
