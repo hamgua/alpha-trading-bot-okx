@@ -43,6 +43,12 @@ class AdaptiveTradingBot:
         self.scheduler = TradingScheduler(config)
         self.position_manager = PositionManager(config)
 
+        self._position_recovery: Optional[Any] = None
+        self._adaptive_stop_loss: Optional[Any] = None
+        self._strategy_weight_manager: Optional[Any] = None
+        self._ml_optimization_task: Optional[Any] = None
+        self._decision_engine: Optional[Any] = None
+
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
 
@@ -114,6 +120,26 @@ class AdaptiveTradingBot:
         # 学习集成器（简化版）
         self.simple_learning = SimpleLearningLoop()
 
+        from .strategy_weight_manager import StrategyWeightManager
+
+        self._strategy_weight_manager = StrategyWeightManager(
+            self.strategy_library, self.simple_learning
+        )
+
+        from .ml_optimization_task import MLOptimizationTask
+
+        self._ml_optimization_task = MLOptimizationTask(
+            self,
+            self.performance_tracker,
+            self.backtest_learner,
+            self.simple_learning,
+            self.weight_optimizer,
+        )
+
+        from .decision_engine import DecisionEngine
+
+        self._decision_engine = DecisionEngine(self.config)
+
         logger.info("[自适应] 所有组件初始化完成（含ML学习模块 + 回测学习）")
 
     @property
@@ -142,6 +168,14 @@ class AdaptiveTradingBot:
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
+
+            from .position_recovery import PositionRecoveryManager
+            from .adaptive_stop_loss import AdaptiveStopLossManager
+
+            self._position_recovery = PositionRecoveryManager(
+                self._exchange, self.position_manager
+            )
+            self._adaptive_stop_loss = AdaptiveStopLossManager(self._exchange)
 
             from ..ai.client import AIClient
 
@@ -381,107 +415,15 @@ class AdaptiveTradingBot:
         selected: Any,
         market_data: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """
-        综合决策
-
-        融合AI信号和策略选择的结果
-        """
-        # === P2: SafeMode 强制暂停检查 ===
-        # 注意：下跌趋势中，即使安全模式也允许 SHORT 信号
-        is_safe_mode = (
-            selected.strategy_type == "safe_mode"
-            or "safe_mode" in selected.strategy_type
-        )
-
-        # 检查是否为下跌趋势
-        technical = market_data.get("technical", {})
-        trend_direction = technical.get("trend_direction", "neutral")
-        is_downtrend = trend_direction == "down"
-
-        # 下跌趋势中允许 SHORT 信号，即使在安全模式
-        if is_safe_mode and is_downtrend and ai_signal.upper() == "SHORT":
-            logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
-        elif is_safe_mode:
-            logger.warning(f"[安全] 安全模式触发: {selected.reasons}")
+        """综合决策"""
+        if self._decision_engine is None:
             return {
                 "action": "skip",
-                "reason": f"安全模式强制暂停: {selected.reasons}",
-                "confidence": 1.0,
-                "strategy": "safe_mode",
+                "reason": "engine_not_initialized",
+                "confidence": 0,
+                "strategy": "none",
             }
-        # AI信号优先
-        if ai_signal.upper() == "BUY":
-            action = "open"
-            reason = "AI信号买入"
-        elif ai_signal.upper() == "SHORT":
-            # SHORT 信号：专用于做空开仓
-            # 有持仓时，应该用 SELL 信号来平仓，而不是 SHORT
-            has_position = market_data.get("has_position", False)
-
-            if not has_position and self.config.trading.allow_short_selling:
-                action = "sell"  # 做空开仓
-                reason = "AI信号做空"
-            elif has_position:
-                # 有持仓时，SHORT 信号也应该平仓（但这种情况应该优先使用 SELL）
-                action = "close"
-                reason = "AI信号SHORT+有持仓，平仓"
-            else:
-                action = "skip"
-                reason = "禁止做空（未开启做空功能）"
-        elif ai_signal.upper() == "SELL":
-            # SELL 信号：专用于平仓
-            has_position = market_data.get("has_position", False)
-
-            if not has_position:
-                # 无持仓时收到 SELL 信号，应该忽略
-                action = "skip"
-                reason = "SELL信号+无持仓，忽略"
-            else:
-                if selected.signal.upper() == "SELL":
-                    action = "close"
-                    reason = "AI+策略共振卖出"
-                else:
-                    action = "close"
-                    reason = "AI信号卖出"
-        elif ai_signal.upper() in ["SELL", "SHORT"]:
-            # 获取持仓状态
-            has_position = market_data.get("has_position", False)
-
-            # SHORT 信号：无持仓时做空，有持仓时平仓
-            if ai_signal.upper() == "SHORT":
-                if not has_position and self.config.trading.allow_short_selling:
-                    action = "sell"  # 做空
-                    reason = "AI信号做空"
-                elif has_position:
-                    action = "close"  # 平仓
-                    reason = "AI信号平仓"
-                else:
-                    action = "skip"
-                    reason = "禁止做空"
-            # SELL 信号：保持原有逻辑，用于平仓
-            elif ai_signal.upper() == "SELL":
-                if selected.signal.upper() == "SELL":
-                    action = "close"
-                    reason = "AI+策略共振卖出"
-                else:
-                    action = "close"
-                    reason = "AI信号卖出"
-
-        else:
-            # HOLD信号，参考策略选择
-            if selected.signal.upper() != "HOLD":
-                action = "open" if selected.signal.upper() == "BUY" else "close"
-                reason = f"策略信号: {selected.signal}"
-            else:
-                action = "skip"
-                reason = "AI和策略都是HOLD"
-
-        return {
-            "action": action,
-            "reason": reason,
-            "confidence": selected.confidence,
-            "strategy": selected.strategy_type,
-        }
+        return self._decision_engine.make_decision(ai_signal, selected, market_data)
 
     async def _execute_trade(
         self,
@@ -692,153 +634,16 @@ class AdaptiveTradingBot:
         logger.info("[执行] 完成")
 
     def _update_strategy_weights(self, trade: Any) -> None:
-        """
-        根据交易结果更新策略权重（学习闭环）
-
-        Args:
-            trade: 已完成的交易记录
-        """
-        if not trade:
+        """根据交易结果更新策略权重（学习闭环）"""
+        if self._strategy_weight_manager is None:
             return
-
-        # 计算表现分数
-        if trade.outcome.value == "win":
-            performance_score = min(1.0, 0.5 + (trade.pnl_percent or 0) * 10)
-        else:
-            performance_score = max(0.0, 0.5 - abs(trade.pnl_percent or 0) * 5)
-
-        # 更新策略库中对应策略的权重
-        strategy_type = trade.signal_type
-        if strategy_type in ["buy", "sell"]:
-            for strategy in self.strategy_library.strategies.values():
-                if strategy.strategy_type.value == f"{strategy_type}_following":
-                    strategy.update_weight(performance_score)
-                    logger.info(
-                        f"[学习] 更新{strategy.name}权重: {strategy.weight:.2f} "
-                        f"(得分: {performance_score:.2f})"
-                    )
-                    break
-
-        # === ML 在线学习：更新 AI 提供商权重 ===
-        try:
-            if hasattr(trade, "signal_type"):
-                provider = getattr(trade, "signal_provider", "unknown")
-                confidence = getattr(trade, "confidence", 0.5)
-                outcome = trade.outcome.value
-                pnl = trade.pnl_percent or 0
-
-                # 调用 ML 在线学习
-                self.simple_learning.online_update(
-                    provider=provider,
-                    confidence=confidence,
-                    outcome=outcome,
-                    pnl_percent=pnl,
-                )
-                logger.info(
-                    f"[ML学习] 在线更新: {provider}, outcome={outcome}, pnl={pnl:.2f}%"
-                )
-        except Exception as e:
-            logger.warning(f"[ML学习] 在线更新失败: {e}")
+        self._strategy_weight_manager.update_strategy_weights(trade)
 
     async def _background_optimization_task(self) -> None:
-        """后台优化任务（每6小时运行一次ML学习，包括回测学习）"""
-        from datetime import timezone
-
-        while self._running:
-            try:
-                # 检查是否到达执行时间（每6小时）
-                await asyncio.sleep(3600)  # 每小时检查
-
-                now_utc = datetime.now(timezone.utc)
-                should_run = now_utc.hour in [0, 6, 12, 18] and now_utc.minute <= 5
-
-                if not should_run:
-                    continue
-
-                logger.info("[ML学习] 开始后台优化任务...")
-
-                # 1. 获取当日表现数据
-                metrics = self.performance_tracker.get_performance_metrics()
-                daily_data = {
-                    "trade_count": metrics.total_trades,
-                    "win_rate": metrics.win_rate,
-                    "total_pnl": metrics.total_pnl,
-                }
-                logger.info(
-                    f"[ML学习] 当日数据: 交易次数={daily_data.get('trade_count', 0)}, "
-                    f"胜率={daily_data.get('win_rate', 0):.2%}"
-                )
-
-                # 2. 运行回测学习（无需真实交易也能学习）
-                try:
-                    # 获取回测结果
-                    backtest_result = self.backtest_learner.backtest_signals(
-                        days=60, holding_hours=4, min_confidence=0.5
-                    )
-
-                    if backtest_result.total_signals > 0:
-                        logger.info(
-                            f"[ML学习] 回测结果: 信号数={backtest_result.total_signals}, "
-                            f"胜率={backtest_result.win_rate:.2%}, "
-                            f"平均收益={backtest_result.average_return:.2f}%"
-                        )
-
-                        # 显示各提供商表现
-                        for provider, stats in backtest_result.provider_stats.items():
-                            logger.info(
-                                f"[ML学习] {provider}: 胜率={stats.get('win_rate', 0):.2%}, "
-                                f"平均收益={stats.get('average_return', 0):.2f}%"
-                            )
-
-                        # 学习回测结果，更新权重
-                        backtest_weights = self.backtest_learner.learn_from_backtest()
-
-                        # 3. 结合真实交易数据学习
-                        if metrics.total_trades > 0:
-                            # 如果有真实交易，使用真实交易数据优化
-                            trade_weights = self.simple_learning.learn_from_trades()
-                            logger.info(f"[ML学习] 真实交易权重: {trade_weights}")
-
-                        # 4. 应用学习结果
-                        # 保存回测学习的权重
-                        self.simple_learning.data_manager.save_model_weights(
-                            backtest_weights, source="backtest_learn"
-                        )
-
-                        logger.info(f"[ML学习] 回测学习权重已保存: {backtest_weights}")
-                    else:
-                        logger.warning("[ML学习] 回测无结果，跳过回测学习")
-
-                except Exception as e:
-                    logger.warning(f"[ML学习] 回测学习失败: {e}")
-
-                # 5. 获取优化后的权重
-                optimized_weights, confidence = (
-                    self.weight_optimizer.get_optimized_weights()
-                )
-                logger.info(
-                    f"[ML学习] 优化权重: {optimized_weights}, 置信度={confidence:.2f}"
-                )
-
-                # 6. 应用优化后的权重到配置（内存中直接生效）
-                if optimized_weights and confidence > 0.5:
-                    try:
-                        old_weights = getattr(self.config.ai, "fusion_weights", {})
-                        self.config.ai.fusion_weights = optimized_weights
-                        logger.info(
-                            f"[ML学习] ✅ 权重已应用: {old_weights} -> {optimized_weights}"
-                        )
-                    except Exception as e:
-                        logger.warning(f"[ML学习] 应用权重失败: {e}")
-                else:
-                    logger.info(f"[ML学习] 跳过应用: 置信度={confidence:.2f} <= 0.5")
-
-                logger.info("[ML学习] 后台优化任务完成")
-
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                logger.error(f"[ML学习] 任务出错: {e}")
+        """后台优化任务（委托给MLOptimizationTask）"""
+        if self._ml_optimization_task is None:
+            return
+        await self._ml_optimization_task.run()
 
     async def cleanup(self) -> None:
         """清理资源"""
@@ -864,88 +669,25 @@ class AdaptiveTradingBot:
         position_side: str = "long",
     ) -> Optional[str]:
         """创建止损单（带重试机制）"""
-        for attempt in range(max_retries + 1):
-            try:
-                # 根据持仓方向决定止损单的触发方向
-                # 做多(long): 价格下跌触发卖出 -> side="sell"
-                # 做空(short): 价格上涨触发买入 -> side="buy"
-                stop_side = "sell" if position_side == "long" else "buy"
-                stop_order_id = await self._exchange.create_stop_loss(
-                    symbol=self._exchange.symbol,
-                    side=stop_side,
-                    amount=amount,
-                    stop_price=stop_price,
-                )
-                if stop_order_id:
-                    return stop_order_id
-                if attempt < max_retries:
-                    stop_price = stop_price * 0.995
-                    logger.warning(
-                        f"[止损重试] 第{attempt + 1}次失败，降低止损价至 {stop_price:.1f}"
-                    )
-            except Exception as e:
-                if "SL trigger price" in str(e) and attempt < max_retries:
-                    stop_price = stop_price * 0.995
-                    logger.warning(f"[止损重试] 止损价过高，降低至 {stop_price:.1f}")
-                    continue
-                logger.error(f"[止损重试] 创建止损单失败: {e}")
-                break
+        if self._adaptive_stop_loss is None:
+            return None
+        return await self._adaptive_stop_loss.create_stop_loss_with_retry(
+            amount, stop_price, current_price, max_retries, position_side
+        )
 
     async def _verify_and_recover_position(self) -> None:
-        """
-        P0修复: 订单创建失败后重新获取并验证持仓状态
-
-        当订单创建失败时，重新从交易所获取持仓状态，
-        确保Bot内部状态与交易所实际状态一致。
-        """
-        try:
-            logger.info("[状态验证] 重新获取持仓状态验证...")
-            # P1: 使用带重试的获取持仓方法
-            position_data = await self._exchange.get_position_with_retry(
-                max_retries=3, retry_delay=1.0
-            )
-
-            if position_data and position_data.get("amount", 0) > 0:
-                side = position_data.get("side", "")
-                amount = position_data.get("amount", 0)
-                entry_price = position_data.get("entry_price", 0)
-
-                # 更新持仓管理器
-                self.position_manager.update_from_exchange(position_data)
-
-                # 检查是否为空单
-                if side == "short" or side == "short_to_close":
-                    logger.error(
-                        f"[状态验证] 检测到未平空单！数量={amount}, 入场价={entry_price}. "
-                        f"请手动处理或等待下一个周期重试平仓"
-                    )
-                else:
-                    logger.info(f"[状态验证] 持仓已更新: {side} {amount}@{entry_price}")
-            else:
-                logger.info("[状态验证] 交易所无持仓")
-                # 清除内部持仓状态
-                self.position_manager.update_from_exchange({})
-
-        except Exception as e:
-            logger.error(f"[状态验证] 获取持仓失败: {e}")
+        """验证并恢复持仓状态"""
+        if self._position_recovery is None:
+            return
+        await self._position_recovery.verify_and_recover_position()
 
     async def _cancel_stop_loss_before_close(
         self, position_data: Dict[str, Any]
     ) -> None:
         """平仓前取消现有止损单"""
-        try:
-            existing_stop_id = await self._get_existing_stop_order_id()
-            if existing_stop_id:
-                logger.info(f"[平仓] 取消现有止损单: {existing_stop_id}")
-                await self._exchange.cancel_algo_order(
-                    str(existing_stop_id), self._exchange.symbol
-                )
-                logger.info("[平仓] 止损单已取消")
-                self.position_manager.set_stop_order(None, 0)
-            else:
-                logger.debug("[平仓] 无现有止损单需要取消")
-        except Exception as e:
-            logger.warning(f"[平仓] 取消止损单失败: {e}")
+        if self._position_recovery is None:
+            return
+        await self._position_recovery.cancel_stop_loss_before_close()
 
     async def _update_stop_loss(
         self, current_price: float, position_data: Dict[str, Any]
