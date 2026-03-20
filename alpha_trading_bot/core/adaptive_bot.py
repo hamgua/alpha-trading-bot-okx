@@ -48,6 +48,7 @@ class AdaptiveTradingBot:
         self._strategy_weight_manager: Optional[Any] = None
         self._ml_optimization_task: Optional[Any] = None
         self._decision_engine: Optional[Any] = None
+        self._param_applier: Optional[Any] = None
 
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
@@ -139,6 +140,12 @@ class AdaptiveTradingBot:
         from .decision_engine import DecisionEngine
 
         self._decision_engine = DecisionEngine(self.config)
+
+        from .param_applier import ParamApplier
+        from .take_profit_calculator import TakeProfitCalculator
+
+        self._param_applier = ParamApplier(self.config, self._ai_client)
+        self._take_profit_calculator = TakeProfitCalculator()
 
         logger.info("[自适应] 所有组件初始化完成（含ML学习模块 + 回测学习）")
 
@@ -264,32 +271,9 @@ class AdaptiveTradingBot:
                 f"趋势: {market_state.trend_strength:.2f}"
             )
 
-            # === P1: 自适应参数调整（基于市场环境和绩效） ===
-            # 分析市场环境并自动调整交易参数
-            adjusted_config = self.param_manager.analyze_and_adjust(
-                market_data=market_data, recent_performance=None
-            )
             current_params = self.param_manager.get_current_params()
-
-            # 应用调整后的参数到主配置（使AI客户端可以使用）
-            if current_params.get("fusion_threshold"):
-                self.config.ai.fusion_threshold = current_params["fusion_threshold"]
-            if current_params.get("stop_loss_percent"):
-                self.config.ai.stop_loss_percent = current_params["stop_loss_percent"]
-            if current_params.get("position_multiplier"):
-                self.config.ai.position_multiplier = current_params[
-                    "position_multiplier"
-                ]
-            # 应用参数到 AI 集成器（adaptive_buy_condition 和 signal_optimizer）
-            if self._ai_client:
-                self._ai_client.update_integrator_config(current_params)
-
-            logger.info(
-                f"[自适应] 参数已调整: "
-                f"阈值={current_params.get('fusion_threshold', 0):.2f}, "
-                f"止损={current_params.get('stop_loss_percent', 0):.2%}, "
-                f"仓位乘数={current_params.get('position_multiplier', 1):.2f}"
-            )
+            if self._param_applier:
+                self._param_applier.apply_adaptive_params(current_params)
             # 4. 获取所有策略信号
             strategy_signals = self.strategy_library.get_all_signals(market_data)
             logger.info(f"[策略] {len(strategy_signals)} 个策略产生信号")
@@ -487,9 +471,6 @@ class AdaptiveTradingBot:
             logger.info(f"[执行] 开仓: 方向={position_side}, 价格={current_price}")
             logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
             logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
-            logger.info(f"[执行] 开仓: 价格={current_price}")
-            logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
-            logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
 
             # === P1: 记录开仓（学习闭环开始） ===
             market_state = self.regime_detector.detect(market_data)
@@ -514,21 +495,9 @@ class AdaptiveTradingBot:
             amount = min(suggested_amount, max_amount)
             stop_loss_price = risk_params.get("stop_loss_price")
 
-            # 计算止盈价 (根据持仓方向)
-            if position_side == "short":
-                # 做空止盈: 价格下跌触发 (止盈价 < 入场价)
-                take_profit_percent = 0.06  # 6% 止盈
-                take_profit_price = current_price * (1 - take_profit_percent)
-                logger.info(
-                    f"[执行-做空] 止盈价={take_profit_price:.1f} (价格下跌{take_profit_percent * 100}%触发)"
-                )
-            else:
-                # 做多止盈: 价格上涨触发 (止盈价 > 入场价)
-                take_profit_percent = 0.06  # 6% 止盈
-                take_profit_price = current_price * (1 + take_profit_percent)
-                logger.info(
-                    f"[执行-做多] 止盈价={take_profit_price:.1f} (价格上涨{take_profit_percent * 100}%触发)"
-                )
+            take_profit_price = self._take_profit_calculator.calculate(
+                current_price, position_side
+            )
 
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
             order_side = "buy" if position_side == "long" else "sell"
@@ -550,14 +519,8 @@ class AdaptiveTradingBot:
                 amount=amount,
                 entry_price=current_price,
                 symbol=symbol,
-                side=position_side,  # 传递持仓方向
+                side=position_side,
             )
-
-            # P0: 验证订单是否创建成功
-            if not order_id:
-                logger.error("[执行] 开仓订单创建失败！尝试重新获取持仓状态验证")
-                await self._verify_and_recover_position()
-                return
             logger.info(f"[执行] 开仓订单已提交: {order_id}")
 
             # 如果有止损价，设置止损单（带重试机制）
