@@ -1087,15 +1087,6 @@ class AdaptiveTradingBot:
         except Exception as e:
             logger.warning(f"[止损查询] 查询失败: {e}")
         return None
-        """查询交易所中现有的止损单ID"""
-        try:
-            algo_orders = await self._exchange.get_algo_orders(self._exchange.symbol)
-            for order in algo_orders:
-                if order.get("algoType") == "stop":
-                    return order.get("orderId")
-        except Exception as e:
-            logger.debug(f"[止损查询] 查询失败: {e}")
-        return None
 
     def get_system_status(self) -> Dict[str, Any]:
         """获取系统状态"""

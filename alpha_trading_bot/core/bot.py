@@ -14,6 +14,7 @@ from typing import Dict, Any, Optional
 from .trading_scheduler import TradingScheduler
 from .signal_processor import SignalProcessor, Position
 from .position_manager import PositionManager
+from .stop_loss_manager import StopLossManager
 from ..config.models import Config
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class TradingBot:
         # 使用独立的组件
         self.scheduler = TradingScheduler(config)
         self.position_manager = PositionManager(config)
+        self._stop_loss_manager: Optional[StopLossManager] = None
 
     @property
     def exchange(self):
@@ -57,6 +59,10 @@ class TradingBot:
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
+
+            self._stop_loss_manager = StopLossManager(
+                self._exchange, self.config, self.position_manager
+            )
 
             from ..ai.client import AIClient
 
@@ -338,158 +344,16 @@ class TradingBot:
         )
 
     async def _get_existing_stop_order_id(self) -> Optional[str]:
-        """查询交易所中现有的止损单ID（同时查询普通订单和算法订单）"""
-        symbol = self.config.exchange.symbol
-
-        # 优先查询算法订单（OKX 止损单是 algo 订单）
-        try:
-            algo_orders = await self._exchange.get_algo_orders(symbol)
-            for order in algo_orders:
-                info = order.get("info", {})
-                algo_id = info.get("algoId")
-                # 检查是否是止损单 (stop loss)
-                if algo_id:
-                    stop_price = info.get("slTriggerPx") or info.get("stopLossPrice")
-                    if stop_price:
-                        logger.info(
-                            f"[止损查询] 找到现有止损单(algo): {algo_id}, 止损价={stop_price}"
-                        )
-                        return str(algo_id)
-        except Exception as e:
-            logger.warning(f"[止损查询] 查询算法订单失败: {e}")
-
-        # 备用：查询普通订单
-        try:
-            open_orders = await self._exchange.get_open_orders(symbol)
-            for order in open_orders:
-                order_type = (order.get("type") or "").lower()
-                info = order.get("info", {})
-                has_algo_id = bool(info.get("algoId"))
-                has_stop_price = bool(
-                    info.get("slTriggerPx") or info.get("stopLossPrice")
-                )
-
-                is_stop_order = (
-                    order_type in ["stop_loss", "stop-loss", "trigger", "stop"]
-                    or has_algo_id
-                    or has_stop_price
-                )
-
-                if is_stop_order:
-                    stop_order_id = info.get("algoId") or order.get("id")
-                    if stop_order_id:
-                        logger.info(
-                            f"[止损查询] 找到现有止损单: {stop_order_id} (type={order_type})"
-                        )
-                        return str(stop_order_id)
-        except Exception as e:
-            logger.warning(f"[止损查询] 查询普通订单失败: {e}")
-
-        logger.debug("[止损查询] 未找到现有止损单")
-        return None
+        """查询交易所中现有的止损单ID（委托给StopLossManager）"""
+        if self._stop_loss_manager is None:
+            return None
+        return await self._stop_loss_manager.get_existing_stop_order_id()
 
     async def _update_stop_loss(self, current_price: float) -> None:
-        """更新止损订单（带容错判断，避免频繁更新）"""
-        if not self.position_manager.has_position():
+        """更新止损订单（委托给StopLossManager）"""
+        if self._stop_loss_manager is None:
             return
-
-        position = self.position_manager.position
-        if position is None:
-            logger.error("[止损更新] 数据不一致: has_position=True 但 position 为 None")
-            return
-
-        local_stop_order_id = self.position_manager.stop_order_id
-        exchange_stop_order_id = await self._get_existing_stop_order_id()
-
-        # 修复重复创建问题：优先信任本地记录，减少交易所查询
-        # 如果本地有记录，以本地记录为准进行容错比较
-        # 只有在本地没有记录时才尝试从交易所恢复
-        if not local_stop_order_id and exchange_stop_order_id:
-            logger.info(f"[止损更新] 发现交易所现有止损单: {exchange_stop_order_id}")
-            self.position_manager.set_stop_order(exchange_stop_order_id)
-            local_stop_order_id = exchange_stop_order_id
-
-        has_existing_stop_order = local_stop_order_id is not None
-
-        new_stop = self.position_manager.calculate_stop_price(current_price)
-        self.position_manager.log_stop_loss_info(current_price, new_stop)
-
-        if not has_existing_stop_order:
-            logger.info("[止损更新] 当前无止损单，直接创建")
-            logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
-            stop_order_id = await self._create_stop_loss_with_retry(
-                position.amount, new_stop, current_price
-            )
-            if stop_order_id:
-                self.position_manager.set_stop_order(stop_order_id, new_stop)
-                logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
-            else:
-                logger.error("[止损更新] 止损单创建失败，已达最大重试次数")
-            return
-
-        tolerance = self.config.stop_loss.stop_loss_tolerance_percent
-
-        # 使用上次记录的止损价进行容错比较
-        old_stop = self.position_manager.last_stop_price
-
-        # 无历史记录时，强制更新（不跳过）
-        if old_stop <= 0:
-            logger.info(f"[止损更新] 无历史止损价记录，强制创建止损单")
-            old_stop = new_stop  # 临时设置为 new_stop 以避免后续计算错误
-            force_update = True
-        else:
-            force_update = False
-
-        price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
-
-        if price_diff_percent < tolerance and not force_update:
-            logger.info(
-                f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:{tolerance * 100}%({tolerance * current_price:.1f}美元), 跳过更新"
-            )
-            return
-
-        # 以交易所为主导：先查询交易所当前有效的止损单
-        old_stop_order_id = self.position_manager.stop_order_id
-        current_existing_id = await self._get_existing_stop_order_id()
-
-        # 规则1: 交易所存在且和本地旧订单ID一致 -> 取消旧订单 -> 创建新订单
-        # 规则2: 交易所不存在，本地旧订单存在 -> 无需取消，直接创建新订单
-        # 规则3: 交易所存在，本地不存在 -> 取消交易所订单 -> 创建新订单
-
-        # 以交易所为主导：先输出交易所查询结果
-        if current_existing_id:
-            # 交易所存在有效订单
-            logger.info(f"[止损更新] 交易所现有止损单: {current_existing_id}")
-            logger.info(f"[止损更新] 取消交易所现有止损单: {current_existing_id}")
-            cancel_result = await self._exchange.cancel_algo_order(
-                str(current_existing_id), self.config.exchange.symbol
-            )
-            cancel_success, cancel_reason = cancel_result
-            if cancel_success:
-                logger.info(f"[止损更新] 止损单取消成功: {current_existing_id}")
-            elif cancel_reason == "already_gone":
-                logger.info(
-                    f"[止损更新] 止损单已不存在(可能已触发): {current_existing_id}"
-                )
-            else:
-                logger.warning(f"[止损更新] 取消止损单失败: {current_existing_id}")
-        else:
-            # 交易所无止损单
-            logger.info("[止损更新] 交易所无现有止损单")
-            if old_stop_order_id:
-                # 交易所不存在，但本地有记录，说明本地记录已失效
-                logger.info(f"[止损更新] 本地记录 {old_stop_order_id} 已失效")
-
-        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
-        stop_order_id = await self._exchange.create_stop_loss(
-            symbol=self.config.exchange.symbol,
-            side="sell",
-            amount=position.amount,
-            stop_price=new_stop,
-        )
-
-        self.position_manager.set_stop_order(stop_order_id, new_stop)
-        logger.info(f"[止损更新] 止损单设置完成: {stop_order_id}")
+        await self._stop_loss_manager.update_stop_loss(current_price)
 
     async def _create_stop_loss_with_retry(
         self,
@@ -498,50 +362,12 @@ class TradingBot:
         current_price: float,
         max_retries: int = 2,
     ) -> Optional[str]:
-        """
-        创建止损单（带重试机制）
-
-        如果止损价高于当前价格导致失败，自动降低止损价重试
-
-        Args:
-            amount: 合约数量
-            stop_price: 初始止损价
-            current_price: 当前价格
-            max_retries: 最大重试次数
-
-        Returns:
-            止损单ID，失败返回None
-        """
-        for attempt in range(max_retries + 1):
-            try:
-                stop_order_id = await self._exchange.create_stop_loss(
-                    symbol=self.config.exchange.symbol,
-                    side="sell",
-                    amount=amount,
-                    stop_price=stop_price,
-                )
-                if stop_order_id:
-                    return stop_order_id
-
-                if attempt < max_retries:
-                    stop_price = stop_price * 0.998
-                    logger.warning(
-                        f"[止损重试] 第{attempt + 1}次失败，尝试降低止损价至 {stop_price:.1f}"
-                    )
-            except Exception as e:
-                error_msg = str(e)
-                if "SL trigger price must be less than the last price" in error_msg:
-                    if attempt < max_retries:
-                        stop_price = stop_price * 0.998
-                        logger.warning(
-                            f"[止损重试] 止损价过高，第{attempt + 1}次重试，"
-                            f"降低至 {stop_price:.1f} (当前价={current_price:.1f})"
-                        )
-                        continue
-                logger.error(f"[止损重试] 创建止损单失败: {e}")
-                break
-
-        return None
+        """创建止损单（委托给StopLossManager）"""
+        if self._stop_loss_manager is None:
+            return None
+        return await self._stop_loss_manager.create_stop_loss_with_retry(
+            amount, stop_price, current_price, max_retries
+        )
 
     async def _close_position(self, price: float) -> None:
         """平仓"""
