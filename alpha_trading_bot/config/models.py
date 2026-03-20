@@ -146,6 +146,7 @@ class StopLossConfig:
     stop_loss_tolerance_percent: float = (
         0.001  # 止损价容错比例 (如 0.001 = 0.1%, 约77美元对于BTC)
     )
+    take_profit_percent: float = 0.06  # 止盈比例 (如 0.06 = 6%)
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -158,6 +159,8 @@ class StopLossConfig:
             )
         if self.stop_loss_tolerance_percent < 0:
             errors.append(f"止损容错比例 {self.stop_loss_tolerance_percent} 不能为负数")
+        if self.take_profit_percent <= 0 or self.take_profit_percent > 1:
+            errors.append(f"止盈比例 {self.take_profit_percent} 不在有效范围 (0-1)")
         return errors
 
 
@@ -229,6 +232,7 @@ class Config:
                 stop_loss_profit_percent=float(
                     os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.002")
                 ),
+                take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.06")),
             ),
             system=SystemConfig(
                 log_level=os.getenv("LOG_LEVEL", "INFO"),

@@ -157,7 +157,7 @@ class PositionManager:
         # 新建仓/亏损状态: 止损价 = 当前价格 × 99.5%
         # 使用当前价格而非入场价，确保止损价低于当前价格，避免OKX拒绝
         if current_price <= self._entry_price:
-            stop_percent = 0.005  # 0.5% 止损 = 99.5%
+            stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = current_price * (1 - stop_percent)
             logger.debug(
                 f"[止损计算-做多] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
@@ -166,7 +166,7 @@ class PositionManager:
             return stop_price
         else:
             # 盈利状态: 止损价 = 当前价格 × 99.8% (追踪止损，只升不降)
-            stop_percent = 0.002  # 0.2% 止损 = 99.8%
+            stop_percent = self.config.stop_loss.stop_loss_profit_percent
             stop_price = current_price * (1 - stop_percent)
             logger.debug(
                 f"[止损计算-做多] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
@@ -197,7 +197,7 @@ class PositionManager:
 
         # 做空赚钱时(价格下跌): 止损价 = 当前价格 × 100.5%
         if current_price >= self._entry_price:
-            stop_percent = 0.005  # 0.5% 止损 = 100.5%
+            stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = current_price * (1 + stop_percent)
             logger.debug(
                 f"[止损计算-做空] 盈利(价格下跌): 当前价({current_price}) >= 入场价({self._entry_price}), "
@@ -206,7 +206,7 @@ class PositionManager:
             return stop_price
         else:
             # 做空亏钱时(价格上涨): 止损价 = 当前价格 × 101.0%
-            stop_percent = 0.010  # 1.0% 止损 = 101.0%
+            stop_percent = self.config.stop_loss.stop_loss_profit_percent * 2
             stop_price = current_price * (1 + stop_percent)
             logger.debug(
                 f"[止损计算-做空] 亏损(价格上涨): 当前价({current_price}) < 入场价({self._entry_price}), "
@@ -235,7 +235,7 @@ class PositionManager:
             return 0.0
 
         # 止盈价 = 入场价 × 1.06 (6% 止盈)
-        take_profit_percent = 0.06
+        take_profit_percent = self.config.stop_loss.take_profit_percent
         take_profit_price = self._entry_price * (1 + take_profit_percent)
         logger.debug(
             f"[止盈计算-做多] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"
@@ -264,7 +264,7 @@ class PositionManager:
             return 0.0
 
         # 止盈价 = 入场价 × 0.94 (6% 止盈，即价格下跌6%)
-        take_profit_percent = 0.06
+        take_profit_percent = self.config.stop_loss.take_profit_percent
         take_profit_price = self._entry_price * (1 - take_profit_percent)
         logger.debug(
             f"[止盈计算-做空] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"

@@ -24,7 +24,8 @@ from alpha_trading_bot.config.models import AIConfig
 from .providers import get_provider_config
 from .prompt_builder import build_prompt
 from .response_parser import parse_response
-from .integrator import AISignalIntegrator, IntegrationConfig
+from .integrator import AISignalIntegrator
+from .integrator_config import IntegrationConfig
 
 logger = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ class AIClient:
         """
         from .adaptive_buy_condition import BuyConditions
         from .signal_optimizer import OptimizerConfig
-        from .integrator import IntegrationConfig
+        from .integrator_config import IntegrationConfig
 
         # 更新 AdaptiveBuyCondition 配置
         if self.integrator.adaptive_buy:

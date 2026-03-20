@@ -43,6 +43,23 @@ class MarketRegimeState:
     timestamp: str
 
 
+@dataclass
+class MarketRegimeConfig:
+    """市场环境检测配置"""
+
+    lookback_candles: int = 20
+    trend_strong_up: float = 0.5
+    trend_weak_up: float = 0.2
+    trend_strong_down: float = -0.5
+    trend_weak_down: float = -0.2
+    volatility_high: float = 0.03
+    volatility_low: float = 0.015
+    rsi_oversold: float = 30
+    rsi_overbought: float = 70
+    rsi_neutral_low: float = 40
+    rsi_neutral_high: float = 60
+
+
 class MarketRegimeDetector:
     """
     市场环境检测器
@@ -50,34 +67,15 @@ class MarketRegimeDetector:
     基于多个技术指标综合判断当前市场环境
     """
 
-    # 阈值配置
-    TREND_STRENGTH_THRESHOLDS = {
-        "strong_up": 0.5,
-        "weak_up": 0.2,
-        "strong_down": -0.5,
-        "weak_down": -0.2,
-    }
-
-    VOLATILITY_THRESHOLDS = {
-        "high": 0.03,  # 3% ATR
-        "low": 0.015,  # 1.5% ATR
-    }
-
-    RSI_THRESHOLDS = {
-        "oversold": 30,
-        "overbought": 70,
-        "neutral_low": 40,
-        "neutral_high": 60,
-    }
-
-    def __init__(self, lookback_candles: int = 20):
+    def __init__(self, config: Optional[MarketRegimeConfig] = None):
         """
         初始化检测器
 
         Args:
-            lookback_candles: 回溯K线条数
+            config: 市场环境配置，如果为None则使用默认配置
         """
-        self.lookback = lookback_candles
+        self.config = config or MarketRegimeConfig()
+        self.lookback = self.config.lookback_candles
         self._regime_history: list[MarketRegime] = []
         self._regime_change_count = 0
 
@@ -139,19 +137,20 @@ class MarketRegimeDetector:
 
     def _calculate_volatility_score(self, atr_percent: float) -> float:
         """计算波动率得分 (0-1)"""
-        if atr_percent >= self.VOLATILITY_THRESHOLDS["high"]:
+        if atr_percent >= self.config.volatility_high:
             return 1.0
-        elif atr_percent <= self.VOLATILITY_THRESHOLDS["low"]:
+        elif atr_percent <= self.config.volatility_low:
             return 0.0
         else:
-            return (atr_percent - self.VOLATILITY_THRESHOLDS["low"]) / (
-                self.VOLATILITY_THRESHOLDS["high"] - self.VOLATILITY_THRESHOLDS["low"]
+            return (atr_percent - self.config.volatility_low) / (
+                self.config.volatility_high - self.config.volatility_low
             )
 
     def _calculate_rsi_score(self, rsi: float) -> float:
         """计算RSI得分 (0-1, 0.5为中性)"""
-        # RSI 30-70 范围映射到 0-1
-        normalized = (rsi - 30) / 40
+        normalized = (rsi - self.config.rsi_oversold) / (
+            self.config.rsi_overbought - self.config.rsi_oversold
+        )
         return max(0, min(1, normalized))
 
     def _determine_regime(
@@ -172,12 +171,12 @@ class MarketRegimeDetector:
 
         # 1. 超卖检测 (高优先级) - 忽略波动率，直接返回超卖状态
         # 超卖是潜在买入机会，不应该触发安全模式
-        if rsi < self.RSI_THRESHOLDS["oversold"]:
+        if rsi < self.config.rsi_oversold:
             return MarketRegime.OVERSOLD, 0.85
 
         # 2. 超买检测 - 忽略波动率，直接返回超买状态
         # 超买是潜在卖出机会，不应该触发安全模式
-        if rsi > self.RSI_THRESHOLDS["overbought"]:
+        if rsi > self.config.rsi_overbought:
             return MarketRegime.OVERBOUGHT, 0.85
 
         # 3. 强趋势检测

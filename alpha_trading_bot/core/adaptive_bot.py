@@ -145,7 +145,7 @@ class AdaptiveTradingBot:
         from .take_profit_calculator import TakeProfitCalculator
 
         self._param_applier = ParamApplier(self.config, self._ai_client)
-        self._take_profit_calculator = TakeProfitCalculator()
+        self._take_profit_calculator = TakeProfitCalculator(self.config)
 
         logger.info("[自适应] 所有组件初始化完成（含ML学习模块 + 回测学习）")
 

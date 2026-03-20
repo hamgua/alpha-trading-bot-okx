@@ -50,10 +50,10 @@ from .btc_price_detector import (
 )
 from .integrator import (
     AISignalIntegrator,
-    IntegrationConfig,
     IntegratedSignalResult,
     create_integrator,
 )
+from .integrator_config import IntegrationConfig
 from .dynamic_sell_condition import (
     SellConditionResult,
     SellConditions,

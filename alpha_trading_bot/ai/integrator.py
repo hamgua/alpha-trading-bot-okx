@@ -32,35 +32,9 @@ from .sustained_decline_detector import (
     SustainedDeclineConfig,
     DeclineDetectionResult,
 )
+from .integrator_config import IntegrationConfig
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class IntegrationConfig:
-    """集成器配置"""
-
-    # 是否启用各模块
-    enable_adaptive_buy: bool = True
-    enable_signal_optimizer: bool = True
-    enable_high_price_filter: bool = True
-    enable_btc_detector: bool = True
-    enable_sustained_decline_detector: bool = True  # 新增：持续下跌检测
-
-    # AdaptiveBuyCondition配置
-    adaptive_buy_config: Optional[BuyConditions] = None
-
-    # SignalOptimizer配置
-    signal_optimizer_config: Optional[OptimizerConfig] = None
-
-    # HighPriceBuyOptimizer配置
-    high_price_config: Optional[HighPriceBuyConfig] = None
-
-    # BTC价格检测配置
-    btc_detector_config: Optional[BTCPriceLevelConfig] = None
-
-    # 持续下跌检测配置
-    sustained_decline_config: Optional[SustainedDeclineConfig] = None
 
 
 @dataclass
