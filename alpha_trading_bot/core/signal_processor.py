@@ -5,20 +5,10 @@
 
 import logging
 from typing import Dict, Any, Optional
-from dataclasses import dataclass
+
+from .position_manager import Position
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Position:
-    """持仓信息"""
-
-    symbol: str
-    side: str
-    amount: float
-    entry_price: float
-    unrealized_pnl: float = 0.0
 
 
 class SignalProcessor:
