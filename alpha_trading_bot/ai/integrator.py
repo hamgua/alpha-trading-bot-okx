@@ -32,7 +32,7 @@ from .sustained_decline_detector import (
     SustainedDeclineConfig,
     DeclineDetectionResult,
 )
-from .integrator_config import IntegrationConfig
+from .integrator_config import IntegrationConfig, SignalThresholdsConfig
 
 logger = logging.getLogger(__name__)
 
@@ -77,14 +77,20 @@ class AISignalIntegrator:
     最终输出优化后的信号
     """
 
-    def __init__(self, config: Optional[IntegrationConfig] = None):
-        """
-        初始化集成器
+    _thresholds: SignalThresholdsConfig = SignalThresholdsConfig()
 
-        Args:
-            config: 集成配置，如果为None则使用默认配置
-        """
+    def _t(self) -> SignalThresholdsConfig:
+        """获取阈值配置"""
+        return self._thresholds
+
+    def __init__(
+        self,
+        config: Optional[IntegrationConfig] = None,
+        thresholds: Optional[SignalThresholdsConfig] = None,
+    ):
         self.config = config or IntegrationConfig()
+        if thresholds is not None:
+            self._thresholds = thresholds
         self._init_modules()
 
         logger.info("[AI信号集成器] 初始化完成")
@@ -231,25 +237,39 @@ class AISignalIntegrator:
                         if original_signal == "BUY" and decline_result.buy_penalty > 0:
                             old_conf = original_confidence
                             original_confidence = max(
-                                original_confidence - decline_result.buy_penalty, 0.35
+                                original_confidence - decline_result.buy_penalty,
+                                self._t().confidence_floor,
                             )
                             result.adjustments_made.append(
                                 f"持续下跌检测: BUY信号置信度降低{decline_result.buy_penalty:.0%} "
                                 f"({old_conf:.0%}→{original_confidence:.0%})"
                             )
-                            conf_history.append((0.5, "下跌检测", original_confidence))
+                            conf_history.append(
+                                (
+                                    self._t().confidence_base,
+                                    "下跌检测",
+                                    original_confidence,
+                                )
+                            )
 
                         # 如果是SELL信号，增加置信度
                         if original_signal == "SELL" and decline_result.sell_boost > 0:
                             old_conf = original_confidence
                             original_confidence = min(
-                                original_confidence + decline_result.sell_boost, 0.95
+                                original_confidence + decline_result.sell_boost,
+                                self._t().confidence_ceiling,
                             )
                             result.adjustments_made.append(
                                 f"持续下跌检测: SELL信号置信度增加{decline_result.sell_boost:.0%} "
                                 f"({old_conf:.0%}→{original_confidence:.0%})"
                             )
-                            conf_history.append((0.5, "下跌检测", original_confidence))
+                            conf_history.append(
+                                (
+                                    self._t().confidence_base,
+                                    "下跌检测",
+                                    original_confidence,
+                                )
+                            )
 
             except Exception as e:
                 import traceback
@@ -273,35 +293,42 @@ class AISignalIntegrator:
             if trend_direction not in ["down", "neutral"]:
                 logger.warning("[SHORT优化] 趋势向上时做空风险高，降低置信度")
                 old_conf = original_confidence
-                original_confidence *= 0.7
+                original_confidence *= self._t().short_trend_up_penalty
                 result.adjustments_made.append(
-                    f"SHORT优化: 趋势非下跌，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                    f"SHORT优化: 趋势非下跌，置信度降低{int((1 - self._t().short_trend_up_penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                 )
 
             # 2. 价格位置检查：价格太低时不建议做空（接近支撑位）
-            if price_position < 0.20:  # 20%以下
-                logger.warning("[SHORT优化] 价格位置过低（<20%），做空风险高")
-                old_conf = original_confidence
-                original_confidence *= 0.6
-                result.adjustments_made.append(
-                    f"SHORT优化: 低价位做空风险高，置信度降低40% ({old_conf:.0%}→{original_confidence:.0%})"
+            if price_position < self._t().short_very_low_price_threshold:
+                logger.warning(
+                    f"[SHORT优化] 价格位置过低（<{int(self._t().short_very_low_price_threshold * 100)}%），做空风险高"
                 )
-            elif price_position < 0.35:  # 35%以下
                 old_conf = original_confidence
-                original_confidence *= 0.8
+                original_confidence *= self._t().short_very_low_price_penalty
                 result.adjustments_made.append(
-                    f"SHORT优化: 价格偏低（<35%），置信度降低20% ({old_conf:.0%}→{original_confidence:.0%})"
+                    f"SHORT优化: 低价位做空风险高，置信度降低{int((1 - self._t().short_very_low_price_penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
+                )
+            elif price_position < self._t().short_low_price_threshold:
+                old_conf = original_confidence
+                original_confidence *= self._t().short_low_price_penalty
+                result.adjustments_made.append(
+                    f"SHORT优化: 价格偏低（<{int(self._t().short_low_price_threshold * 100)}%），置信度降低{int((1 - self._t().short_low_price_penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                 )
 
             # 3. 如果在持续下跌趋势中，SHORT 信号应该增强（这是顺势）
             if decline_result and decline_result.is_detected:
                 old_conf = original_confidence
-                original_confidence = min(original_confidence * 1.2, 0.95)
+                original_confidence = min(
+                    original_confidence * self._t().short_decline_boost,
+                    self._t().short_decline_boost_ceiling,
+                )
                 result.adjustments_made.append(
-                    f"SHORT优化: 持续下跌趋势中，置信度增加20% ({old_conf:.0%}→{original_confidence:.0%})"
+                    f"SHORT优化: 持续下跌趋势中，置信度增加{int((self._t().short_decline_boost - 1) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                 )
 
-            conf_history.append((0.5, "SHORT优化", original_confidence))
+            conf_history.append(
+                (self._t().confidence_base, "SHORT优化", original_confidence)
+            )
 
             # ===== 0.6. 下跌趋势中 HOLD 转 SHORT =====
             # 只有在明确的下跌趋势中才转换 HOLD → SHORT
@@ -320,11 +347,17 @@ class AISignalIntegrator:
 
                 # 检查是否满足做空条件（严格条件）
                 is_downtrend = trend_direction == "down"
-                has_strong_strength = trend_strength >= 0.30  # 必须有明显下跌趋势
-                has_significant_drop = short_term_drop < -1.5  # 短期跌幅 >= 1.5%
-                not_too_low = price_position > 0.30  # 不在极低位（>30%）
+                has_strong_strength = (
+                    trend_strength >= self._t().strong_trend_strength
+                )  # 必须有明显下跌趋势
+                has_significant_drop = (
+                    short_term_drop < self._t().short_term_drop
+                )  # 短期跌幅 >= 1.5%
+                not_too_low = (
+                    price_position > self._t().price_position_too_low
+                )  # 不在极低位（>30%）
                 is_sustained_decline = decline_result and decline_result.is_detected
-                rsi_confirms_down = rsi < 55  # RSI 确认下跌
+                rsi_confirms_down = rsi < self._t().strong_trend_rsi  # RSI 确认下跌
 
                 # 严格条件：必须同时满足
                 # 1. 明确下跌趋势（趋势强度 >= 0.30）
@@ -348,152 +381,23 @@ class AISignalIntegrator:
                     original_signal = "SHORT"
                     # 设置置信度
                     if is_sustained_decline and has_significant_drop:
-                        original_confidence = 0.65  # 双重确认
+                        original_confidence = (
+                            self._t().confidence_dual_confirm
+                        )  # 双重确认
                     elif is_sustained_decline:
-                        original_confidence = 0.60  # 持续下跌确认
+                        original_confidence = (
+                            self._t().confidence_sustained
+                        )  # 持续下跌确认
                     else:
-                        original_confidence = 0.55  # 一般情况
+                        original_confidence = self._t().confidence_general  # 一般情况
                     result.adjustments_made.append(f"信号转换: HOLD→SHORT (强下跌趋势)")
-                    conf_history.append((0.6, "强下跌转换", original_confidence))
-                else:
-                    # 记录不转换的原因
-                    if is_downtrend and original_signal.upper() == "HOLD":
-                        reasons = []
-                        if not has_strong_strength:
-                            reasons.append(f"趋势强度不足({trend_strength:.2f}<0.30)")
-                        if not (has_significant_drop or is_sustained_decline):
-                            reasons.append(
-                                f"跌幅不足({short_term_drop:.2f}%)或无持续下跌"
-                            )
-                        if not not_too_low:
-                            reasons.append(
-                                f"价格位置过低({price_position * 100:.0f}%<30%)"
-                            )
-                        if not rsi_confirms_down:
-                            reasons.append(f"RSI未确认下跌({rsi:.1f}>=55)")
-                        if reasons:
-                            logger.info(
-                                f"[信号转换] HOLD 保持不变: {', '.join(reasons)}"
-                            )
-
-        # ===== 0.7. 上涨趋势中 HOLD 转 BUY =====
-        # 如果趋势向上但 AI 返回 hold，可以考虑转换为 buy
-        if original_signal.upper() == "HOLD":
-            technical = market_data.get("technical", {})
-            trend_direction = technical.get("trend_direction", "neutral")
-            trend_strength = technical.get("trend_strength", 0)
-            price_position = technical.get("price_position", 0.5)
-
-            # 获取短期涨幅（最近3根K线约15分钟）
-            short_term_rise = market_data.get("short_term_rise_percent", 0)
-
-            # 检查是否满足买入条件
-            is_uptrend = trend_direction == "up"
-            has_strength = trend_strength >= 0.30  # 趋势强度需达到0.30
-            has_significant_rise = short_term_rise > 1.5  # 短期涨幅需超过1.5%
-            not_too_high = price_position < 0.80  # 不在极高位置
-            has_confidence = original_confidence >= 0.50  # 置信度需达到50%
-
-            # 上涨趋势 + 强趋势 + 显著涨幅 + 不是极高位置 + 足够置信度 → 转换为 BUY
-            if (
-                is_uptrend
-                and has_strength
-                and has_significant_rise
-                and not_too_high
-                and has_confidence
-            ):
-                logger.info(
-                    f"[信号转换] HOLD→BUY: 趋势向上(强度{trend_strength:.2f}), "
-                    f"短期涨幅{short_term_rise:.2f}%, 价格位置{price_position * 100:.0f}%"
-                )
-                original_signal = "BUY"
-                original_confidence = 0.55  # 设置一个基础置信度
-                result.adjustments_made.append(f"信号转换: HOLD→BUY (上涨趋势)")
-                conf_history.append((0.55, "上涨转换", original_confidence))
-
-            # ===== 下跌趋势中 HOLD 转 SHORT (AdaptiveBuyCondition) =====
-            # 严格条件：趋势强度 >= 0.30 + RSI 确认
-            if original_signal.upper() == "HOLD":
-                technical = market_data.get("technical", {})
-                trend_direction = technical.get("trend_direction", "neutral")
-                trend_strength = technical.get("trend_strength", 0)
-                price_position = technical.get("price_position", 0.5)
-                rsi = technical.get("rsi", 50)
-                recent_drop = market_data.get("recent_drop_percent", 0)
-
-                is_downtrend = trend_direction == "down"
-                has_strong_strength = trend_strength >= 0.30
-                has_significant_drop = recent_drop < -1.5
-                not_too_low = price_position > 0.30
-                is_sustained_decline = decline_result and decline_result.is_detected
-                rsi_confirms_down = rsi < 55
-
-                should_convert = (
-                    is_downtrend
-                    and has_strong_strength
-                    and (has_significant_drop or is_sustained_decline)
-                    and not_too_low
-                    and rsi_confirms_down
-                )
-
-                if should_convert:
-                    logger.info(
-                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                        f"近期跌幅{recent_drop:.2f}%, 价格位置{price_position * 100:.0f}%, "
-                        f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
+                    conf_history.append(
+                        (
+                            self._t().confidence_sustained,
+                            "强下跌转换",
+                            original_confidence,
+                        )
                     )
-                    original_signal = "SHORT"
-                    if is_sustained_decline and has_significant_drop:
-                        original_confidence = 0.65
-                    elif is_sustained_decline:
-                        original_confidence = 0.60
-                    else:
-                        original_confidence = 0.55
-                    result.adjustments_made.append(f"信号转换: HOLD→SHORT (强下跌趋势)")
-                    conf_history.append((0.6, "强下跌转换", original_confidence))
-
-            # ===== 下跌趋势中 HOLD 转 SHORT (日跌幅检查) =====
-            # 严格条件：趋势强度 >= 0.30 + RSI 确认
-            if original_signal.upper() == "HOLD":
-                technical = market_data.get("technical", {})
-                trend_direction = technical.get("trend_direction", "neutral")
-                trend_strength = technical.get("trend_strength", 0)
-                price_position = technical.get("price_position", 0.5)
-                rsi = technical.get("rsi", 50)
-
-                change_percent = market_data.get("change_percent", 0)
-                recent_drop = market_data.get("recent_drop_percent", 0)
-
-                is_downtrend = trend_direction == "down"
-                has_strong_strength = trend_strength >= 0.30
-                has_significant_drop = change_percent < -2.0 or recent_drop < -1.5
-                not_too_low = price_position > 0.30
-                is_sustained_decline = decline_result and decline_result.is_detected
-                rsi_confirms_down = rsi < 55
-
-                should_convert = (
-                    is_downtrend
-                    and has_strong_strength
-                    and (has_significant_drop or is_sustained_decline)
-                    and not_too_low
-                    and rsi_confirms_down
-                )
-
-                if should_convert:
-                    logger.info(
-                        f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                        f"日跌幅{change_percent:.2f}%, 价格位置{price_position * 100:.0f}%, "
-                        f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
-                    )
-                    original_signal = "SHORT"
-                    if is_sustained_decline and has_significant_drop:
-                        original_confidence = 0.65
-                    elif is_sustained_decline:
-                        original_confidence = 0.60
-                    else:
-                        original_confidence = 0.55
-                    result.adjustments_made.append(f"信号转换: HOLD→SHORT (强下跌趋势)")
-                    conf_history.append((0.6, "强下跌转换", original_confidence))
 
             # ===== 下跌趋势中 HOLD 转 SHORT (价格位置检查) =====
             # 严格条件：趋势强度 >= 0.30 + RSI 确认
@@ -505,10 +409,10 @@ class AISignalIntegrator:
                 rsi = technical.get("rsi", 50)
 
                 is_downtrend = trend_direction == "down"
-                has_strong_strength = trend_strength >= 0.30
-                not_too_low = price_position > 0.30
+                has_strong_strength = trend_strength >= self._t().strong_trend_strength
+                not_too_low = price_position > self._t().price_position_too_low
                 is_sustained_decline = decline_result and decline_result.is_detected
-                rsi_confirms_down = rsi < 55
+                rsi_confirms_down = rsi < self._t().strong_trend_rsi
 
                 should_convert = (
                     is_downtrend
@@ -524,14 +428,20 @@ class AISignalIntegrator:
                         f"价格位置{price_position * 100:.0f}%, RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
                     )
                     original_signal = "SHORT"
-                    original_confidence = 0.60
+                    original_confidence = self._t().confidence_sustained
                     result.adjustments_made.append(f"信号转换: HOLD→SHORT (强下跌趋势)")
-                    conf_history.append((0.6, "强下跌转换", original_confidence))
+                    conf_history.append(
+                        (
+                            self._t().confidence_sustained,
+                            "强下跌转换",
+                            original_confidence,
+                        )
+                    )
 
             # 检查是否满足做空条件
             is_downtrend = trend_direction == "down"
-            has_strength = trend_strength > 0.10
-            not_too_low = price_position > 0.20  # 不在极低位
+            has_strength = trend_strength > self._t().weak_trend_strength
+            not_too_low = price_position > self._t().price_position_low
             is_sustained_decline = decline_result and decline_result.is_detected
 
             # 下跌趋势 + 有一定强度 + 不是极低位 → 转换为 SHORT
@@ -543,11 +453,13 @@ class AISignalIntegrator:
                 original_signal = "SHORT"
                 # 设置一个基础置信度
                 if is_sustained_decline:
-                    original_confidence = 0.60  # 持续下跌时更高
+                    original_confidence = self._t().confidence_sustained
                 else:
-                    original_confidence = 0.50  # 一般下跌趋势
+                    original_confidence = self._t().confidence_base
                 result.adjustments_made.append(f"信号转换: HOLD→SHORT (下跌趋势)")
-                conf_history.append((0.6, "下跌转换", original_confidence))
+                conf_history.append(
+                    (self._t().confidence_sustained, "下跌转换", original_confidence)
+                )
 
         # 1. AdaptiveBuyCondition
         # 1. AdaptiveBuyCondition
@@ -648,9 +560,9 @@ class AISignalIntegrator:
                 if btc_result.is_high_risk and original_signal == "BUY":
                     # 如果已经在持续下跌中，风险更大
                     penalty = (
-                        0.35
+                        self._t().btc_high_risk_penalty
                         if (decline_result and decline_result.is_detected)
-                        else 0.30
+                        else self._t().btc_high_risk_penalty_no_decline
                     )
                     old_conf = original_confidence
                     original_confidence *= 1 - penalty
@@ -660,18 +572,18 @@ class AISignalIntegrator:
                     conf_history.append((3, "BTC高位", original_confidence))
                 elif btc_result.is_high_risk and original_signal == "BUY":
                     old_conf = original_confidence
-                    original_confidence *= 0.7
+                    original_confidence *= self._t().btc_high_risk_penalty_no_decline
                     result.adjustments_made.append(
-                        f"BTC检测: 高位风险，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                        f"BTC检测: 高位风险，置信度降低{int((1 - self._t().btc_high_risk_penalty_no_decline) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                     )
                     conf_history.append((3, "BTC高位", original_confidence))
 
                 # 如果是低机会，增加置信度
                 if btc_result.is_low_opportunity and original_signal == "BUY":
                     old_conf = original_confidence
-                    original_confidence *= 1.15
+                    original_confidence *= self._t().btc_low_opportunity_boost
                     result.adjustments_made.append(
-                        f"BTC检测: 低位机会，置信度增加15% ({old_conf:.0%}→{original_confidence:.0%})"
+                        f"BTC检测: 低位机会，置信度增加{int((self._t().btc_low_opportunity_boost - 1) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                     )
                     conf_history.append((3, "BTC低位", original_confidence))
 
@@ -680,17 +592,17 @@ class AISignalIntegrator:
                     # 低位做空是风险
                     if btc_result.is_low_opportunity:
                         old_conf = original_confidence
-                        original_confidence *= 0.7
+                        original_confidence *= self._t().btc_short_penalty
                         result.adjustments_made.append(
-                            f"BTC检测: SHORT+低价位风险高，置信度降低30% ({old_conf:.0%}→{original_confidence:.0%})"
+                            f"BTC检测: SHORT+低价位风险高，置信度降低{int((1 - self._t().btc_short_penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                         )
                         conf_history.append((3, "BTC低位SHORT", original_confidence))
                     # 高位做空是机会
                     elif btc_result.is_high_risk:
                         old_conf = original_confidence
-                        original_confidence *= 1.15
+                        original_confidence *= self._t().btc_short_boost
                         result.adjustments_made.append(
-                            f"BTC检测: SHORT+高位机会，置信度增加15% ({old_conf:.0%}→{original_confidence:.0%})"
+                            f"BTC检测: SHORT+高位机会，置信度增加{int((self._t().btc_short_boost - 1) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                         )
                         conf_history.append((3, "BTC高位SHORT", original_confidence))
 
@@ -747,7 +659,10 @@ class AISignalIntegrator:
 
         # 5. 最终结果
         result.final_signal = original_signal
-        result.final_confidence = min(max(original_confidence, 0.35), 0.95)
+        result.final_confidence = min(
+            max(original_confidence, self._t().confidence_floor),
+            self._t().confidence_ceiling,
+        )
 
         # 记录置信度变化历史
         conf_history.append((5, "最终", result.final_confidence))
@@ -834,8 +749,8 @@ def create_integrator(
             enable_btc_detector=True,
             enable_sustained_decline_detector=True,
             btc_detector_config=BTCPriceLevelConfig(
-                high_threshold=0.99,  # 更保守
-                low_threshold=0.01,  # 更敏感
+                high_threshold=0.99,
+                low_threshold=0.01,
             ),
         ),
         "minimal": IntegrationConfig(

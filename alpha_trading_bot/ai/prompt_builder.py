@@ -3,10 +3,56 @@ Prompt构建器 - 专业的加密货币量化交易Prompt
 """
 
 from typing import Dict, Any, Optional
+from dataclasses import dataclass
+
+
+@dataclass
+class PromptConfig:
+    """Prompt构建器配置（供未来迁移使用）"""
+
+    buy_trend_strength: float = 0.12
+    buy_rsi_threshold: float = 72
+    buy_bb_position: float = 70
+    buy_adx_threshold: float = 8
+    sell_rsi_threshold: float = 75
+    sell_bb_position: float = 80
+    sell_stop_loss_percent: float = 2.5
+    watch_trend_strength: float = 0.15
+    watch_adx_threshold: float = 30
+    watch_bb_low: float = 30
+    watch_bb_high: float = 70
+    watch_atr_threshold: float = 6.0
+    crash_drop_threshold: float = -0.02
+    short_term_buy_threshold: float = 0.01
+    momentum_buy_boost: float = 0.15
+    oversold_rebound_enabled: bool = True
+    oversold_rsi_threshold: float = 30
+    oversold_max_drawdown: float = 0.015
+    oversold_min_drawdown: float = 0.025
+    oversold_position_factor: float = 0.3
+    kimi_atr_risk_multiplier: float = 1.5
+    kimi_conservative_buy: bool = True
+    deepseek_low_position_threshold: float = 0.35
+    deepseek_rebound_mode_enabled: bool = True
+    deepseek_rebound_rsi_max: float = 58
 
 
 class PromptBuilder:
     """构建AI交易决策Prompt - 差异化系统"""
+
+    _config: Optional["PromptConfig"] = None
+
+    @classmethod
+    def set_config(cls, config: "PromptConfig") -> None:
+        """设置全局配置（可选）"""
+        cls._config = config
+
+    @classmethod
+    def _cfg(cls) -> "PromptConfig":
+        """获取配置，优先使用设置的配置，否则返回默认值"""
+        if cls._config is not None:
+            return cls._config
+        return PromptConfig()
 
     # ============== 基础阈值 ==============
     BUY_TREND_STRENGTH = 0.12
@@ -88,23 +134,24 @@ class PromptBuilder:
             pnl_percent = 0
 
         # 判断是否处于暴跌/暴涨状态
-        is_crashing = recent_drop < cls.CRASH_DROP_THRESHOLD
-        is_rising = recent_rise > cls.SHORT_TERM_BUY_THRESHOLD
+        cfg = cls._cfg()
+        is_crashing = recent_drop < cfg.crash_drop_threshold
+        is_rising = recent_rise > cfg.short_term_buy_threshold
 
         # 超卖反弹模式判断
         is_oversold = (
-            cls.OVERSOLD_REBOUND_ENABLED
-            and rsi < cls.OVERSOLD_RSI_THRESHOLD
-            and cls.OVERSOLD_MAX_DRAWDOWN < recent_drop < cls.OVERSOLD_MIN_DRAWDOWN
+            cfg.oversold_rebound_enabled
+            and rsi < cfg.oversold_rsi_threshold
+            and cfg.oversold_max_drawdown < recent_drop < cfg.oversold_min_drawdown
         )
 
         # Deepseek 低位反弹模式
-        is_low_position = price_position < cls.DEEPSEEK_LOW_POSITION_THRESHOLD * 100
+        is_low_position = price_position < cfg.deepseek_low_position_threshold * 100
         is_deepseek_rebound = (
             provider == "deepseek"
-            and cls.DEEPSEEK_REBOUND_MODE_ENABLED
+            and cfg.deepseek_rebound_mode_enabled
             and is_low_position
-            and cls.OVERSOLD_RSI_THRESHOLD <= rsi <= cls.DEEPSEEK_REBOUND_RSI_MAX
+            and cfg.oversold_rsi_threshold <= rsi <= cfg.deepseek_rebound_rsi_max
         )
 
         # Kimi 高波动风险提示
