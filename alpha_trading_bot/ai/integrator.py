@@ -16,6 +16,7 @@ result = integrator.process(market_data)
 """
 
 import logging
+import traceback
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -278,8 +279,6 @@ class AISignalIntegrator:
                             )
 
             except Exception as e:
-                import traceback
-
                 logger.warning(
                     f"持续下跌检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
@@ -507,8 +506,6 @@ class AISignalIntegrator:
                 conf_history.append((1, "AdaptiveBuy", original_confidence))
 
             except Exception as e:
-                import traceback
-
                 logger.warning(
                     f"AdaptiveBuyCondition处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
@@ -538,8 +535,6 @@ class AISignalIntegrator:
                 self.signal_optimizer.update_price_history(price)
 
             except Exception as e:
-                import traceback
-
                 logger.warning(
                     f"SignalOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
@@ -613,8 +608,6 @@ class AISignalIntegrator:
                         conf_history.append((3, "BTC高位SHORT", original_confidence))
 
             except Exception as e:
-                import traceback
-
                 logger.warning(
                     f"BTC价格检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
@@ -657,8 +650,6 @@ class AISignalIntegrator:
                 conf_history.append((4, "HighPrice", original_confidence))
 
             except Exception as e:
-                import traceback
-
                 logger.warning(
                     f"HighPriceBuyOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
