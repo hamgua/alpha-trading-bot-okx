@@ -127,7 +127,13 @@ class AISignalIntegrator:
 
         # BTCPriceLevelDetector
         if self.config.enable_btc_detector:
-            btc_config = self.config.btc_detector_config or BTCPriceLevelConfig()
+            if self.config.btc_detector_config:
+                btc_config = self.config.btc_detector_config
+            else:
+                btc_config = BTCPriceLevelConfig(
+                    high_threshold=self._thresholds.btc_high_threshold,
+                    low_threshold=self._thresholds.btc_low_threshold,
+                )
             self.btc_detector = BTCPriceLevelDetector(btc_config)
         else:
             self.btc_detector = None
@@ -748,10 +754,6 @@ def create_integrator(
             enable_high_price_filter=True,
             enable_btc_detector=True,
             enable_sustained_decline_detector=True,
-            btc_detector_config=BTCPriceLevelConfig(
-                high_threshold=0.99,
-                low_threshold=0.01,
-            ),
         ),
         "minimal": IntegrationConfig(
             enable_adaptive_buy=True,
