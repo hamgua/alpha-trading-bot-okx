@@ -514,11 +514,36 @@ class AIClient:
                     result = await response.json()
                     # 检查响应是否包含有效的choices字段
                     if "choices" not in result or not result["choices"]:
-                        logger.error(f"AI[{provider}]响应格式错误: {result}")
-                        raise ValueError(f"AI[{provider}]响应缺少choices字段: {result}")
+                        error_info = result.get("error", {})
+                        error_msg = error_info.get("message", str(result))
+                        error_type = error_info.get("type", "unknown")
+                        error_code = error_info.get("code", "")
+
+                        if (
+                            "balance" in error_msg.lower()
+                            or "insufficient" in error_msg.lower()
+                        ):
+                            logger.error(f"AI[{provider}]余额不足: {error_msg}")
+                            raise ValueError(
+                                f"AI[{provider}]余额不足，请检查API账户余额: {error_msg}"
+                            )
+                        elif error_msg:
+                            logger.error(
+                                f"AI[{provider}]API错误 [{error_type}]: {error_msg}"
+                            )
+                            raise ValueError(
+                                f"AI[{provider}]请求失败 [{error_type}]: {error_msg}"
+                            )
+                        else:
+                            logger.error(f"AI[{provider}]响应格式错误: {result}")
+                            raise ValueError(
+                                f"AI[{provider}]响应缺少choices字段: {result}"
+                            )
                     content = result["choices"][0]["message"]["content"]
                     return content.strip()
 
+        except ValueError:
+            raise
         except Exception as e:
             logger.error(f"AI[{provider}]调用失败: {e}")
             raise
