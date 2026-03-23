@@ -35,6 +35,7 @@ class TradingScheduler:
         now = datetime.now()
         cycle_minutes = self.trading_config.cycle_minutes
         offset_range = self.trading_config.random_offset_range
+        min_wait = max(30, cycle_minutes * 30)
 
         current_minute = now.minute
         current_second = now.second
@@ -54,6 +55,11 @@ class TradingScheduler:
 
         wait_seconds = (next_time - now).total_seconds()
 
+        if wait_seconds < min_wait:
+            next_time = base_time + timedelta(seconds=min_wait)
+            wait_seconds = min_wait
+            random_offset = min_wait - seconds_to_next
+
         logger.info(
             f"[调度] 等待下一个周期: "
             f"周期={cycle_minutes}分钟, 偏移={random_offset}秒, 等待={wait_seconds:.0f}秒, "
@@ -66,6 +72,7 @@ class TradingScheduler:
         now = datetime.now()
         cycle_minutes = self.trading_config.cycle_minutes
         offset_range = self.trading_config.random_offset_range
+        min_wait = max(30, cycle_minutes * 30)
 
         current_minute = now.minute
         current_second = now.second
@@ -82,7 +89,13 @@ class TradingScheduler:
         if next_time <= now:
             next_time = base_time + timedelta(seconds=offset_range)
 
-        return (next_time - now).total_seconds()
+        wait_seconds = (next_time - now).total_seconds()
+
+        if wait_seconds < min_wait:
+            next_time = base_time + timedelta(seconds=min_wait)
+            wait_seconds = min_wait
+
+        return wait_seconds
 
 
 def create_scheduler(config: Optional[Config] = None) -> TradingScheduler:
