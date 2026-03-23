@@ -48,6 +48,10 @@ class SignalThresholdsConfig:
     short_decline_boost: float = 1.2
     short_decline_boost_ceiling: float = 0.95
 
+    # BTC级别阈值
+    btc_high_threshold: float = 0.99
+    btc_low_threshold: float = 0.01
+
 
 class IntegrationConfig:
     """集成器配置"""
