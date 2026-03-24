@@ -484,8 +484,8 @@ class AdaptiveTradingBot:
                             side=position_side,
                         )
             else:
-                logger.info("[执行] 降低仓位: 无持仓 → 50%仓位开仓")
-                suggested_amount = risk_params.get("suggested_position", 0.01) * 0.5
+                logger.info("[执行] 安全模式: 无持仓 → 正常开仓")
+                suggested_amount = risk_params.get("suggested_position", 0.01)
                 max_amount = 0.01
                 amount = min(suggested_amount, max_amount)
                 stop_loss_price = risk_params.get("stop_loss_price")
