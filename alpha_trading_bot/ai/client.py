@@ -453,12 +453,13 @@ class AIClient:
         """判断是否应该重试"""
         error_str = str(error).lower()
 
-        # 不重试的错误（客户端问题，不会因重试而解决）
+        # 不重试的错误（客户端问题或服务器过载，不会因重试而解决）
         no_retry_keywords = [
             "余额不足",
             "insufficient balance",
             "quota",
             "limit",
+            "engine_overloaded",
         ]
 
         for keyword in no_retry_keywords:
