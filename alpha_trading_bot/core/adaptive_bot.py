@@ -461,10 +461,11 @@ class AdaptiveTradingBot:
 
         if action == "reduce":
             if has_position:
-                position = position_data.get("position")
-                if position and position.get("amount", 0) > 0:
-                    reduce_amount = position["amount"] * 0.5
-                    position_side = position.get("side", "long")
+                amount = position_data.get("amount", 0)
+                if amount > 0:
+                    position_side = position_data.get("side", "long")
+                    entry_price = position_data.get("entry_price", current_price)
+                    reduce_amount = amount * 0.5
                     order_side = "sell" if position_side == "long" else "buy"
                     logger.info(
                         f"[执行] 降低仓位: 平仓50% = {reduce_amount}, 方向={order_side}"
@@ -474,11 +475,11 @@ class AdaptiveTradingBot:
                         side=order_side,
                         amount=reduce_amount,
                     )
-                    new_amount = position["amount"] - reduce_amount
+                    new_amount = amount - reduce_amount
                     if new_amount > 0:
                         self.position_manager.update_position(
                             amount=new_amount,
-                            entry_price=position.get("entry_price", current_price),
+                            entry_price=entry_price,
                             symbol=self._exchange.symbol,
                             side=position_side,
                         )
