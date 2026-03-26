@@ -21,7 +21,7 @@ PROVIDERS = {
         "model": "qwen-turbo",
     },
     "minimax": {
-        "base_url": "https://api.minimaxi.com/v1",
+        "base_url": "https://api.minimaxi.com/v1/chat/completions",
         "model": "MiniMax-M2.7",
     },
 }
