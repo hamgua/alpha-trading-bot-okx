@@ -569,6 +569,7 @@ class AIClient:
             "deepseek": 60,
             "openai": 60,
             "qwen": 45,
+            "minimax": 120,  # MiniMax 可能需要更长超时
         }
 
         timeout_seconds = timeout_map.get(provider, 60)
