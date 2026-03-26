@@ -20,6 +20,10 @@ PROVIDERS = {
         "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
         "model": "qwen-turbo",
     },
+    "minimax": {
+        "base_url": "https://api.minimaxi.com/v1",
+        "model": "MiniMax-M2.7-highspeed",
+    },
 }
 
 

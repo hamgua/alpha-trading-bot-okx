@@ -133,6 +133,7 @@ class AIConfig:
                 "kimi": os.getenv("KIMI_API_KEY", ""),
                 "openai": os.getenv("OPENAI_API_KEY", ""),
                 "qwen": os.getenv("QWEN_API_KEY", ""),
+                "minimax": os.getenv("MINIMAX_API_KEY", ""),
             },
         )
 
