@@ -30,15 +30,34 @@ class ResponseParser:
         """
         response = response.lower().strip()
 
+        # 去除思考标签内容（如 MiniMax 等模型的内部推理）
+        response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
         # 尝试提取信号和置信度
         match = re.search(
-            r"^(buy|hold|sell|short)\s*\|?\s*confidence:\s*(\d+)%?", response
+            r"^(buy|hold|sell|short)\s*\|?\s*confidence:\s*(\d+)%?",
+            response,
+            re.MULTILINE,
         )
 
         if match:
             signal = match.group(1)
             confidence = int(match.group(2))
             logger.debug(f"解析结果: signal={signal}, confidence={confidence}%")
+            return signal, confidence
+
+        # 尝试在多行中查找 answer line（如 MiniMax 返回多行时）
+        match = re.search(
+            r"^(buy|hold|sell|short)\s*\|?\s*confidence:\s*(\d+)%?",
+            response,
+            re.MULTILINE | re.IGNORECASE,
+        )
+        if match:
+            signal = match.group(1).lower()
+            confidence = int(match.group(2))
+            logger.debug(
+                f"解析结果(MultiLine): signal={signal}, confidence={confidence}%"
+            )
             return signal, confidence
 
         # 回退到原有解析逻辑
