@@ -514,6 +514,10 @@ class AIClient:
             "max_tokens": 100,
         }
 
+        # MiniMax 使用推理模型，需要更多 output tokens
+        if provider == "minimax":
+            data["max_tokens"] = 300
+
         # 根据提供商类型设置不同的超时时间
         timeout_config = self._get_timeout_config(provider)
 
