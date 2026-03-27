@@ -467,22 +467,30 @@ class AdaptiveTradingBot:
                     entry_price = position_data.get("entry_price", current_price)
                     reduce_amount = amount * 0.5
                     order_side = "sell" if position_side == "long" else "buy"
-                    logger.info(
-                        f"[执行] 降低仓位: 平仓50% = {reduce_amount}, 方向={order_side}"
-                    )
-                    await self._exchange.create_order(
-                        symbol=self._exchange.symbol,
-                        side=order_side,
-                        amount=reduce_amount,
-                    )
-                    new_amount = amount - reduce_amount
-                    if new_amount > 0:
-                        self.position_manager.update_position(
-                            amount=new_amount,
-                            entry_price=entry_price,
-                            symbol=self._exchange.symbol,
-                            side=position_side,
+                    if reduce_amount < 0.01:
+                        logger.warning(
+                            f"[执行] 降低仓位: {reduce_amount} < 最小交易量0.01，跳过降低仓位操作"
                         )
+                    else:
+                        logger.info(
+                            f"[执行] 降低仓位: 平仓50% = {reduce_amount}, 方向={order_side}"
+                        )
+                        order_id = await self._exchange.create_order(
+                            symbol=self._exchange.symbol,
+                            side=order_side,
+                            amount=reduce_amount,
+                        )
+                        if not order_id:
+                            logger.error(f"[执行] 降低仓位订单失败，跳过状态更新")
+                        else:
+                            new_amount = amount - reduce_amount
+                            if new_amount > 0:
+                                self.position_manager.update_position(
+                                    amount=new_amount,
+                                    entry_price=entry_price,
+                                    symbol=self._exchange.symbol,
+                                    side=position_side,
+                                )
             else:
                 logger.info("[执行] 安全模式: 无持仓 → 正常开仓")
                 suggested_amount = risk_params.get("suggested_position", 0.01)
