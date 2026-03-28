@@ -854,16 +854,16 @@ class AdaptiveTradingBot:
 
         # === 容差检查：避免频繁更新 ===
         tolerance = 0.002  # 0.2% 容差
+        price_diff_percent = 0.0
         if existing_stop_id and old_stop > 0:
             price_diff_percent = abs(new_stop_price - old_stop) / old_stop
-            if price_diff_percent < tolerance:
-                logger.info(
-                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:0.2%，跳过更新"
-                )
-                return
             logger.info(
-                f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% >= 容错:0.2%，执行更新"
+                f"[止损更新] 容差检查: 变化率={price_diff_percent * 100:.4f}%, 容错=0.2%({tolerance * old_stop:.1f}美元)"
             )
+            if price_diff_percent < tolerance:
+                logger.info(f"[止损更新] 容差检查: 变化率 < 容错，跳过更新")
+                return
+            logger.info(f"[止损更新] 容差检查: 变化率 >= 容错，执行更新")
 
         # 取消旧止损单
 
