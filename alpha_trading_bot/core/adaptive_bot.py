@@ -780,20 +780,20 @@ class AdaptiveTradingBot:
 
         # === P2: 交易所无止损单时，直接创建 ===
         if not existing_stop_id:
-            # 首次创建止损单：使用 entry_price × 0.995
-            if current_price <= entry_price:
-                # 亏损/保本：止损设为入场价的 99.5%
-                initial_stop_price = entry_price * 0.995
+            if position_side == "short":
+                # 做空首次创建止损：entry_price × 1.005
+                initial_stop_price = entry_price * 1.005
                 logger.info(
-                    f"[止损更新] 首次创建止损单-亏损/保本({current_price} <= {entry_price}) → 初始止损: {initial_stop_price}"
+                    f"[止损更新] 首次创建做空止损单 → 初始止损: {initial_stop_price}"
                 )
                 stop_price_to_use = initial_stop_price
             else:
-                # 有盈利：止损设为当前价的 99.8%
-                stop_price_to_use = current_price * 0.998
+                # 做多首次创建止损：entry_price × 0.995
+                initial_stop_price = entry_price * 0.995
                 logger.info(
-                    f"[止损更新] 首次创建止损单-盈利({current_price} > {entry_price}) → 初始止损: {stop_price_to_use}"
+                    f"[止损更新] 首次创建做多止损单 → 初始止损: {initial_stop_price}"
                 )
+                stop_price_to_use = initial_stop_price
             amount = position_data.get("amount", 0.01)
             stop_order_id = await self._create_stop_loss_with_retry(
                 amount=amount,
@@ -814,20 +814,27 @@ class AdaptiveTradingBot:
             f"[止损调试] current_price={current_price}, old_stop={old_stop}, new_stop={new_stop_price}"
         )
 
-        # === 根据新逻辑决定是否更新止损 ===
-        # 业务规则：
-        # - current_price <= entry_price → 止损不变，跳过更新
-        # - current_price > entry_price → 止损上浮到 current_price × 0.998
-        if current_price <= entry_price:
+        # === 根据多空方向决定是否更新止损 ===
+        if position_side == "short":
+            # 做空：current_price < entry 为盈利（止损下浮），current_price >= entry 为亏损（止损上浮）
+            if current_price < entry_price:
+                logger.info(
+                    f"[止损更新] 做空盈利({current_price} < {entry_price})，止损跟随下浮"
+                )
+            else:
+                logger.info(
+                    f"[止损更新] 做空亏损({current_price} >= {entry_price})，止损跟随上浮"
+                )
+        else:
+            # 做多：current_price > entry 为盈利（止损上浮），current_price <= entry 为亏损（止损不变）
+            if current_price <= entry_price:
+                logger.info(
+                    f"[止损更新] 做多亏损/保本({current_price} <= {entry_price})，止损不变，跳过更新"
+                )
+                return
             logger.info(
-                f"[止损更新] 当前价格({current_price}) <= 入场价({entry_price})，止损不变，跳过更新"
+                f"[止损更新] 做多盈利({current_price} > {entry_price})，止损上浮"
             )
-            return
-
-        # current_price > entry_price：止损需要上浮到 current_price × 0.998
-        logger.info(
-            f"[止损更新] 当前价格({current_price}) > 入场价({entry_price})，执行上浮逻辑"
-        )
 
         # 取消旧止损单
 
