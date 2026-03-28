@@ -852,6 +852,19 @@ class AdaptiveTradingBot:
                 f"[止损更新] 做多盈利({current_price} > {entry_price})，止损上浮"
             )
 
+        # === 容差检查：避免频繁更新 ===
+        tolerance = 0.002  # 0.2% 容差
+        if existing_stop_id and old_stop > 0:
+            price_diff_percent = abs(new_stop_price - old_stop) / old_stop
+            if price_diff_percent < tolerance:
+                logger.info(
+                    f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% < 容错:0.2%，跳过更新"
+                )
+                return
+            logger.info(
+                f"[止损更新] 变化率:{price_diff_percent * 100:.4f}% >= 容错:0.2%，执行更新"
+            )
+
         # 取消旧止损单
 
         # 取消旧止损单
