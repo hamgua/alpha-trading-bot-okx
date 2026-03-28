@@ -821,6 +821,12 @@ class AdaptiveTradingBot:
         if position_side == "short":
             # 做空：current_price < entry 为盈利（止损下浮），current_price >= entry 为亏损（止损不变）
             if current_price < entry_price:
+                # 做空：止损只降不升
+                if existing_stop_id and new_stop_price >= old_stop:
+                    logger.info(
+                        f"[止损更新] 做空止损未下降({new_stop_price:.1f} >= {old_stop:.1f})，跳过更新"
+                    )
+                    return
                 logger.info(
                     f"[止损更新] 做空盈利({current_price} < {entry_price})，止损跟随下浮"
                 )
@@ -834,6 +840,12 @@ class AdaptiveTradingBot:
             if current_price <= entry_price:
                 logger.info(
                     f"[止损更新] 做多亏损/保本({current_price} <= {entry_price})，止损不变，跳过更新"
+                )
+                return
+            # 做多：止损只升不降
+            if existing_stop_id and new_stop_price <= old_stop:
+                logger.info(
+                    f"[止损更新] 做多止损未上升({new_stop_price:.1f} <= {old_stop:.1f})，跳过更新"
                 )
                 return
             logger.info(
