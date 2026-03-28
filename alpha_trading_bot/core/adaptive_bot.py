@@ -741,20 +741,22 @@ class AdaptiveTradingBot:
         # 3. current_price > entry_price，止损价格 = current_price × 0.998（上浮）
         position_side = position_data.get("side", "long")
 
-        # 做空逻辑（与做多相反）
+        # 做空止损逻辑（与做多对称）
+        # 做空：做空盈利时（price < entry）止损跟随下浮，做空亏损时（price > entry）止损跟随上浮
+        # 止损公式：current_price × 1.002
+        # 对称理解：做多 = price × 0.998，做空 = price × 1.002
         if position_side == "short":
-            # 做空止损：价格上涨时上浮，下跌时保持
-            if current_price >= entry_price:
-                # 价格 >= 入场价，保持或上浮止损
-                new_stop_price = entry_price * 1.005  # 固定为止损入场价的 100.5%
+            if current_price <= entry_price:
+                # 做空盈利（价格下跌），止损跟随下浮锁定利润
+                new_stop_price = current_price * 1.002
                 logger.info(
-                    f"[止损调整] 做空-价格回升({current_price} >= {entry_price}) → 止损固定: {new_stop_price}"
+                    f"[止损调整] 做空-盈利({current_price} <= {entry_price}) → 止损下浮: {new_stop_price}"
                 )
             else:
-                # 价格 < 入场价，止损跟随下浮
-                new_stop_price = current_price * 1.002  # 止损为当前价的 100.2%
+                # 做空亏损（价格上涨），止损跟随上浮扩大缓冲
+                new_stop_price = current_price * 1.002
                 logger.info(
-                    f"[止损调整] 做空-盈利保护({current_price} < {entry_price}) → 止损跟随: {new_stop_price}"
+                    f"[止损调整] 做空-亏损({current_price} > {entry_price}) → 止损上浮: {new_stop_price}"
                 )
             logger.info(f"[止损更新-做空] 止损价={new_stop_price:.1f}")
         else:
