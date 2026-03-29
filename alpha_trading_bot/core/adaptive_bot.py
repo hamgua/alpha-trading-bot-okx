@@ -492,33 +492,7 @@ class AdaptiveTradingBot:
                                     side=position_side,
                                 )
             else:
-                logger.info("[执行] 安全模式: 无持仓 → 正常开仓")
-                suggested_amount = risk_params.get("suggested_position", 0.01)
-                max_amount = 0.01
-                amount = min(suggested_amount, max_amount)
-                stop_loss_price = risk_params.get("stop_loss_price")
-                position_side = "long"
-                order_side = "buy"
-                order_id = await self._exchange.create_order(
-                    symbol=self._exchange.symbol,
-                    side=order_side,
-                    amount=amount,
-                )
-                if order_id:
-                    self.position_manager.update_position(
-                        amount=amount,
-                        entry_price=current_price,
-                        symbol=self._exchange.symbol,
-                        side=position_side,
-                    )
-                    if stop_loss_price:
-                        await self._create_stop_loss_with_retry(
-                            amount=amount,
-                            stop_price=stop_loss_price,
-                            current_price=current_price,
-                            position_side=position_side,
-                            max_retries=3,
-                        )
+                logger.info("[执行] 安全模式: 无持仓 → 跳过（reduce 无仓可降）")
             # 有持仓时，即使跳过降低仓位，也应该更新止损
             if has_position:
                 await self._update_stop_loss(current_price, position_data)
