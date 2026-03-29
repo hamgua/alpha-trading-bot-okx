@@ -159,6 +159,19 @@ class PositionManager:
             )
             self._entry_price = position_data["entry_price"]
 
+            # 初始化价格追踪（如果还未追踪过）
+            # 当从交易所恢复持仓时，用入场价初始化最高/最低价
+            if self._position.side == "long" and self._highest_price_since_entry == 0:
+                self._highest_price_since_entry = self._entry_price
+                logger.info(
+                    f"[仓位更新] 初始化做多最高价: {self._highest_price_since_entry}"
+                )
+            elif self._position.side == "short" and self._lowest_price_since_entry == 0:
+                self._lowest_price_since_entry = self._entry_price
+                logger.info(
+                    f"[仓位更新] 初始化做空最低价: {self._lowest_price_since_entry}"
+                )
+
             # 持久化保存
             self._persistence.save_position(
                 symbol=position_data["symbol"],
