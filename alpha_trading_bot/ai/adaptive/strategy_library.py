@@ -381,9 +381,9 @@ class SafeModeStrategy(BaseStrategy):
         reasons = []
 
         # 极高波动
-        if atr_percent > 50:  # ATR% > 50%
+        if atr_percent > 0.50:
             is_extreme = True
-            reasons.append(f"波动率极高({atr_percent:.2%})")
+            reasons.append(f"波动率极高({atr_percent * 100:.2f}%)")
 
         # 剧烈下跌
         if recent_drop < -0.03:

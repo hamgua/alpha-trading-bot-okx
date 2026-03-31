@@ -83,9 +83,9 @@ def calculate_all_indicators(
     else:
         result["adx_state"] = "strong"
 
-    if result["atr_percent"] < 1.0:
+    if result["atr_percent"] < 0.01:
         result["volatility_state"] = "low"
-    elif result["atr_percent"] < 3.0:
+    elif result["atr_percent"] < 0.03:
         result["volatility_state"] = "normal"
     else:
         result["volatility_state"] = "high"
