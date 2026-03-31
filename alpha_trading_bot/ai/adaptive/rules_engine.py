@@ -91,21 +91,21 @@ class VolatilityRule(AdaptiveRule):
         """评估波动率规则"""
         atr_percent = market_state.atr_percent
 
-        if atr_percent > 45:  # 极高波动  # 极高波动
+        if atr_percent > 0.45:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
                 triggered=True,
                 adjustment={
-                    "stop_loss_percent": 0.015,  # 放宽止损
-                    "position_multiplier": 0.3,  # 大幅减仓
-                    "fusion_threshold": 0.55,  # 更严格的信号
+                    "stop_loss_percent": 0.015,
+                    "position_multiplier": 0.3,
+                    "fusion_threshold": 0.55,
                 },
-                reason=f"极高波动 (ATR%: {atr_percent:.2%})",
+                reason=f"极高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.9,
             )
 
-        elif atr_percent > 35:  # 高波动  # 高波动
+        elif atr_percent > 0.35:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -115,11 +115,11 @@ class VolatilityRule(AdaptiveRule):
                     "position_multiplier": 0.5,
                     "fusion_threshold": 0.52,
                 },
-                reason=f"高波动 (ATR%: {atr_percent:.2%})",
+                reason=f"高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.85,
             )
 
-        elif atr_percent > 20:  # 中高波动  # 中高波动
+        elif atr_percent > 0.20:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -129,11 +129,11 @@ class VolatilityRule(AdaptiveRule):
                     "position_multiplier": 0.7,
                     "fusion_threshold": 0.50,
                 },
-                reason=f"中等波动 (ATR%: {atr_percent:.2%})",
+                reason=f"中等波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.7,
             )
 
-        elif atr_percent < 0.015:  # 低波动
+        elif atr_percent < 0.015:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,

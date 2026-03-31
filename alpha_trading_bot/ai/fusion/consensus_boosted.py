@@ -489,16 +489,18 @@ class ConsensusBoostedFusion:
             weighted_scores[sig] += adjusted_weight
             total_weight += adjusted_weight
 
-        # 步骤2: 一致性强化 + 阈值调整
         boost_factor = 1.0
         boost_reason = ""
 
-        if consensus_ratio >= 1.0:
-            # 全部一致
+        max_sig = max(weighted_scores, key=weighted_scores.get)
+
+        if max_sig == "hold":
+            boost_factor = 1.0
+            boost_reason = "HOLD信号不强化"
+        elif consensus_ratio >= 1.0:
             boost_factor = self.config.consensus_boost_full
-            boost_reason = f"全部一致，强化{boost_factor}x"
+            boost_reason = f"全部一致({max_sig})，强化{boost_factor}x"
         elif consensus_ratio >= self.config.partial_consensus_threshold:
-            # 放宽部分一致阈值（0.50 → 0.60）
             boost_factor = self.config.consensus_boost_partial
             boost_reason = f"部分一致({consensus_ratio:.0%})，强化{boost_factor}x"
         elif (
@@ -506,12 +508,8 @@ class ConsensusBoostedFusion:
             and has_kimi_buy
             and self.config.rsi_rebound_low <= rsi <= self.config.rsi_rebound_high
         ):
-            # 反弹区间内的Kimi BUY，即使一致性不足也给予部分强化
             boost_factor = 1.1
             boost_reason = f"Kimi反弹区间，强化{boost_factor}x"
-
-        # 找到最高得分的信号
-        max_sig = max(weighted_scores, key=weighted_scores.get)
 
         # 高位抑制BUY（RSI > 60 时）
         if (
