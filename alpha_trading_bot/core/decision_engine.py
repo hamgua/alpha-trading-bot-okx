@@ -43,9 +43,9 @@ class DecisionEngine:
             }
         if ai_signal.upper() == "BUY":
             atr_percent = technical.get("atr_percent", 0)
-            if atr_percent > 40:
+            if atr_percent > 0.40:
                 logger.warning(
-                    f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止开仓"
+                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，高波动市场禁止开仓"
                 )
                 action = "skip"
                 reason = "高波动市场禁止开仓"
@@ -57,9 +57,9 @@ class DecisionEngine:
             rsi = technical.get("rsi", 50)
             atr_percent = technical.get("atr_percent", 0)
 
-            if atr_percent > 40:
+            if atr_percent > 0.40:
                 logger.warning(
-                    f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止做空"
+                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，高波动市场禁止做空"
                 )
                 action = "skip"
                 reason = "高波动市场禁止做空"
@@ -95,9 +95,9 @@ class DecisionEngine:
             atr_percent = technical.get("atr_percent", 0)
 
             if ai_signal.upper() == "SHORT":
-                if atr_percent > 40:
+                if atr_percent > 0.40:
                     logger.warning(
-                        f"[高波动] ATR%={atr_percent:.1f}% > 40%，高波动市场禁止做空"
+                        f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，高波动市场禁止做空"
                     )
                     action = "skip"
                     reason = "高波动市场禁止做空"
@@ -126,14 +126,14 @@ class DecisionEngine:
             # AI 信号是 HOLD 时的处理
             if ai_signal.upper() == "HOLD":
                 logger.info("[决策] AI信号为HOLD，检查是否需要跳过")
-                # ATR > 40% 时完全停仓
+                # ATR > 40% 时完全停仓（atr_percent 是小数形式，0.40 = 40%）
                 atr_percent = technical.get("atr_percent", 0)
-                if atr_percent > 40:
+                if atr_percent > 0.40:
                     logger.warning(
-                        f"[高波动] ATR%={atr_percent:.1f}% > 40%，HOLD信号下完全停仓"
+                        f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，HOLD信号下完全停仓"
                     )
                     action = "skip"
-                    reason = f"AI-HOLD+高波动停仓(ATR={atr_percent:.1f}%)"
+                    reason = f"AI-HOLD+高波动停仓(ATR={atr_percent * 100:.1f}%)"
                 else:
                     # AI HOLD + 无明确策略信号 → skip
                     if selected.signal.upper() == "HOLD":
