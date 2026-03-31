@@ -118,8 +118,16 @@ class PromptBuilder:
         trend_dir = technical.get("trend_direction", "neutral")
         trend_strength = technical.get("trend_strength", 0)
 
-        # 计算综合价格位置
-        price_position = market_data.get("composite_price_position", 0.5) * 100
+        price_history = market_data.get("price_history", [])
+        if len(price_history) >= 7:
+            low = min(price_history[:7])
+            high = max(price_history[:7])
+            if high > low:
+                price_position = (current_price - low) / (high - low) * 100
+            else:
+                price_position = 50.0
+        else:
+            price_position = 50.0
 
         # 从market_data获取持仓信息
         position_info = market_data.get("position", {})

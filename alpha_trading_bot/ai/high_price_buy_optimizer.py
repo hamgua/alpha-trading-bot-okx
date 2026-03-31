@@ -139,7 +139,7 @@ class HighPriceBuyOptimizer:
         thresholds = self._get_thresholds(price_level)
 
         # 4. 获取当前指标
-        price_position = technical.get("price_position", 50)
+        price_position = technical.get("price_position", 0.5)
         rsi = technical.get("rsi", 50)
         trend_strength = technical.get("trend_strength", 0.3)
         trend_direction = technical.get("trend_direction", "sideways")

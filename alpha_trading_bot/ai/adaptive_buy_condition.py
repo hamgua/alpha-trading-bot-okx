@@ -124,7 +124,7 @@ class AdaptiveBuyCondition:
         trend_strength = technical.get("trend_strength", 0.3)
         rsi = technical.get("rsi", 50)
         macd_hist = technical.get("macd_hist", 0)
-        bb_position = technical.get("bb_position", 50)
+        bb_position = technical.get("bb_position", 0.5)
         # 从technical中获取adx
         adx = technical.get("adx", 20)
         # 确保数值类型正确，防止字符串比较错误
@@ -145,9 +145,9 @@ class AdaptiveBuyCondition:
             macd_hist = 0
         try:
             bp = float(str(bb_position))
-            bb_position = bp if 0 <= bp <= 100 else 50
+            bb_position = bp if 0 <= bp <= 1 else 0.5
         except (ValueError, TypeError):
-            bb_position = 50
+            bb_position = 0.5
         try:
             adx = float(str(adx))
             adx = adx if adx > 0 else 20
@@ -403,23 +403,21 @@ class AdaptiveBuyCondition:
         c = self.conditions
 
         technical = market_data.get("technical", {})
-        bb_position = technical.get("bb_position", 50)
-        price_position = technical.get("price_position", 50)
+        bb_position = technical.get("bb_position", 0.5)
+        price_position = technical.get("price_position", 0.5)
         trend_direction = technical.get("trend_direction", "sideways")
-
-        # 如果有综合价格位置，使用它
-        if "composite_price_position" in market_data:
-            price_position = market_data["composite_price_position"]
 
         # 类型转换，防止字符串比较错误
         try:
-            bb_position = float(str(bb_position)) if bb_position else 50
+            bb_position = float(bb_position) if bb_position is not None else 0.5
         except (ValueError, TypeError):
-            bb_position = 50
+            bb_position = 0.5
         try:
-            price_position = float(str(price_position)) if price_position else 50
+            price_position = (
+                float(price_position) if price_position is not None else 0.5
+            )
         except (ValueError, TypeError):
-            price_position = 50
+            price_position = 0.5
 
         # 🔴 核心修复：下跌趋势时禁止强势支撑买入
         if trend_direction == "down":
