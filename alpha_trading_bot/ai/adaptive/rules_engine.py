@@ -91,15 +91,15 @@ class VolatilityRule(AdaptiveRule):
         """评估波动率规则"""
         atr_percent = market_state.atr_percent
 
-        if atr_percent > 0.45:
+        if atr_percent > 0.60:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
                 triggered=True,
                 adjustment={
                     "stop_loss_percent": 0.015,
-                    "position_multiplier": 0.3,
-                    "fusion_threshold": 0.55,
+                    "position_multiplier": 0.5,
+                    "fusion_threshold": 0.45,
                 },
                 reason=f"极高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.9,
@@ -112,8 +112,8 @@ class VolatilityRule(AdaptiveRule):
                 triggered=True,
                 adjustment={
                     "stop_loss_percent": 0.01,
-                    "position_multiplier": 0.5,
-                    "fusion_threshold": 0.52,
+                    "position_multiplier": 0.7,
+                    "fusion_threshold": 0.40,
                 },
                 reason=f"高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.85,
@@ -126,8 +126,8 @@ class VolatilityRule(AdaptiveRule):
                 triggered=True,
                 adjustment={
                     "stop_loss_percent": 0.007,
-                    "position_multiplier": 0.7,
-                    "fusion_threshold": 0.50,
+                    "position_multiplier": 0.85,
+                    "fusion_threshold": 0.35,
                 },
                 reason=f"中等波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.7,
