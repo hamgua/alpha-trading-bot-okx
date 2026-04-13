@@ -3,13 +3,86 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Protocol, runtime_checkable
 
 
 class ConfigurationError(Exception):
     """配置错误异常"""
 
     pass
+
+
+@runtime_checkable
+class ConfigUpdaterProtocol(Protocol):
+    """配置更新器接口 - 用于消除循环依赖
+
+    定义配置更新器必须实现的方法，支持运行时类型检查。
+    ai/optimizer 模块应使用此接口而非具体实现。
+    """
+
+    def get(self, key: str, default: Optional[object] = None) -> object:
+        """获取配置值
+
+        Args:
+            key: 配置键（使用点号分隔，如 "ai.fusion_threshold"）
+            default: 默认值
+
+        Returns:
+            配置值
+        """
+        ...
+
+    def set(
+        self,
+        key: str,
+        value: object,
+        reason: str = "",
+        update_type: Optional[object] = None,
+    ) -> bool:
+        """设置配置值
+
+        Args:
+            key: 配置键
+            value: 新值
+            reason: 变更原因
+            update_type: 更新类型
+
+        Returns:
+            是否成功
+        """
+        ...
+
+    def apply_optimized_params(
+        self, params: Dict[str, object], reason: str = ""
+    ) -> bool:
+        """应用优化后的参数
+
+        Args:
+            params: 优化后的参数字典
+            reason: 变更原因
+
+        Returns:
+            是否成功
+        """
+        ...
+
+    def update_strategy_weight(
+        self,
+        strategy_name: str,
+        weight: float,
+        enabled: bool = True,
+    ) -> bool:
+        """更新策略权重
+
+        Args:
+            strategy_name: 策略名称
+            weight: 新权重
+            enabled: 是否启用
+
+        Returns:
+            是否成功
+        """
+        ...
 
 
 @dataclass

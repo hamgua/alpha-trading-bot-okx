@@ -55,7 +55,6 @@ class AdaptiveTradingBot:
 
     def _init_adaptive_components(self) -> None:
         """初始化自适应组件"""
-        # 导入自适应模块
         from ..ai.adaptive import (
             AdaptiveParameterManager,
             MarketRegimeDetector,
@@ -67,7 +66,6 @@ class AdaptiveTradingBot:
         from ..ai.adaptive.risk_manager import RiskControlManager, RiskConfig
         from ..ai.optimizer import ConfigUpdater
 
-        # === ML 学习模块 ===
         from ..ai.ml.ml_data_manager import MLDataManager, get_ml_data_manager
         from ..ai.ml.adaptive_weight_optimizer import (
             AdaptiveWeightOptimizer,
@@ -79,46 +77,28 @@ class AdaptiveTradingBot:
             get_learning_integrator,
         )
 
-        # 参数自适应
         self.param_manager = AdaptiveParameterManager()
-
-        # 市场环境检测
         self.regime_detector = MarketRegimeDetector()
-
-        # 表现追踪
         self.performance_tracker = PerformanceTracker()
-
-        # 规则引擎
         self.rules_engine = AdaptiveRulesEngine()
-
-        # 策略库和选择器
         self.strategy_library = StrategyLibrary()
         self.strategy_manager = AdaptiveStrategyManager()
 
-        # 风险控制
         risk_config = RiskConfig(
-            hard_stop_loss_percent=0.05,  # 5% 硬止损
-            max_position_percent=0.1,  # 最大10%仓位
-            circuit_breaker_threshold=0.03,  # 3%熔断
+            hard_stop_loss_percent=0.05,
+            max_position_percent=0.1,
+            circuit_breaker_threshold=0.03,
         )
         self.risk_manager = RiskControlManager(risk_config)
 
-        # 配置管理
         self.config_updater = ConfigUpdater()
 
-        # === ML 学习组件 ===
-        # ML 数据管理器
         self.ml_data_manager = get_ml_data_manager()
-
-        # 权重优化器
         self.weight_optimizer = get_weight_optimizer()
 
-        # 回测学习器（无需真实交易也能学习）
         from ..ai.ml.signal_backtest import get_backtest_learner
 
         self.backtest_learner = get_backtest_learner()
-
-        # 学习集成器（简化版）
         self.simple_learning = SimpleLearningLoop()
 
         from .strategy_weight_manager import StrategyWeightManager
