@@ -443,29 +443,6 @@ class AISignalIntegrator:
                         )
                     )
 
-            # 检查是否满足做空条件
-            is_downtrend = trend_direction == "down"
-            has_strength = trend_strength > self._t().weak_trend_strength
-            not_too_low = price_position > self._t().price_position_low
-            is_sustained_decline = decline_result and decline_result.is_detected
-
-            # 下跌趋势 + 有一定强度 + 不是极低位 → 转换为 SHORT
-            if is_downtrend and has_strength and not_too_low:
-                logger.info(
-                    f"[信号转换] HOLD→SHORT: 趋势向下(强度{trend_strength:.2f}), "
-                    f"价格位置{price_position * 100:.0f}%, 持续下跌={is_sustained_decline}"
-                )
-                original_signal = "SHORT"
-                # 设置一个基础置信度
-                if is_sustained_decline:
-                    original_confidence = self._t().confidence_sustained
-                else:
-                    original_confidence = self._t().confidence_base
-                result.adjustments_made.append(f"信号转换: HOLD→SHORT (下跌趋势)")
-                conf_history.append(
-                    (self._t().confidence_sustained, "下跌转换", original_confidence)
-                )
-
         # 1. AdaptiveBuyCondition
         # 1. AdaptiveBuyCondition
         if self.adaptive_buy and self.config.enable_adaptive_buy:

@@ -17,6 +17,15 @@ class MarketDataService:
         self.symbol = symbol
         self._last_valid_ticker: Dict[str, Any] = {}
 
+    def validate_price_data(self, price: float, source: str = "unknown") -> bool:
+        if price <= 0:
+            logger.warning(f"无效价格数据: {price}, 来源: {source}")
+            return False
+        if price > 1000000:
+            logger.warning(f"异常价格数据: {price}, 来源: {source}")
+            return False
+        return True
+
     async def get_ohlcv(
         self, timeframe: str = "1h", limit: int = 100
     ) -> List[List[float]]:
@@ -47,6 +56,12 @@ class MarketDataService:
     async def get_market_data(self) -> Dict[str, Any]:
         """获取市场数据 - 包含技术指标"""
         ticker = await self.get_ticker()
+        current_price = ticker.get("last", 0) if ticker else 0
+
+        if not self.validate_price_data(current_price, "ticker"):
+            current_price = self._last_valid_ticker.get("last", 0)
+            if not self.validate_price_data(current_price, "last_valid_ticker"):
+                logger.warning("价格数据无效，使用 0")
 
         ohlcv = await self.get_ohlcv(limit=100)
 

@@ -365,19 +365,14 @@ class AdaptiveBuyCondition:
         if bb_position < 0.35:
             base_confidence += 0.08
 
-            base_confidence -= 0.15  # 下跌趋势太强劲
+        # 死代码：函数在趋势向下时已提前返回，此检查不会执行
+        # if trend_direction == "down":
+        #     base_confidence -= 0.25
 
-        # 下跌趋势强烈减分
-        if trend_direction == "down":
-            base_confidence -= 0.25  # 下跌趋势不买入
-
-        final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
 
         return {
             "passed": passed >= 4,  # 提高门槛：需要全部4个条件通过
-            "confidence": final_confidence,
-            "passed": passed >= 3,
             "confidence": final_confidence,
             "checks": checks,
             "pass_rate": pass_rate,
