@@ -62,6 +62,10 @@ jobs:
       run: |
         pytest --cov=alpha_trading_bot --cov-report=term-missing --cov-report=xml
 
+    - name: Run Gemini guard regression tests (blocking)
+      run: |
+        pytest tests/unit/test_gemini_integration.py tests/unit/test_live_trading_guard.py -q
+
     - name: Security scan - gitleaks
       run: |
         gitleaks detect --source . --verbose --config=.gitleaks.toml --redact --no-git \

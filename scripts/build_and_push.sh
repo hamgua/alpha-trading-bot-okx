@@ -19,7 +19,7 @@ build_base_image() {
         --platform $PLATFORM \
         --no-cache \
         -t $BASE_IMAGE \
-        -f Dockerfile_base.alpine.fixed \
+        -f Dockerfile_base.alpine \
         ./
 }
 
@@ -36,7 +36,7 @@ build_app_image() {
         --platform $PLATFORM \
         --no-cache \
         -t $APP_IMAGE \
-        -f Dockerfile.fixed \
+        -f Dockerfile \
         ./
 }
 
