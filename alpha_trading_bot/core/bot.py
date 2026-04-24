@@ -9,13 +9,14 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from .trading_scheduler import TradingScheduler
-from .signal_processor import SignalProcessor, Position
+from .signal_processor import SignalProcessor
 from .position_manager import PositionManager
 from .stop_loss_manager import StopLossManager
 from ..config.models import Config
+from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,7 @@ class TradingBot:
                 password=self.config.exchange.password,
                 symbol=self.config.exchange.symbol,
                 allow_short_selling=self.config.trading.allow_short_selling,
+                test_mode=self.config.trading.test_mode,
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
@@ -221,7 +223,9 @@ class TradingBot:
                 )
                 return
             logger.info(
-                f"[持仓状态] 持仓中 - 方向:{position_info.side}, 数量:{position_info.amount}张, 入场价:{position_info.entry_price}"
+                "[持仓状态] 持仓中 - "
+                f"方向:{position_info.side}, 数量:{position_info.amount}张, "
+                f"入场价:{position_info.entry_price}"
             )
             unrealized_pnl = position_info.unrealized_pnl
             pnl_percent = (
@@ -268,7 +272,8 @@ class TradingBot:
     ) -> None:
         """执行信号"""
         logger.info(
-            f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, 持仓状态: {'有持仓' if has_position else '无持仓'}"
+            f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, "
+            f"持仓状态: {'有持仓' if has_position else '无持仓'}"
         )
 
         if signal == "BUY":
@@ -299,6 +304,12 @@ class TradingBot:
     async def _open_position(self, price: float) -> None:
         """开仓 - 根据余额动态计算交易量"""
         logger.info(f"[开仓] 开始开仓流程, 当前价格: {price}")
+
+        live_allowed, reason = self.config.check_live_trading_preconditions()
+        if not live_allowed:
+            logger.warning(f"[实盘闸门] 拒绝开仓: {reason}")
+            record_live_guard_block()
+            return
 
         amount = await self._exchange.calculate_max_contracts(
             price, self.config.exchange.leverage
@@ -375,6 +386,12 @@ class TradingBot:
             logger.warning("[平仓] 无持仓，跳过平仓")
             return
 
+        live_allowed, reason = self.config.check_live_trading_preconditions()
+        if not live_allowed:
+            logger.warning(f"[实盘闸门] 拒绝平仓: {reason}")
+            record_live_guard_block()
+            return
+
         position = self.position_manager.position
         if position is None:
             logger.error("[平仓] 数据不一致: has_position=True 但 position 为 None")
@@ -399,11 +416,11 @@ class TradingBot:
                 )
                 cancel_success, cancel_reason = cancel_result
                 if cancel_success:
-                    logger.info(f"[平仓] 止损单取消成功")
+                    logger.info("[平仓] 止损单取消成功")
                 elif cancel_reason == "already_gone":
-                    logger.info(f"[平仓] 止损单已不存在(可能已触发)")
+                    logger.info("[平仓] 止损单已不存在(可能已触发)")
                 else:
-                    logger.warning(f"[平仓] 取消止损单失败")
+                    logger.warning("[平仓] 取消止损单失败")
             except Exception as e:
                 logger.warning(f"[平仓] 取消止损单异常: {e}")
 

@@ -3,7 +3,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, runtime_checkable
+from typing import Dict, List, Optional, Protocol, Tuple, runtime_checkable
 
 
 class ConfigurationError(Exception):
@@ -116,6 +116,27 @@ class TradingConfig:
     cycle_minutes: int = 15
     random_offset_range: int = 180
     allow_short_selling: bool = True  # 是否允许做空
+    test_mode: bool = True
+    real_trading_confirmed: bool = False
+    runtime_environment: str = "dev"
+
+    VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
+    LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
+
+    def check_live_trading_preconditions(self) -> Tuple[bool, str]:
+        """检查是否满足实盘前置条件。"""
+        if self.test_mode:
+            return False, "test_mode_enabled"
+        if not self.real_trading_confirmed:
+            return False, "real_trading_not_confirmed"
+        if self.runtime_environment not in self.LIVE_ALLOWED_ENVIRONMENTS:
+            return False, "runtime_environment_not_allowed"
+        return True, "ok"
+
+    @property
+    def is_live_mode(self) -> bool:
+        """是否为实盘模式。"""
+        return not self.test_mode
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -124,6 +145,24 @@ class TradingConfig:
             errors.append(f"交易周期 {self.cycle_minutes} 必须大于0")
         if self.random_offset_range < 0:
             errors.append(f"随机偏移范围 {self.random_offset_range} 不能为负数")
+
+        if self.runtime_environment not in self.VALID_RUNTIME_ENVIRONMENTS:
+            errors.append(
+                "运行环境 "
+                f"'{self.runtime_environment}' 无效，可选: "
+                f"{self.VALID_RUNTIME_ENVIRONMENTS}"
+            )
+
+        if not self.test_mode:
+            allowed, reason = self.check_live_trading_preconditions()
+            if not allowed:
+                if reason == "real_trading_not_confirmed":
+                    errors.append("实盘模式需要显式确认: REAL_TRADING_CONFIRMED=true")
+                elif reason == "runtime_environment_not_allowed":
+                    errors.append(
+                        "实盘模式仅允许在受控环境运行: RUNTIME_ENVIRONMENT=prod|production"
+                    )
+
         return errors
 
 
@@ -363,6 +402,21 @@ class Config:
         if errors:
             raise ConfigurationError("配置错误:\n  - " + "\n  - ".join(errors))
 
+    def check_live_trading_preconditions(self) -> Tuple[bool, str]:
+        """检查实盘下单前置条件。"""
+        allowed, reason = self.trading.check_live_trading_preconditions()
+        if not allowed:
+            return allowed, reason
+
+        if (
+            not self.exchange.api_key
+            or not self.exchange.secret
+            or not self.exchange.password
+        ):
+            return False, "exchange_credentials_incomplete"
+
+        return True, "ok"
+
     @classmethod
     def from_env(cls) -> "Config":
         import os
@@ -380,6 +434,14 @@ class Config:
                 random_offset_range=int(os.getenv("RANDOM_OFFSET_RANGE", "180")),
                 allow_short_selling=os.getenv("ALLOW_SHORT_SELLING", "true").lower()
                 == "true",
+                test_mode=os.getenv("TEST_MODE", "true").lower() == "true",
+                real_trading_confirmed=os.getenv(
+                    "REAL_TRADING_CONFIRMED", "false"
+                ).lower()
+                == "true",
+                runtime_environment=os.getenv(
+                    "RUNTIME_ENVIRONMENT", os.getenv("RUNTIME_ENV", "dev")
+                ).lower(),
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(

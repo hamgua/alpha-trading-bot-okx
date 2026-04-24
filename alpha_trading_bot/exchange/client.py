@@ -6,6 +6,7 @@
 import asyncio
 import ccxt
 import logging
+import time
 from typing import Dict, Any, Optional, List
 
 from .account_service import AccountService, create_account_service
@@ -25,12 +26,14 @@ class ExchangeClient:
         password: str = "",
         symbol: str = "BTC/USDT:USDT",
         allow_short_selling: bool = True,
+        test_mode: bool = True,
     ):
         self.api_key = api_key
         self.secret = secret
         self.password = password
         self.symbol = symbol
         self.allow_short_selling = allow_short_selling  # 是否允许做空
+        self.test_mode = test_mode
         self.exchange: Optional[ccxt.okx] = None
 
         # 组合服务
@@ -50,6 +53,13 @@ class ExchangeClient:
             }
         )
 
+        # TEST_MODE=true 时启用交易所沙盒模式，避免误实盘
+        try:
+            self.exchange.set_sandbox_mode(self.test_mode)
+            logger.info(f"交易所沙盒模式: {'开启' if self.test_mode else '关闭'}")
+        except Exception as e:
+            logger.warning(f"设置交易所沙盒模式失败: {e}")
+
         # 初始化子服务
         self._account_service = create_account_service(
             self.exchange, self.symbol, self.allow_short_selling
@@ -66,7 +76,6 @@ class ExchangeClient:
 
     async def set_leverage(self, leverage: int) -> None:
         """设置杠杆"""
-        market = self.symbol.split("/")[0]
         await asyncio.get_event_loop().run_in_executor(
             None,
             lambda: self.exchange.set_leverage(leverage, self.symbol),
@@ -116,6 +125,14 @@ class ExchangeClient:
         order_type: str = "market",
     ) -> str:
         """创建订单"""
+        if self.test_mode:
+            simulated_id = f"SIMULATED_ORDER_{side.upper()}_{int(time.time())}"
+            logger.warning(
+                "[交易保护] TEST_MODE=true，跳过真实下单: "
+                f"side={side}, amount={amount}, symbol={symbol}"
+            )
+            return simulated_id
+
         return await self._order_service.create_order(
             symbol, side, amount, price, order_type
         )
@@ -128,6 +145,14 @@ class ExchangeClient:
         stop_price: float,
     ) -> str:
         """创建止损单"""
+        if self.test_mode:
+            simulated_id = f"SIMULATED_STOP_{int(time.time())}"
+            logger.warning(
+                "[交易保护] TEST_MODE=true，跳过真实止损单: "
+                f"side={side}, amount={amount}, stop_price={stop_price}"
+            )
+            return simulated_id
+
         return await self._order_service.create_stop_loss(
             symbol, side, amount, stop_price
         )
@@ -140,6 +165,15 @@ class ExchangeClient:
         take_profit_price: float,
     ) -> str:
         """创建止盈单"""
+        if self.test_mode:
+            simulated_id = f"SIMULATED_TAKE_PROFIT_{int(time.time())}"
+            logger.warning(
+                "[交易保护] TEST_MODE=true，跳过真实止盈单: "
+                f"side={side}, amount={amount}, "
+                f"take_profit_price={take_profit_price}"
+            )
+            return simulated_id
+
         return await self._order_service.create_take_profit(
             symbol, side, amount, take_profit_price
         )

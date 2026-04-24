@@ -19,6 +19,7 @@ from .trading_scheduler import TradingScheduler
 from .signal_processor import SignalProcessor
 from .position_manager import PositionManager
 from ..config.models import Config
+from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,6 @@ class AdaptiveTradingBot:
             LearningManager,
         )
         from ..ai.optimizer import ConfigUpdater
-        from ..ai.adaptive.risk_manager import RiskConfig
         from ..ai.adaptive import AdaptiveRulesEngine
 
         self.market_manager = MarketRegimeManager()
@@ -138,6 +138,7 @@ class AdaptiveTradingBot:
                 password=self.config.exchange.password,
                 symbol=self.config.exchange.symbol,
                 allow_short_selling=self.config.trading.allow_short_selling,
+                test_mode=self.config.trading.test_mode,
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
@@ -226,7 +227,8 @@ class AdaptiveTradingBot:
                 f"[市场] RSI: {market_data.get('technical', {}).get('rsi', 50):.2f}"
             )
             logger.info(
-                f"[市场] ATR%: {market_data.get('technical', {}).get('atr_percent', 0.02):.2%}"
+                "[市场] ATR%: "
+                f"{market_data.get('technical', {}).get('atr_percent', 0.02):.2%}"
             )
 
             # 3. 市场环境检测
@@ -389,6 +391,13 @@ class AdaptiveTradingBot:
         """执行交易"""
         logger.info(f"[执行] {action}: {current_price}")
 
+        if action in ["open", "sell", "close", "close_short", "reduce"]:
+            live_allowed, reason = self.config.check_live_trading_preconditions()
+            if not live_allowed:
+                logger.warning(f"[实盘闸门] 拒绝交易动作 {action}: {reason}")
+                record_live_guard_block()
+                return
+
         # 获取交易参数
         params = self.param_manager.get_current_params()
 
@@ -449,7 +458,7 @@ class AdaptiveTradingBot:
                             amount=reduce_amount,
                         )
                         if not order_id:
-                            logger.error(f"[执行] 降低仓位订单失败，跳过状态更新")
+                            logger.error("[执行] 降低仓位订单失败，跳过状态更新")
                         else:
                             new_amount = amount - reduce_amount
                             if new_amount > 0:
@@ -687,8 +696,10 @@ class AdaptiveTradingBot:
         atr_adjusted_stop_pct = max(atr_percent / 20, base_stop_loss_pct)
         atr_adjusted_profit_pct = max(atr_percent / 40, base_stop_loss_profit_pct)
         logger.info(
-            f"[止损参数] ATR%={atr_percent:.1f}%, 基础止损={base_stop_loss_pct * 100:.2f}%, "
-            f"调整后止损={atr_adjusted_stop_pct * 100:.2f}%, 追踪={atr_adjusted_profit_pct * 100:.2f}%"
+            f"[止损参数] ATR%={atr_percent:.1f}%, "
+            f"基础止损={base_stop_loss_pct * 100:.2f}%, "
+            f"调整后止损={atr_adjusted_stop_pct * 100:.2f}%, "
+            f"追踪={atr_adjusted_profit_pct * 100:.2f}%"
         )
 
         # === P3: 计算新的止损价格 ===
