@@ -16,9 +16,8 @@ import importlib
 import logging
 import re
 import time
-from typing import Dict, Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from collections import defaultdict
-from datetime import datetime
 
 from alpha_trading_bot.config.models import AIConfig
 from .providers import get_provider_config
@@ -26,6 +25,10 @@ from .prompt_builder import build_prompt
 from .response_parser import parse_response
 from .integrator import AISignalIntegrator
 from .integrator_config import IntegrationConfig
+from alpha_trading_bot.utils.observability import (
+    record_fallback_invocation,
+    record_gemini_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +73,7 @@ class SignalCache:
             "trend": market_data.get("technical", {}).get("trend_direction", ""),
         }
         key_str = str(sorted(key_data.items()))
-        return hashlib.md5(key_str.encode()).hexdigest()
+        return hashlib.sha256(key_str.encode()).hexdigest()
 
     def get(self, market_data: Dict[str, Any]) -> Optional[str]:
         """获取缓存的信号"""
@@ -206,10 +209,6 @@ class AIClient:
         Args:
             params: 参数字典，包含 adaptive_buy_condition 和 signal_optimizer 参数
         """
-        from .adaptive_buy_condition import BuyConditions
-        from .signal_optimizer import OptimizerConfig
-        from .integrator_config import IntegrationConfig
-
         # 更新 AdaptiveBuyCondition 配置
         if self.integrator.adaptive_buy:
             adaptive_cfg = self.integrator.adaptive_buy.conditions
@@ -305,7 +304,8 @@ class AIClient:
 
         await log_signal_distribution(signal, source=provider)
         logger.info(
-            f"[AI响应] 提供商={provider}, 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})"
+            f"[AI响应] 提供商={provider}, 信号={signal}, "
+            f"置信度={confidence}% (归一化={confidence_normalized})"
         )
         return signal, confidence_normalized
 
@@ -374,7 +374,9 @@ class AIClient:
         # 记录失败的提供商
         if failed_providers:
             logger.warning(
-                f"[AI融合] 以下提供商调用失败: {failed_providers}, 成功: {[p for p in providers if p not in failed_providers]}"
+                "[AI融合] 以下提供商调用失败: "
+                f"{failed_providers}, 成功: "
+                f"{[p for p in providers if p not in failed_providers]}"
             )
 
         # 如果所有提供商都失败，直接返回默认HOLD信号，不再尝试备用方案
@@ -412,6 +414,7 @@ class AIClient:
 
     async def _fallback_fusion(self, market_data: Dict[str, Any]) -> tuple:
         """备用融合方案 - 当主提供商失败时使用"""
+        record_fallback_invocation()
         preferred_order = ["gemini", "qwen", "openai", "deepseek", "kimi", "minimax"]
         seen = set()
         fallback_providers = []
@@ -456,7 +459,8 @@ class AIClient:
                     else confidence
                 )
                 logger.info(
-                    f"[AI融合-备用] {provider}: 信号={signal}, 置信度={confidence}% (归一化={confidence_normalized})"
+                    f"[AI融合-备用] {provider}: 信号={signal}, "
+                    f"置信度={confidence}% (归一化={confidence_normalized})"
                 )
                 await log_signal_distribution(signal, source=f"fallback_{provider}")
                 return signal, confidence_normalized if confidence_normalized else 0.40
@@ -554,8 +558,6 @@ class AIClient:
         aiohttp_module = importlib.import_module("aiohttp")
 
         # 获取提供商配置
-        from .providers import get_provider_config
-
         config = get_provider_config(provider)
 
         # 根据 provider 生成差异化 prompt
@@ -592,8 +594,11 @@ class AIClient:
                         response_text = await response.text()
                         sanitized_body = _redact_sensitive_text(response_text, 200)
                         logger.error(
-                            f"AI[{provider}]HTTP错误: status={response.status}, body={sanitized_body}"
+                            f"AI[{provider}]HTTP错误: status={response.status}, "
+                            f"body={sanitized_body}"
                         )
+                        if provider == "gemini":
+                            record_gemini_request(False)
                         raise ValueError(f"AI[{provider}]HTTP {response.status}")
                     result = await response.json()
                     # 检查响应是否包含有效的choices字段
@@ -601,14 +606,14 @@ class AIClient:
                         error_info = result.get("error", {})
                         error_msg = error_info.get("message", str(result))
                         error_type = error_info.get("type", "unknown")
-                        error_code = error_info.get("code", "")
 
                         if (
                             "balance" in error_msg.lower()
                             or "insufficient" in error_msg.lower()
                         ):
                             logger.error(
-                                f"AI[{provider}]余额不足: {_redact_sensitive_text(error_msg)}"
+                                f"AI[{provider}]余额不足: "
+                                f"{_redact_sensitive_text(error_msg)}"
                             )
                             raise ValueError(
                                 f"AI[{provider}]余额不足，请检查API账户余额"
@@ -621,31 +626,47 @@ class AIClient:
                                 or "permission" in error_msg.lower()
                                 or "invalid" in error_msg.lower()
                             ):
+                                record_gemini_request(False)
                                 raise ValueError(
-                                    f"AI[{provider}]鉴权失败，请检查 GEMINI_API_KEY/GOOGLE_API_KEY"
+                                    "AI[gemini]鉴权失败，请检查 "
+                                    "GEMINI_API_KEY/GOOGLE_API_KEY"
                                 )
                             logger.error(
-                                f"AI[{provider}]API错误 [{error_type}]: {sanitized_error}"
+                                f"AI[{provider}]API错误 [{error_type}]: "
+                                f"{sanitized_error}"
                             )
+                            if provider == "gemini":
+                                record_gemini_request(False)
                             raise ValueError(f"AI[{provider}]请求失败 [{error_type}]")
                         else:
                             logger.error(f"AI[{provider}]响应格式错误: {result}")
+                            if provider == "gemini":
+                                record_gemini_request(False)
                             raise ValueError(
-                                f"AI[{provider}]响应缺少choices字段: {result}"
+                                f"AI[{provider}]响应缺少choices字段: "
+                                f"{result}"
                             )
                     content = result["choices"][0]["message"]["content"]
+                    if provider == "gemini":
+                        record_gemini_request(True)
                     return content.strip()
 
         except ValueError:
             raise
         except aiohttp_module.ClientError as e:
             logger.error(f"AI[{provider}]网络错误: {type(e).__name__}: {e}")
+            if provider == "gemini":
+                record_gemini_request(False)
             raise ValueError(f"AI[{provider}]网络错误: {e}") from e
         except asyncio.TimeoutError:
             logger.error(f"AI[{provider}]请求超时")
+            if provider == "gemini":
+                record_gemini_request(False)
             raise ValueError(f"AI[{provider}]请求超时")
         except Exception as e:
             logger.error(f"AI[{provider}]调用失败: {type(e).__name__}: {e}")
+            if provider == "gemini":
+                record_gemini_request(False)
             raise
 
     def _get_timeout_config(self, provider: str) -> Any:
