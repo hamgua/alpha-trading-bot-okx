@@ -4,8 +4,8 @@ Performance Tracker - 追踪 AI 信号表现
 
 import json
 import os
-from typing import Dict, List, Optional
-from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
 from datetime import datetime
 from collections import defaultdict
 import logging
@@ -38,6 +38,10 @@ class PerformanceTracker:
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
+        try:
+            os.chmod(self.data_dir, 0o700)
+        except OSError:
+            pass
 
     def record_signal(
         self,
@@ -158,6 +162,10 @@ class PerformanceTracker:
                 f,
                 indent=2,
             )
+        try:
+            os.chmod(filepath, 0o600)
+        except OSError:
+            pass
         logger.info(f"性能数据已保存: {filepath}")
 
 

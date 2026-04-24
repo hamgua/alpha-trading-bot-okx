@@ -4,8 +4,8 @@ ML Weight Optimizer - 基于历史数据自动优化 AI 权重
 
 import json
 import os
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
+from typing import Dict, List
+from dataclasses import dataclass
 from datetime import datetime
 import logging
 
@@ -75,6 +75,10 @@ class WeightOptimizer:
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
+        try:
+            os.chmod(self.data_dir, 0o700)
+        except OSError:
+            pass
 
     def record_signal_outcome(
         self,
@@ -121,7 +125,6 @@ class WeightOptimizer:
                 continue
 
             total_wr = sum(m.win_rate for m in regime_metrics)
-            count = len(regime_metrics)
 
             new_weights = {}
             for m in regime_metrics:
@@ -168,6 +171,10 @@ class WeightOptimizer:
                 f,
                 indent=2,
             )
+        try:
+            os.chmod(filepath, 0o600)
+        except OSError:
+            pass
         logger.info(f"权重已保存: {filepath}")
 
     def load_weights(self) -> bool:

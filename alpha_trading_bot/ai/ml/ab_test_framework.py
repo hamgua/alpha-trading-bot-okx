@@ -5,7 +5,6 @@ A/B Testing Framework - 对比不同策略效果
 import hashlib
 import json
 import os
-import random
 from typing import Dict, Optional, Callable, Any
 from dataclasses import dataclass
 from datetime import datetime
@@ -44,11 +43,16 @@ class ABTestFramework:
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
+        try:
+            os.chmod(self.data_dir, 0o700)
+        except OSError:
+            # 某些平台可能不支持，忽略即可
+            pass
 
     def assign_variant(self, user_id: str) -> ABTestVariant:
         """分配测试变体"""
         hash_input = f"{user_id}_{datetime.now().date()}"
-        hash_value = int(hashlib.md5(hash_input.encode()).hexdigest(), 16)
+        hash_value = int(hashlib.sha256(hash_input.encode()).hexdigest(), 16)
         variant = hash_value % 100
 
         if variant < self.traffic_split * 100:
@@ -78,6 +82,10 @@ class ABTestFramework:
 
         with open(filepath, "a") as f:
             f.write(json.dumps(result) + "\n")
+        try:
+            os.chmod(filepath, 0o600)
+        except OSError:
+            pass
 
     def analyze_results(self, test_id: str) -> Dict[str, ABTestResult]:
         """分析测试结果"""

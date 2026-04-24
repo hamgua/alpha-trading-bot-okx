@@ -10,7 +10,7 @@
 
 import logging
 from typing import Dict, Any, Optional, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 import json
@@ -69,6 +69,14 @@ class ConfigUpdater:
         self._current_version = 0
         self._listeners: list[Callable] = []
         self.default_fusion_providers = get_runtime_fusion_providers()
+
+        config_dir = os.path.dirname(self.config_path)
+        if config_dir:
+            os.makedirs(config_dir, exist_ok=True)
+            try:
+                os.chmod(config_dir, 0o700)
+            except OSError:
+                pass
 
         # 监听器列表
         self._change_listeners: list[Callable[[ConfigChange], None]] = []
@@ -230,6 +238,10 @@ class ConfigUpdater:
         try:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(self._current_config, f, indent=2, ensure_ascii=False)
+            try:
+                os.chmod(self.config_path, 0o600)
+            except OSError:
+                pass
         except Exception as e:
             logger.error(f"[配置] 保存失败: {e}")
 
