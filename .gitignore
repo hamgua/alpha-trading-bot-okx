@@ -50,7 +50,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
-/tests/
+# /tests/  # 保留测试资产纳入版本管理
 
 # Translations
 *.mo
@@ -168,7 +168,7 @@ cache/
 .opencode
 
 # openspec
-/openspec/
+# /openspec/  # 变更规范纳入版本管理
 
 # .github
-.github
+# .github     # CI/CD 资产纳入版本管理
