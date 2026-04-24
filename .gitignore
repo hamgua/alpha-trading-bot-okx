@@ -172,3 +172,10 @@ cache/
 
 # .github
 # .github     # CI/CD 资产纳入版本管理
+
+# local analysis artifacts
+ao-output/
+workflows/
+
+# archived openspec history kept locally by default
+/openspec/changes/archive/
