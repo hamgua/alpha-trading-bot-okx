@@ -145,6 +145,9 @@ alpha-bot run --bot-id my-bot
 # 启动真实交易（谨慎使用！）
 alpha-bot run --bot-id live-bot --real-trading
 
+# 使用统一入口显式确认实盘（推荐）
+python main.py --real-trading --mode standard
+
 # 查看帮助
 alpha-bot --help
 ```
@@ -291,6 +294,8 @@ alpha_trading_bot/
 - `MARGIN_MODE`: 保证金模式（cross全仓/isolated逐仓）
 - `POSITION_MODE`: 持仓模式（one_way单向/hedge双向）
 - `ALLOW_SHORT_SELLING`: 是否允许做空（默认false，只做多）
+- `REAL_TRADING_CONFIRMED`: 实盘确认开关（默认false，实盘必须为true）
+- `RUNTIME_ENVIRONMENT`: 运行环境（dev/test/staging/prod，实盘仅允许 prod/production）
 
 ### 🎯 策略配置
 - `INVESTMENT_TYPE`: 投资策略（conservative稳健型/moderate中等型/aggressive激进型）

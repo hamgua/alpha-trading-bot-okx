@@ -22,6 +22,8 @@ import os
 import re
 import sys
 import traceback
+from logging.handlers import TimedRotatingFileHandler
+
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -30,9 +32,6 @@ load_dotenv()
 # 创建logs目录
 log_dir = "logs"
 os.makedirs(log_dir, exist_ok=True)
-
-# 配置日志 - 每日自动切割
-from logging.handlers import TimedRotatingFileHandler
 
 log_file = os.path.join(log_dir, "alpha-trading-bot-okx.log")
 
@@ -70,7 +69,7 @@ def _redact_sensitive_text(text: str) -> str:
 
 
 # 全局异常处理器 - 捕获所有未处理的异常
-def global_exception_handler(exc_type, exc_value, exc_traceback):
+def global_exception_handler(exc_type, exc_value, exc_traceback) -> None:
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
@@ -89,7 +88,7 @@ sys.excepthook = global_exception_handler
 VALID_MODES = ["standard", "adaptive"]
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     """解析命令行参数"""
     parser = argparse.ArgumentParser(
         description="Alpha Trading Bot - AI驱动的加密货币交易系统"
@@ -102,17 +101,22 @@ def parse_args():
         help="运行模式: standard (v1, 默认) 或 adaptive (v2, 含 ML 学习)",
     )
     parser.add_argument("--symbol", type=str, help="交易品种 (例如: BTC/USDT:USDT)")
+    parser.add_argument(
+        "--real-trading",
+        action="store_true",
+        help="显式确认实盘交易（将 TEST_MODE=false 且 REAL_TRADING_CONFIRMED=true）",
+    )
     return parser.parse_args()
 
 
-def get_bot_mode(args) -> str:
+def get_bot_mode(args: argparse.Namespace) -> str:
     """确定运行模式: 命令行参数 > 环境变量 > 默认值"""
     if args.mode:
         return args.mode
     return os.getenv("BOT_MODE", "standard").lower()
 
 
-async def main():
+async def main() -> None:
     """统一主入口"""
     args = parse_args()
     mode = get_bot_mode(args)
@@ -147,6 +151,13 @@ async def main():
     from alpha_trading_bot.config.models import Config
 
     config = Config.from_env()
+
+    if args.real_trading:
+        config.trading.test_mode = False
+        config.trading.real_trading_confirmed = True
+        if config.trading.runtime_environment not in ["prod", "production"]:
+            config.trading.runtime_environment = "prod"
+        logger.warning("[实盘确认] 已启用 --real-trading，系统将按实盘前置条件执行")
 
     # 覆盖交易品种
     if args.symbol:
