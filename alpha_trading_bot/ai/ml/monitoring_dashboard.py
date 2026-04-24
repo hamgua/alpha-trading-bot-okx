@@ -4,7 +4,7 @@ Monitoring Dashboard - 监控仪表盘
 
 import json
 import os
-from typing import Dict, Any, List
+from typing import Dict, List
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
@@ -29,6 +29,10 @@ class MonitoringDashboard:
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
+        try:
+            os.chmod(self.data_dir, 0o700)
+        except OSError:
+            pass
 
     def record_metric(self, label: str, value: float):
         now = datetime.now().isoformat()
@@ -91,6 +95,10 @@ class MonitoringDashboard:
         filepath = os.path.join(self.data_dir, "dashboard_snapshot.json")
         with open(filepath, "w") as f:
             f.write(self.export_dashboard())
+        try:
+            os.chmod(filepath, 0o600)
+        except OSError:
+            pass
         logger.info(f"Dashboard saved: {filepath}")
 
 
@@ -103,6 +111,10 @@ class AlertManager:
             "win_rate_drop": 0.3,
             "loss_streak": 3,
             "api_failure_rate": 0.1,
+            # Harness/Gemini 目标阈值
+            "gemini_success_rate_min": 0.99,
+            "gemini_fallback_rate_max": 0.05,
+            "live_guard_false_trigger_max": 0.0,
         }
 
     def check_alerts(
@@ -118,6 +130,41 @@ class AlertManager:
 
         if api_failure_rate > self.thresholds["api_failure_rate"]:
             alerts.append(f"❌ API 失败率过高: {api_failure_rate:.1%}")
+
+        self.alerts.extend(
+            [{"time": datetime.now().isoformat(), "alert": a} for a in alerts]
+        )
+
+        return alerts
+
+    def check_gemini_slo_alerts(
+        self,
+        gemini_success_rate: float,
+        gemini_fallback_rate: float,
+        live_guard_false_trigger_rate: float,
+    ) -> List[str]:
+        """检查 Gemini/Safety SLO 告警。"""
+        alerts: List[str] = []
+
+        if gemini_success_rate < self.thresholds["gemini_success_rate_min"]:
+            alerts.append(
+                "❌ Gemini 成功率过低: "
+                f"{gemini_success_rate:.2%} < "
+                f"{self.thresholds['gemini_success_rate_min']:.0%}"
+            )
+
+        if gemini_fallback_rate > self.thresholds["gemini_fallback_rate_max"]:
+            alerts.append(
+                "⚠️ Gemini fallback 率过高: "
+                f"{gemini_fallback_rate:.2%} > "
+                f"{self.thresholds['gemini_fallback_rate_max']:.0%}"
+            )
+
+        if (
+            live_guard_false_trigger_rate
+            > self.thresholds["live_guard_false_trigger_max"]
+        ):
+            alerts.append("🚨 实盘闸门误触发率非零，违反生产基线")
 
         self.alerts.extend(
             [{"time": datetime.now().isoformat(), "alert": a} for a in alerts]
