@@ -3,9 +3,10 @@
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from .base import FusionStrategy
+from .consensus_boosted import FusionResult
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,10 @@ class WeightedFusion(FusionStrategy):
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: float,
-        confidences: Optional[Dict[str, int]] = None,
-    ) -> str:
+        *,
+        confidences: Optional[Dict[str, float]] = None,
+        market_data: Optional[Dict[str, Any]] = None,
+    ) -> FusionResult:
         """
         融合信号（带置信度加权）
 
@@ -27,23 +30,37 @@ class WeightedFusion(FusionStrategy):
             signals: [{"provider": "deepseek", "signal": "buy"}, ...]
             weights: {"deepseek": 0.5, "kimi": 0.5, ...}
             threshold: 融合阈值
-            confidences: {"deepseek": 70, "kimi": 75, ...} 置信度（可选）
+            confidences: {"deepseek": 0.7, "kimi": 0.75, ...} 置信度（可选）
         """
         if not signals:
             logger.warning("无有效信号，默认hold")
-            return "hold"
+            return FusionResult(
+                signal="hold",
+                confidence=0.0,
+                scores={"buy": 0.0, "hold": 1.0, "sell": 0.0, "short": 0.0},
+                threshold=threshold,
+                is_valid=False,
+                consensus_ratio=0.0,
+                strategy_used="weighted",
+                details={"reason": "no_signals", "market_data": market_data or {}},
+            )
 
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
-        total_weight = 0
+        weighted_scores: Dict[str, float] = {
+            "buy": 0.0,
+            "hold": 0.0,
+            "sell": 0.0,
+            "short": 0.0,
+        }
+        total_weight = 0.0
 
         for s in signals:
             provider = s["provider"]
             sig = s["signal"]
             weight = weights.get(provider, 1.0)
 
-            # 获取置信度，如果未提供则使用默认值70
-            confidence = confidences.get(provider, 70) if confidences else 70
-            confidence_factor = confidence / 100.0  # 归一化到 0-1
+            # 置信度统一为 0-1，若未提供使用默认0.7
+            confidence_factor = confidences.get(provider, 0.7) if confidences else 0.7
+            confidence_factor = max(0.0, min(1.0, confidence_factor))
 
             # 置信度加权：score = weight * confidence_factor
             adjusted_weight = weight * confidence_factor
@@ -62,7 +79,7 @@ class WeightedFusion(FusionStrategy):
         for sig in weighted_scores:
             weighted_scores[sig] /= total_weight if total_weight > 0 else 1
 
-        max_sig = max(weighted_scores, key=weighted_scores.get)
+        max_sig = max(weighted_scores, key=lambda signal: weighted_scores[signal])
         max_score = weighted_scores[max_sig]
 
         # 信号有效性判断
@@ -73,4 +90,22 @@ class WeightedFusion(FusionStrategy):
             max_sig,
             f"buy:{weighted_scores['buy']:.2f}, hold:{weighted_scores['hold']:.2f}, sell:{weighted_scores['sell']:.2f}, short:{weighted_scores['short']:.2f}, threshold:{threshold}, valid:{is_valid}",
         )
-        return max_sig
+        consensus_ratio = 0.0
+        total_signals = len(signals)
+        if total_signals > 0:
+            signal_counts: Dict[str, int] = {}
+            for item in signals:
+                signal = item["signal"]
+                signal_counts[signal] = signal_counts.get(signal, 0) + 1
+            consensus_ratio = max(signal_counts.values()) / total_signals
+
+        return FusionResult(
+            signal=max_sig,
+            confidence=float(max_score),
+            scores=weighted_scores,
+            threshold=threshold,
+            is_valid=is_valid,
+            consensus_ratio=consensus_ratio,
+            strategy_used="weighted",
+            details={"market_data": market_data or {}},
+        )

@@ -20,6 +20,30 @@ repos:
       - id: isort
         args: ["--profile", "black"]
 
+  # mypy - Type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.2
+    hooks:
+      - id: mypy
+        args: ["alpha_trading_bot/"]
+        additional_dependencies: ["types-PyYAML"]
+
+  # pip-audit - Python 依赖漏洞扫描
+  - repo: local
+    hooks:
+      - id: pip-audit
+        name: pip-audit
+        entry: pip-audit --progress-spinner=off --strict
+        language: system
+        pass_filenames: false
+
+  # gitleaks - Secret leak detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.27.2
+    hooks:
+      - id: gitleaks
+        args: ["protect", "--source=.", "--staged", "--verbose", "--config=.gitleaks.toml"]
+
   # Check for merge conflict markers
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.5.0

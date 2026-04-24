@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 
+from .base import FusionStrategy
+
 logger = logging.getLogger(__name__)
 
 
@@ -37,7 +39,7 @@ class FusionConfig:
     threshold: float = 0.30
     consensus_boost_full: float = 1.25
     consensus_boost_partial: float = 1.2
-    default_confidence: int = 70
+    default_confidence: float = 0.7
     partial_consensus_threshold: float = 0.4
     kimi_buy_rebound_boost: float = 1.3
     rsi_rebound_low: float = 28
@@ -63,7 +65,7 @@ class FusionResult:
     details: Dict[str, Any]
 
 
-class ConsensusBoostedFusion:
+class ConsensusBoostedFusion(FusionStrategy):
     """
     一致性强化融合策略
 
@@ -103,8 +105,9 @@ class ConsensusBoostedFusion:
         self,
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
-        threshold: Optional[float] = None,
-        confidences: Optional[Dict[str, int]] = None,
+        threshold: float = 0.5,
+        *,
+        confidences: Optional[Dict[str, float]] = None,
         market_data: Optional[Dict[str, Any]] = None,
     ) -> FusionResult:
         """
@@ -114,7 +117,7 @@ class ConsensusBoostedFusion:
             signals: [{"provider": "deepseek", "signal": "buy"}, ...]
             weights: {"deepseek": 0.5, "kimi": 0.5, ...}
             threshold: 融合阈值（可选，覆盖配置）
-            confidences: {"deepseek": 70, "kimi": 75, ...} 置信度（可选）
+            confidences: {"deepseek": 0.7, "kimi": 0.75, ...} 置信度（可选）
 
         Returns:
             FusionResult: 融合结果
@@ -129,7 +132,7 @@ class ConsensusBoostedFusion:
                 is_valid=False,
                 consensus_ratio=0.0,
                 strategy_used=self.config.strategy.value,
-                details={"reason": "no signals"},
+                details={"reason": "no signals", "market_data": market_data or {}},
             )
 
         # 计算一致性比例
@@ -171,7 +174,7 @@ class ConsensusBoostedFusion:
                 raw_scores[sig] += weight * confidence
 
             # 确定可能胜出的信号类型
-            likely_winner = max(raw_scores, key=raw_scores.get)
+            likely_winner = max(raw_scores, key=lambda signal: raw_scores[signal])
 
             # 根据可能的胜出信号类型计算动态阈值
             signal_type = (
@@ -204,7 +207,7 @@ class ConsensusBoostedFusion:
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: Optional[float],
-        confidences: Optional[Dict[str, int]],
+        confidences: Optional[Dict[str, float]],
         consensus_ratio: float,
     ) -> FusionResult:
         """加权平均融合"""
@@ -226,7 +229,7 @@ class ConsensusBoostedFusion:
             if confidences:
                 confidence = confidences.get(provider, self.config.default_confidence)
 
-            adjusted_weight = weight * confidence
+            adjusted_weight = weight * max(0.0, min(1.0, confidence))
             weighted_scores[sig] += adjusted_weight
             total_weight += adjusted_weight
 
@@ -235,7 +238,7 @@ class ConsensusBoostedFusion:
             for sig in weighted_scores:
                 weighted_scores[sig] /= total_weight
 
-        max_sig = max(weighted_scores, key=weighted_scores.get)
+        max_sig = max(weighted_scores, key=lambda signal: weighted_scores[signal])
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
 
@@ -253,7 +256,7 @@ class ConsensusBoostedFusion:
             is_valid=is_valid,
             consensus_ratio=consensus_ratio,
             strategy_used="weighted",
-            details={"type": "weighted"},
+            details={"type": "weighted", "market_data": {}},
         )
 
     def _fuse_majority(
@@ -281,11 +284,11 @@ class ConsensusBoostedFusion:
                     is_valid=True,
                     consensus_ratio=consensus_ratio,
                     strategy_used="majority",
-                    details={"count": count, "total": total},
+                    details={"count": count, "total": total, "market_data": {}},
                 )
 
         # 未达阈值，取最多的
-        max_sig = max(signal_counts, key=signal_counts.get)
+        max_sig = max(signal_counts, key=lambda signal: signal_counts[signal])
         logger.info(f"[融合-多数表决-降级] 结果: {max_sig} (max count)")
 
         return FusionResult(
@@ -296,7 +299,12 @@ class ConsensusBoostedFusion:
             is_valid=False,
             consensus_ratio=consensus_ratio,
             strategy_used="majority",
-            details={"count": signal_counts[max_sig], "total": total, "fallback": True},
+            details={
+                "count": signal_counts[max_sig],
+                "total": total,
+                "fallback": True,
+                "market_data": {},
+            },
         )
 
     def _fuse_consensus(
@@ -325,12 +333,13 @@ class ConsensusBoostedFusion:
                     "buy": 1.0 if sig == "buy" else 0,
                     "hold": 1.0 if sig == "hold" else 0,
                     "sell": 1.0 if sig == "sell" else 0,
+                    "short": 1.0 if sig == "short" else 0,
                 },
                 threshold=threshold,
                 is_valid=True,
                 consensus_ratio=consensus_ratio,
                 strategy_used="consensus",
-                details={"reason": "all agreed"},
+                details={"reason": "all agreed", "market_data": {}},
             )
         else:
             logger.warning(f"[融合-共识] 未达成共识: {unique_signals}，默认hold")
@@ -342,7 +351,11 @@ class ConsensusBoostedFusion:
                 is_valid=False,
                 consensus_ratio=consensus_ratio,
                 strategy_used="consensus",
-                details={"reason": "no consensus", "signals": list(unique_signals)},
+                details={
+                    "reason": "no consensus",
+                    "signals": list(unique_signals),
+                    "market_data": {},
+                },
             )
 
     def _fuse_confidence(
@@ -373,7 +386,7 @@ class ConsensusBoostedFusion:
                 is_valid=True,
                 consensus_ratio=consensus_ratio,
                 strategy_used="confidence",
-                details={"count": buy_count, "total": total},
+                details={"count": buy_count, "total": total, "market_data": {}},
             )
         elif sell_count > buy_count and sell_count / total >= threshold:
             logger.info(f"[融合-置信度] 结果: sell ({sell_count}/{total})")
@@ -385,7 +398,7 @@ class ConsensusBoostedFusion:
                 is_valid=True,
                 consensus_ratio=consensus_ratio,
                 strategy_used="confidence",
-                details={"count": sell_count, "total": total},
+                details={"count": sell_count, "total": total, "market_data": {}},
             )
 
         logger.info("[融合-置信度] 结果: hold (no majority)")
@@ -397,7 +410,7 @@ class ConsensusBoostedFusion:
             is_valid=False,
             consensus_ratio=consensus_ratio,
             strategy_used="confidence",
-            details={"reason": "no majority"},
+            details={"reason": "no majority", "market_data": {}},
         )
 
     def _fuse_consensus_boosted(
@@ -405,7 +418,7 @@ class ConsensusBoostedFusion:
         signals: List[Dict[str, str]],
         weights: Dict[str, float],
         threshold: Optional[float],
-        confidences: Optional[Dict[str, int]],
+        confidences: Optional[Dict[str, float]],
         consensus_ratio: float,
         market_data: Optional[Dict[str, Any]] = None,
     ) -> FusionResult:
@@ -459,6 +472,7 @@ class ConsensusBoostedFusion:
             if confidences:
                 confidence = confidences.get(provider, self.config.default_confidence)
 
+            confidence = max(0.0, min(1.0, confidence))
             adjusted_weight = weight * confidence
 
             # Kimi BUY在反弹区间加权
@@ -481,7 +495,7 @@ class ConsensusBoostedFusion:
         boost_factor = 1.0
         boost_reason = ""
 
-        max_sig = max(weighted_scores, key=weighted_scores.get)
+        max_sig = max(weighted_scores, key=lambda signal: weighted_scores[signal])
 
         if consensus_ratio >= 1.0:
             boost_factor = self.config.consensus_boost_full
@@ -509,7 +523,7 @@ class ConsensusBoostedFusion:
                 f"得分减半"
             )
             # 重新确定胜出信号
-            max_sig = max(weighted_scores, key=weighted_scores.get)
+            max_sig = max(weighted_scores, key=lambda signal: weighted_scores[signal])
 
         weighted_scores[max_sig] *= boost_factor
 
@@ -585,7 +599,7 @@ class ConsensusBoostedFusion:
                         weighted_scores[sig] /= total
 
         # 步骤5: 最终判断
-        max_sig = max(weighted_scores, key=weighted_scores.get)
+        max_sig = max(weighted_scores, key=lambda signal: weighted_scores[signal])
         max_score = weighted_scores[max_sig]
         is_valid = max_score >= threshold
 

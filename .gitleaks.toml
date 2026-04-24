@@ -1,0 +1,14 @@
+title = "alpha-trading-bot-okx gitleaks config"
+
+[allowlist]
+description = "忽略测试样例与缓存目录"
+paths = [
+  '''^venv/''',
+  '''^\.mypy_cache/''',
+  '''^\.opencode/''',
+  '''^__pycache__/''',
+  '''^\.pytest_cache/''',
+]
+
+[extend]
+useDefault = true

@@ -11,7 +11,7 @@
 - **配置灵活** - 丰富的配置选项，支持多种交易场景
 
 ### 🤖 AI信号增强
-- **多AI提供商支持** - Kimi、DeepSeek、Qwen、OpenAI
+- **多AI提供商支持** - Kimi、DeepSeek、Qwen、OpenAI、Gemini
 - **AI信号融合** - 共识/多数表决/置信度优先/加权平均策略
 - **智能缓存** - AI信号缓存15分钟，避免重复调用
 - **回退机制** - AI服务失败时自动切换备用提供商
@@ -329,9 +329,10 @@ alpha_trading_bot/
 
 ### 🤖 AI配置
 - `AI_MODE`: AI决策模式（single单AI/fusion融合）
-- `AI_DEFAULT_PROVIDER`: 默认AI提供商（kimi/deepseek/qwen/openai）
+- `AI_DEFAULT_PROVIDER`: 默认AI提供商（kimi/deepseek/qwen/openai/gemini/minimax）
 - `AI_MIN_CONFIDENCE`: 最小置信度阈值（默认30%）
-- `AI_FUSION_PROVIDERS`: AI融合提供商列表
+- `AI_FUSION_PROVIDERS`: AI融合提供商列表（支持 deepseek/kimi/openai/qwen/gemini/minimax）
+- `AI_FUSION_WEIGHTS`: AI融合权重（建议按 provider 列表配置并保证归一化，如 `deepseek:0.4,kimi:0.3,gemini:0.3`）
 - `AI_FUSION_STRATEGY`: AI融合策略（consensus/weighted/majority/confidence）
 - `AI_FUSION_THRESHOLD`: AI融合阈值（默认60%）
 - `AI_CACHE_DURATION`: AI信号缓存时间（默认900秒）
@@ -351,6 +352,70 @@ alpha_trading_bot/
 - `EXTREME_LOW_THRESHOLD`: 极低位阈值（默认15%）
 - `BUY_MAX_RSI`: BUY信号最大RSI值（默认65）
 - `BUY_MIN_ATR`: BUY信号最小ATR百分比（默认0.15%）
+
+### Gemini 配置示例
+
+```bash
+# 单AI使用 Gemini
+AI_MODE=single
+AI_DEFAULT_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_api_key
+
+# 多AI融合包含 Gemini
+AI_MODE=fusion
+AI_FUSION_PROVIDERS=deepseek,kimi,gemini
+AI_FUSION_WEIGHTS=deepseek:0.4,kimi:0.3,gemini:0.3
+AI_FUSION_STRATEGY=weighted
+```
+
+> 说明：系统同时支持 `GEMINI_API_KEY` 与 `GOOGLE_API_KEY`，若二者同时存在，优先使用 `GOOGLE_API_KEY`。
+
+### Gemini 灰度发布与回滚（shadow/小流量/全量）
+
+#### 分阶段发布策略
+
+1. **Shadow 阶段（仅观测）**
+   - `AI_MODE=fusion`
+   - `AI_FUSION_PROVIDERS=deepseek,kimi,gemini`
+   - `AI_FUSION_WEIGHTS=deepseek:0.45,kimi:0.45,gemini:0.10`
+   - 观测项：Gemini 成功率、429/5xx 比例、fallback 触发率。
+
+2. **小流量阶段（10%~30%）**
+   - 按 0.10 → 0.20 → 0.30 逐步提高 Gemini 权重，每个阶段至少观测 24h。
+   - 推荐门槛：请求成功率 >= 99%，429/5xx <= 1%。
+
+3. **全量阶段（目标权重）**
+   - 达到目标权重后连续观察 72h，保留配置级快速回滚路径。
+
+#### 配置级回滚演练
+
+- 回滚开关：`AI_DEFAULT_PROVIDER`、`AI_FUSION_PROVIDERS`、`AI_MODE`
+
+```bash
+# 紧急回滚到单AI稳定路径
+AI_MODE=single
+AI_DEFAULT_PROVIDER=deepseek
+
+# 融合模式回滚（移除 Gemini）
+AI_MODE=fusion
+AI_FUSION_PROVIDERS=deepseek,kimi
+AI_FUSION_WEIGHTS=deepseek:0.5,kimi:0.5
+```
+
+#### 上线检查清单（验收报告）
+
+- 功能：single/fusion 均可识别 `gemini`，策略切换无签名兼容错误
+- 性能：Gemini 超时/重试行为符合预期，交易周期无明显恶化
+- 稳定性：fallback 可用，主链路失败时可降级到稳定 provider 或 HOLD
+- 安全：密钥扫描门禁启用，SBOM 与签名验证步骤执行，可追溯回滚
+
+### 密钥轮换与泄漏处置
+
+- 轮换流程文档：`markdown/SECURITY_KEY_ROTATION_RUNBOOK.md`
+- 关键要求：
+  - 发现泄漏后立即吊销旧 key 并切换新 key
+  - 必要时通过 `AI_MODE` / `AI_DEFAULT_PROVIDER` / `AI_FUSION_PROVIDERS` 快速回滚
+  - 轮换记录必须包含时间线与影响范围
 
 ### 🌐 网络配置
 - `PROXY_ENABLED`: 代理开关（默认关闭）

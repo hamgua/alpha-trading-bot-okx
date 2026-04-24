@@ -11,15 +11,17 @@
 """
 
 import logging
-from typing import Dict, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
-import json
 
-import numpy as np
-import pandas as pd
+if TYPE_CHECKING:
+    import numpy as np
+    import pandas as pd
 
-from .ml_data_manager import MLDataManager, get_ml_data_manager
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
+from .ml_data_manager import get_ml_data_manager
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +69,7 @@ class AdaptiveWeightOptimizer:
         self.min_trades = min_trades
 
         self.data_manager = get_ml_data_manager(db_path)
+        self.default_providers: List[str] = get_runtime_fusion_providers()
 
         # 缓存
         self._cached_weights: Optional[Dict[str, float]] = None
@@ -75,6 +78,16 @@ class AdaptiveWeightOptimizer:
 
         # 学习历史
         self._weight_history: List[Dict] = []
+
+    def _default_weights(
+        self, providers: Optional[List[str]] = None
+    ) -> Dict[str, float]:
+        """生成均匀默认权重。"""
+        target_providers = providers or self.default_providers
+        if not target_providers:
+            target_providers = get_runtime_fusion_providers()
+        equal = 1.0 / len(target_providers)
+        return {provider: equal for provider in target_providers}
 
     def _get_cached_weights(self) -> Optional[Dict[str, float]]:
         """获取缓存的权重"""
@@ -110,13 +123,20 @@ class AdaptiveWeightOptimizer:
 
         if not signals:
             logger.warning("[权重优化] 无历史数据，返回默认权重")
-            return {"deepseek": 0.5, "kimi": 0.5}
+            return self._default_weights()
 
         # 计算各提供商性能
         performance = self.data_manager.calculate_provider_performance(signals)
 
         if not performance:
-            return {"deepseek": 0.5, "kimi": 0.5}
+            providers = sorted(
+                {
+                    signal.get("provider", "")
+                    for signal in signals
+                    if signal.get("provider")
+                }
+            )
+            return self._default_weights(providers)
 
         # 计算综合得分
         weights = {}
@@ -163,6 +183,9 @@ class AdaptiveWeightOptimizer:
         Returns:
             Tuple: (最优权重, 预期得分)
         """
+        import numpy as np
+        import pandas as pd
+
         # 获取历史数据
         signals = self.data_manager.get_ai_signals_with_outcomes(days=self.window_days)
 

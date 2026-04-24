@@ -10,6 +10,8 @@ from datetime import datetime
 from collections import defaultdict
 import logging
 
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
 logger = logging.getLogger(__name__)
 
 
@@ -159,11 +161,14 @@ class PerformanceTracker:
         logger.info(f"性能数据已保存: {filepath}")
 
 
-def get_performance_summary() -> Dict:
+def get_performance_summary() -> Dict[str, Any]:
     tracker = PerformanceTracker()
+    providers = sorted({record.provider for record in tracker.records})
+    if not providers:
+        providers = get_runtime_fusion_providers()
     return {
         "total_signals": len(tracker.records),
         "provider_stats": {
-            p: tracker.get_provider_stats(p) for p in ["kimi", "deepseek"]
+            provider: tracker.get_provider_stats(provider) for provider in providers
         },
     }

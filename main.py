@@ -19,9 +19,9 @@ import argparse
 import asyncio
 import logging
 import os
+import re
 import sys
 import traceback
-from datetime import datetime
 from dotenv import load_dotenv
 
 # 加载 .env 文件
@@ -55,14 +55,32 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _redact_sensitive_text(text: str) -> str:
+    """对异常输出进行敏感信息脱敏。"""
+    redacted = text
+    patterns = [
+        re.compile(r"(bearer\s+)[a-z0-9._\-]+", re.IGNORECASE),
+        re.compile(r"(api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+        re.compile(r"(google[_-]?api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+        re.compile(r"(gemini[_-]?api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+    ]
+    for pattern in patterns:
+        redacted = pattern.sub(r"\1[REDACTED]", redacted)
+    return redacted
+
+
 # 全局异常处理器 - 捕获所有未处理的异常
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     if issubclass(exc_type, KeyboardInterrupt):
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
+    sanitized_trace = _redact_sensitive_text(
+        "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+    )
+    sanitized_message = _redact_sensitive_text(str(exc_value))
     logger.critical(
-        f"未捕获的致命异常: {exc_type.__name__}: {exc_value}\n"
-        + "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        f"未捕获的致命异常: {exc_type.__name__}: {sanitized_message}\n"
+        + sanitized_trace
     )
 
 
@@ -83,9 +101,7 @@ def parse_args():
         default=None,
         help="运行模式: standard (v1, 默认) 或 adaptive (v2, 含 ML 学习)",
     )
-    parser.add_argument(
-        "--symbol", type=str, help="交易品种 (例如: BTC/USDT:USDT)"
-    )
+    parser.add_argument("--symbol", type=str, help="交易品种 (例如: BTC/USDT:USDT)")
     return parser.parse_args()
 
 
@@ -110,15 +126,15 @@ async def main():
     print("=" * 60)
 
     if mode == "standard":
-        print(f"[模式] standard (标准模式 v1)")
+        print("[模式] standard (标准模式 v1)")
         print("系统能力:")
-        print("  - 多源AI信号: Kimi, DeepSeek, Qwen, OpenAI 智能融合")
+        print("  - 多源AI信号: Kimi, DeepSeek, Qwen, OpenAI, Gemini 智能融合")
         print("  - 高级融合策略: 加权平均/共识决策/多数表决")
         print("  - 15分钟交易周期 + 随机偏移 (防风控检测)")
         print("  - 智能仓位管理 + 动态止损止盈")
         print("  - 实时风控 + 组合资产保护")
     else:
-        print(f"[模式] adaptive (自适应模式 v2)")
+        print("[模式] adaptive (自适应模式 v2)")
         print("核心特性:")
         print("  - 市场环境感知 - 实时检测8种市场状态")
         print("  - 策略自动选择 - 根据市场状态动态切换策略")

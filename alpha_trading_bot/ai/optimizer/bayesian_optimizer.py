@@ -17,6 +17,8 @@ from datetime import datetime
 import json
 import os
 
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
 logger = logging.getLogger(__name__)
 
 
@@ -75,6 +77,7 @@ class BayesianOptimizer:
         self.n_trials = n_trials
         self._objective_func: Optional[Callable] = None
         self._search_space: Dict[str, Dict[str, Any]] = {}
+        self.providers: list[str] = get_runtime_fusion_providers()
 
     def define_search_space(self) -> Dict[str, Dict[str, Any]]:
         """定义参数搜索空间"""
@@ -97,12 +100,6 @@ class BayesianOptimizer:
                 "high": 0.01,
                 "log": False,
             },
-            "weight_deepseek": {
-                "type": "float",
-                "low": 0.3,
-                "high": 0.7,
-                "log": False,
-            },
             "buy_rsi_threshold": {
                 "type": "float",
                 "low": 50,
@@ -110,6 +107,14 @@ class BayesianOptimizer:
                 "log": False,
             },
         }
+
+        for provider in self.providers:
+            search_space[f"weight_{provider}"] = {
+                "type": "float",
+                "low": 0.1,
+                "high": 0.8,
+                "log": False,
+            }
 
         self._search_space = search_space
         return search_space

@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from enum import Enum
 import logging
 
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,12 +32,45 @@ class AdaptiveFusionStrategy:
 
     def __init__(self, config: Optional[FusionConfig] = None):
         self.config = config or FusionConfig()
-        self.weight_map = {
-            "strong_uptrend": {"kimi": 0.55, "deepseek": 0.45},
-            "weak_uptrend": {"kimi": 0.50, "deepseek": 0.50},
-            "sideways": {"kimi": 0.50, "deepseek": 0.50},
-            "weak_downtrend": {"kimi": 0.40, "deepseek": 0.60},
-            "strong_downtrend": {"kimi": 0.30, "deepseek": 0.70},
+        self.providers = get_runtime_fusion_providers()
+        self.weight_map = self._build_default_weight_map(self.providers)
+
+    @staticmethod
+    def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+        total = sum(weights.values())
+        if total <= 0:
+            equal = 1.0 / len(weights)
+            return {provider: equal for provider in weights}
+        return {provider: value / total for provider, value in weights.items()}
+
+    @classmethod
+    def _build_default_weight_map(
+        cls, providers: List[str]
+    ) -> Dict[str, Dict[str, float]]:
+        """按 provider 集合动态构建各市场状态默认权重。"""
+        if not providers:
+            providers = get_runtime_fusion_providers()
+
+        equal = 1.0 / len(providers)
+        map_template = {
+            "strong_uptrend": {provider: equal for provider in providers},
+            "weak_uptrend": {provider: equal for provider in providers},
+            "sideways": {provider: equal for provider in providers},
+            "weak_downtrend": {provider: equal for provider in providers},
+            "strong_downtrend": {provider: equal for provider in providers},
+        }
+
+        if "kimi" in providers and "deepseek" in providers:
+            map_template["strong_uptrend"]["kimi"] += 0.10
+            map_template["strong_uptrend"]["deepseek"] -= 0.10
+            map_template["weak_downtrend"]["kimi"] -= 0.10
+            map_template["weak_downtrend"]["deepseek"] += 0.10
+            map_template["strong_downtrend"]["kimi"] -= 0.20
+            map_template["strong_downtrend"]["deepseek"] += 0.20
+
+        return {
+            regime: cls._normalize_weights(weights)
+            for regime, weights in map_template.items()
         }
 
     def fuse(
@@ -118,7 +153,7 @@ class AdaptiveFusionStrategy:
 
     def update_weights(self, regime: str, new_weights: Dict[str, float]):
         if regime in self.weight_map:
-            self.weight_map[regime] = new_weights
+            self.weight_map[regime] = self._normalize_weights(new_weights)
 
 
 def adaptive_fuse(

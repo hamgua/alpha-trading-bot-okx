@@ -146,7 +146,7 @@ class AIConfig:
     api_keys: Dict[str, str] = field(default_factory=dict)
 
     VALID_MODES = ["single", "fusion"]
-    VALID_PROVIDERS = ["deepseek", "kimi", "openai", "qwen"]
+    VALID_PROVIDERS = ["deepseek", "kimi", "openai", "qwen", "gemini", "minimax"]
     VALID_STRATEGIES = [
         "weighted",
         "majority",
@@ -171,6 +171,42 @@ class AIConfig:
         if self.fusion_threshold < 0 or self.fusion_threshold > 1:
             errors.append(f"融合阈值 {self.fusion_threshold} 不在有效范围 (0-1)")
 
+        invalid_fusion_providers = [
+            provider
+            for provider in self.fusion_providers
+            if provider not in self.VALID_PROVIDERS
+        ]
+        if invalid_fusion_providers:
+            errors.append(
+                f"融合提供商无效: {invalid_fusion_providers}, 可选: {self.VALID_PROVIDERS}"
+            )
+
+        invalid_weight_keys = [
+            provider
+            for provider in self.fusion_weights.keys()
+            if provider not in self.VALID_PROVIDERS
+        ]
+        if invalid_weight_keys:
+            errors.append(f"融合权重包含未知provider: {invalid_weight_keys}")
+
+        if self.mode == "fusion":
+            if not self.fusion_providers:
+                errors.append("fusion 模式下 AI_FUSION_PROVIDERS 不能为空")
+
+            missing_weights = [
+                provider
+                for provider in self.fusion_providers
+                if provider not in self.fusion_weights
+            ]
+            if missing_weights:
+                errors.append(f"融合权重缺失 provider: {missing_weights}")
+
+            total_weight = sum(self.fusion_weights.values())
+            if total_weight <= 0:
+                errors.append("融合权重总和必须大于0")
+            elif abs(total_weight - 1.0) > 1e-6:
+                errors.append(f"融合权重总和必须为1.0，当前为 {total_weight:.6f}")
+
         # 检查是否有可用的API Key
         has_key = any(self.api_keys.values())
         if not has_key:
@@ -184,15 +220,30 @@ class AIConfig:
 
         fusion_providers_str = os.getenv("AI_FUSION_PROVIDERS", "deepseek,kimi")
         fusion_providers = [
-            p.strip() for p in fusion_providers_str.split(",") if p.strip()
+            provider.strip()
+            for provider in fusion_providers_str.split(",")
+            if provider.strip()
         ]
+        if not fusion_providers:
+            fusion_providers = ["deepseek", "kimi"]
 
         fusion_weights_str = os.getenv("AI_FUSION_WEIGHTS", "deepseek:0.5,kimi:0.5")
-        fusion_weights = {}
+        raw_fusion_weights: Dict[str, float] = {}
         for item in fusion_weights_str.split(","):
             if ":" in item:
-                k, v = item.split(":")
-                fusion_weights[k.strip()] = float(v.strip())
+                key, value = item.split(":", 1)
+                provider = key.strip()
+                if not provider:
+                    continue
+                try:
+                    raw_fusion_weights[provider] = float(value.strip())
+                except ValueError:
+                    continue
+
+        fusion_weights = cls._build_normalized_weights(
+            fusion_providers=fusion_providers,
+            raw_weights=raw_fusion_weights,
+        )
 
         return cls(
             mode=os.getenv("AI_MODE", "single"),
@@ -206,9 +257,39 @@ class AIConfig:
                 "kimi": os.getenv("KIMI_API_KEY", ""),
                 "openai": os.getenv("OPENAI_API_KEY", ""),
                 "qwen": os.getenv("QWEN_API_KEY", ""),
+                "gemini": os.getenv("GOOGLE_API_KEY", os.getenv("GEMINI_API_KEY", "")),
                 "minimax": os.getenv("MINIMAX_API_KEY", ""),
             },
         )
+
+    @staticmethod
+    def _build_normalized_weights(
+        fusion_providers: List[str], raw_weights: Dict[str, float]
+    ) -> Dict[str, float]:
+        """构建完整且归一化的 provider 权重。"""
+        positive_weights = [
+            weight
+            for provider, weight in raw_weights.items()
+            if provider in fusion_providers and weight > 0
+        ]
+        default_weight = (
+            sum(positive_weights) / len(positive_weights) if positive_weights else 1.0
+        )
+
+        completed_weights: Dict[str, float] = {}
+        for provider in fusion_providers:
+            candidate = raw_weights.get(provider, default_weight)
+            completed_weights[provider] = candidate if candidate > 0 else default_weight
+
+        total_weight = sum(completed_weights.values())
+        if total_weight <= 0:
+            equal = 1.0 / len(fusion_providers)
+            return {provider: equal for provider in fusion_providers}
+
+        return {
+            provider: value / total_weight
+            for provider, value in completed_weights.items()
+        }
 
 
 @dataclass
@@ -280,7 +361,7 @@ class Config:
         """验证配置，如果有错误则抛出异常"""
         errors = self.validate()
         if errors:
-            raise ConfigurationError(f"配置错误:\n  - " + "\n  - ".join(errors))
+            raise ConfigurationError("配置错误:\n  - " + "\n  - ".join(errors))
 
     @classmethod
     def from_env(cls) -> "Config":

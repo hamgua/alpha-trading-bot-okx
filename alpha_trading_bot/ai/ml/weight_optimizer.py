@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,14 +34,44 @@ class WeightOptimizer:
     def __init__(self, data_dir: str = "data/weight_history"):
         self.data_dir = data_dir
         self.metrics: Dict[str, WeightMetrics] = {}
-        self.current_weights: Dict[str, Dict[str, float]] = {
-            "strong_uptrend": {"kimi": 0.55, "deepseek": 0.45},
-            "weak_uptrend": {"kimi": 0.50, "deepseek": 0.50},
-            "sideways": {"kimi": 0.50, "deepseek": 0.50},
-            "weak_downtrend": {"kimi": 0.40, "deepseek": 0.60},
-            "strong_downtrend": {"kimi": 0.30, "deepseek": 0.70},
-        }
+        self.providers: List[str] = get_runtime_fusion_providers()
+        self.current_weights: Dict[str, Dict[str, float]] = self._default_weight_map(
+            self.providers
+        )
         self._ensure_data_dir()
+
+    @staticmethod
+    def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+        total = sum(weights.values())
+        if total <= 0:
+            equal = 1.0 / len(weights)
+            return {provider: equal for provider in weights}
+        return {provider: value / total for provider, value in weights.items()}
+
+    @classmethod
+    def _default_weight_map(cls, providers: List[str]) -> Dict[str, Dict[str, float]]:
+        if not providers:
+            providers = get_runtime_fusion_providers()
+        equal = 1.0 / len(providers)
+        template = {
+            "strong_uptrend": {provider: equal for provider in providers},
+            "weak_uptrend": {provider: equal for provider in providers},
+            "sideways": {provider: equal for provider in providers},
+            "weak_downtrend": {provider: equal for provider in providers},
+            "strong_downtrend": {provider: equal for provider in providers},
+        }
+        if "kimi" in providers and "deepseek" in providers:
+            template["strong_uptrend"]["kimi"] += 0.10
+            template["strong_uptrend"]["deepseek"] -= 0.10
+            template["weak_downtrend"]["kimi"] -= 0.10
+            template["weak_downtrend"]["deepseek"] += 0.10
+            template["strong_downtrend"]["kimi"] -= 0.20
+            template["strong_downtrend"]["deepseek"] += 0.20
+
+        return {
+            regime: cls._normalize_weights(weights)
+            for regime, weights in template.items()
+        }
 
     def _ensure_data_dir(self):
         os.makedirs(self.data_dir, exist_ok=True)
@@ -109,7 +141,10 @@ class WeightOptimizer:
         return optimized
 
     def get_weights(self, regime: str) -> Dict[str, float]:
-        return self.current_weights.get(regime, {"kimi": 0.5, "deepseek": 0.5})
+        default = self._normalize_weights(
+            {provider: 1.0 for provider in self.providers}
+        )
+        return self.current_weights.get(regime, default)
 
     def save_weights(self):
         """保存权重到文件"""

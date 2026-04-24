@@ -2,6 +2,7 @@
 响应解析器 - 解析AI返回的交易信号
 """
 
+import json
 import re
 import logging
 from typing import Tuple, Optional
@@ -28,10 +29,16 @@ class ResponseParser:
             信号: buy/hold/sell/short
             置信度: 0-100，None表示无法解析
         """
-        response = response.lower().strip()
+        raw_response = response.strip()
+        response = raw_response.lower().strip()
 
         # 去除思考标签内容（如 MiniMax 等模型的内部推理）
         response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
+        # 尝试解析结构化 JSON（兼容 Gemini 常见输出）
+        structured = cls._parse_json_response(raw_response)
+        if structured is not None:
+            return structured
 
         # 尝试提取信号和置信度
         match = re.search(
@@ -79,6 +86,59 @@ class ResponseParser:
         else:
             logger.warning(f"无法解析响应: {response}，默认hold")
             return "hold"
+
+    @classmethod
+    def _parse_json_response(cls, response: str) -> Optional[Tuple[str, Optional[int]]]:
+        """解析 JSON 结构化响应。"""
+        text = response.strip()
+        if not text:
+            return None
+
+        # 兼容 markdown code block
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?", "", text).strip()
+            text = re.sub(r"```$", "", text).strip()
+
+        if not text.startswith("{"):
+            return None
+
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return None
+
+        signal_raw = str(payload.get("signal", "")).lower().strip()
+        if signal_raw not in cls.VALID_SIGNALS:
+            return None
+
+        confidence_raw = payload.get("confidence")
+        if confidence_raw is None:
+            return signal_raw, None
+
+        confidence: Optional[int]
+        if isinstance(confidence_raw, (int, float)):
+            value = float(confidence_raw)
+            if 0 <= value <= 1:
+                confidence = int(round(value * 100))
+            else:
+                confidence = int(round(value))
+        elif isinstance(confidence_raw, str):
+            match = re.search(r"-?\d+(?:\.\d+)?", confidence_raw)
+            if not match:
+                confidence = None
+            else:
+                value = float(match.group(0))
+                if 0 <= value <= 1:
+                    confidence = int(round(value * 100))
+                else:
+                    confidence = int(round(value))
+        else:
+            confidence = None
+
+        if confidence is not None:
+            confidence = max(0, min(100, confidence))
+
+        return signal_raw, confidence
 
     @classmethod
     def validate(cls, signal: str) -> bool:

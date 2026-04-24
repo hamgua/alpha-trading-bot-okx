@@ -16,6 +16,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Install OS tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y jq
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
@@ -34,21 +39,105 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e ".[dev]"
 
-    - name: Run tests with pytest
+    - name: Install security & supply-chain tools
+      run: |
+        python -m pip install pip-audit cyclonedx-bom
+        curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/install.sh | sh -s -- -b /usr/local/bin
+        curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o /usr/local/bin/cosign
+        chmod +x /usr/local/bin/cosign
+
+    - name: Run code formatting check with black (fast gate)
+      run: |
+        black --check alpha_trading_bot/
+
+    - name: Run linting with flake8 (fast gate)
+      run: |
+        flake8 alpha_trading_bot/ --max-line-length=88 --extend-ignore=E203,W503
+
+    - name: Run type checking with mypy (strict gate)
+      run: |
+        mypy alpha_trading_bot/
+
+    - name: Run tests with pytest (slow gate)
       run: |
         pytest --cov=alpha_trading_bot --cov-report=term-missing --cov-report=xml
 
-    - name: Run type checking with mypy
+    - name: Security scan - gitleaks
       run: |
-        mypy alpha_trading_bot/ || true
+        gitleaks detect --source . --verbose --config=.gitleaks.toml --redact --no-git \
+          --exit-code 1 \
+          --report-format sarif \
+          --report-path gitleaks.sarif
 
-    - name: Run code formatting check with black
+    - name: Security scan - pip-audit
       run: |
-        black --check alpha_trading_bot/ || true
+        pip-audit --progress-spinner=off --strict
 
-    - name: Run linting with flake8
+    - name: Generate SBOM (CycloneDX)
       run: |
-        flake8 alpha_trading_bot/ --max-line-length=88 --extend-ignore=E203,W503 || true
+        cyclonedx-py -o sbom.json
+
+    - name: SBOM policy check (critical vulns must be zero)
+      run: |
+        pip-audit --progress-spinner=off --format json > pip-audit.json
+        VULN_COUNT=$(jq 'if type=="array" then [.[].vulns[]?] | length else [.dependencies[]?.vulns[]?] | length end' pip-audit.json)
+        if [ "$VULN_COUNT" -gt 0 ]; then
+          echo "发现漏洞条目: $VULN_COUNT"
+          exit 1
+        fi
+
+    - name: Generate provenance payload
+      run: |
+        python - <<'PY'
+        import json
+        import os
+        from datetime import datetime, timezone
+
+        payload = {
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "subject": [{"name": "sbom.json"}],
+            "buildType": "github-actions",
+            "builder": {
+                "id": f"https://github.com/{os.getenv('GITHUB_REPOSITORY', '')}/actions/runs/{os.getenv('GITHUB_RUN_ID', '')}"
+            },
+            "metadata": {
+                "buildInvocationId": os.getenv("GITHUB_RUN_ID", ""),
+                "buildStartedOn": datetime.now(timezone.utc).isoformat(),
+                "sourceCommit": os.getenv("GITHUB_SHA", ""),
+            },
+        }
+
+        with open("provenance.json", "w", encoding="utf-8") as file_obj:
+            json.dump(payload, file_obj, ensure_ascii=False, indent=2)
+        PY
+
+    - name: Sign and verify SBOM + provenance
+      run: |
+        export COSIGN_PASSWORD=""
+        cosign generate-key-pair
+        cosign sign-blob --yes --key cosign.key --output-signature sbom.sig sbom.json
+        cosign verify-blob --key cosign.pub --signature sbom.sig sbom.json
+        cosign sign-blob --yes --key cosign.key --output-signature provenance.sig provenance.json
+        cosign verify-blob --key cosign.pub --signature provenance.sig provenance.json
+
+    - name: Gate strategy and rollback guide
+      run: |
+        echo "Phase rollout: warn-only -> blocking"
+        echo "Rollback: revert workflow template to previous git version if gating causes outage"
+
+    - name: Upload security artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-artifacts-${{ matrix.python-version }}
+        path: |
+          gitleaks.sarif
+          pip-audit.json
+          sbom.json
+          provenance.json
+          sbom.sig
+          provenance.sig
+          cosign.pub
 
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v3

@@ -16,6 +16,8 @@ from enum import Enum
 import json
 import os
 
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
 logger = logging.getLogger(__name__)
 
 
@@ -66,6 +68,7 @@ class ConfigUpdater:
         self._version_history: list[ConfigVersion] = []
         self._current_version = 0
         self._listeners: list[Callable] = []
+        self.default_fusion_providers = get_runtime_fusion_providers()
 
         # 监听器列表
         self._change_listeners: list[Callable[[ConfigChange], None]] = []
@@ -89,10 +92,14 @@ class ConfigUpdater:
 
     def _get_default_config(self) -> Dict[str, Any]:
         """获取默认配置"""
+        equal_weight = 1.0 / len(self.default_fusion_providers)
         return {
             "ai": {
                 "fusion_threshold": 0.5,
-                "fusion_weights": {"deepseek": 0.5, "kimi": 0.5},
+                "fusion_providers": self.default_fusion_providers,
+                "fusion_weights": {
+                    provider: equal_weight for provider in self.default_fusion_providers
+                },
             },
             "risk": {
                 "hard_stop_loss_percent": 0.05,
@@ -105,6 +112,42 @@ class ConfigUpdater:
                 "safe_mode": {"enabled": True, "weight": 2.0},
             },
         }
+
+    @staticmethod
+    def _normalize_weights(weights: Dict[str, float]) -> Dict[str, float]:
+        """归一化权重并过滤非正数。"""
+        positive = {provider: value for provider, value in weights.items() if value > 0}
+        if not positive:
+            return {}
+        total = sum(positive.values())
+        return {provider: value / total for provider, value in positive.items()}
+
+    def _resolve_fusion_providers(self) -> list[str]:
+        providers = self.get("ai.fusion_providers", self.default_fusion_providers)
+        if not isinstance(providers, list) or not providers:
+            return self.default_fusion_providers
+        return [str(provider) for provider in providers if str(provider)]
+
+    def _apply_fusion_weights_update(
+        self, normalized_weights: Dict[str, float], reason: str
+    ) -> bool:
+        if not normalized_weights:
+            return False
+
+        success = True
+        success = success and self.set(
+            "ai.fusion_weights",
+            normalized_weights,
+            f"{reason}: normalize",
+            UpdateType.PARAMETER,
+        )
+        success = success and self.set(
+            "ai.fusion_providers",
+            list(normalized_weights.keys()),
+            f"{reason}: sync providers",
+            UpdateType.PARAMETER,
+        )
+        return success
 
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -216,20 +259,39 @@ class ConfigUpdater:
                         f"{reason}: {value}",
                         UpdateType.PARAMETER,
                     )
-                elif sub_key == "weight_deepseek":
-                    success = success and self.set(
-                        "ai.fusion_weights.deepseek",
-                        value,
-                        f"{reason}: {value}",
-                        UpdateType.PARAMETER,
+                elif sub_key == "fusion_weights" and isinstance(value, dict):
+                    normalized = self._normalize_weights(
+                        {
+                            str(provider): float(weight)
+                            for provider, weight in value.items()
+                        }
                     )
-                    # 同时更新 kimi 权重
-                    kimi_value = 1.0 - value
-                    success = success and self.set(
-                        "ai.fusion_weights.kimi",
-                        kimi_value,
-                        f"{reason}: 自动调整",
-                        UpdateType.PARAMETER,
+                    success = success and self._apply_fusion_weights_update(
+                        normalized, reason
+                    )
+                elif sub_key.startswith("weight_"):
+                    provider = sub_key.removeprefix("weight_")
+                    current = self.get("ai.fusion_weights", {})
+                    if not isinstance(current, dict):
+                        current = {}
+                    try:
+                        current_map = {
+                            str(name): float(weight) for name, weight in current.items()
+                        }
+                        current_map[provider] = float(value)
+                    except (TypeError, ValueError):
+                        current_map = {provider: 1.0}
+
+                    providers = self._resolve_fusion_providers()
+                    if provider not in providers:
+                        providers.append(provider)
+
+                    for name in providers:
+                        current_map.setdefault(name, 0.0)
+
+                    normalized = self._normalize_weights(current_map)
+                    success = success and self._apply_fusion_weights_update(
+                        normalized, reason
                     )
 
             elif key.startswith("risk_") or key.startswith("stop_loss"):

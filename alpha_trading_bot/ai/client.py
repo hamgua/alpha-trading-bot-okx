@@ -12,13 +12,13 @@ AI客户端 - 支持单AI/多AI融合
 
 import asyncio
 import hashlib
+import importlib
 import logging
+import re
 import time
 from typing import Dict, Any, Optional, Tuple
 from collections import defaultdict
 from datetime import datetime
-
-import aiohttp
 
 from alpha_trading_bot.config.models import AIConfig
 from .providers import get_provider_config
@@ -28,6 +28,24 @@ from .integrator import AISignalIntegrator
 from .integrator_config import IntegrationConfig
 
 logger = logging.getLogger(__name__)
+
+
+SENSITIVE_PATTERNS = [
+    re.compile(r"(bearer\s+)[a-z0-9._\-]+", re.IGNORECASE),
+    re.compile(r"(api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+    re.compile(r"(google[_-]?api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+    re.compile(r"(gemini[_-]?api[_-]?key\s*[:=]\s*)[a-z0-9._\-]+", re.IGNORECASE),
+]
+
+
+def _redact_sensitive_text(text: str, max_length: int = 240) -> str:
+    """对错误文本做脱敏并限制长度，避免日志泄露敏感信息。"""
+    sanitized = text
+    for pattern in SENSITIVE_PATTERNS:
+        sanitized = pattern.sub(r"\1[REDACTED]", sanitized)
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length] + "..."
+    return sanitized
 
 
 # 信号分布统计（全局计数器）- 用于监控信号多样性
@@ -162,6 +180,26 @@ class AIClient:
             )
         )
 
+    def _get_normalized_fusion_weights(self) -> Dict[str, float]:
+        """返回融合提供商完整且归一化的权重。"""
+        providers = self.config.fusion_providers or ["deepseek", "kimi"]
+        configured = self.config.fusion_weights or {}
+
+        candidate: Dict[str, float] = {}
+        for provider in providers:
+            value = configured.get(provider, 0.0)
+            candidate[provider] = value if value > 0 else 0.0
+
+        positive_total = sum(candidate.values())
+        if positive_total <= 0:
+            equal = 1.0 / len(providers)
+            return {provider: equal for provider in providers}
+
+        normalized = {
+            provider: value / positive_total for provider, value in candidate.items()
+        }
+        return normalized
+
     def update_integrator_config(self, params: Dict[str, float]) -> None:
         """更新集成器配置（用于自适应参数调整）
 
@@ -274,6 +312,7 @@ class AIClient:
     async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> tuple:
         """多AI融合模式 - 并行调用多个AI并融合结果"""
         providers = self.config.fusion_providers
+        fusion_weights = self._get_normalized_fusion_weights()
         logger.info(f"[AI请求] 多AI融合模式, 提供商列表: {providers}")
 
         # 并行调用（带重试机制）
@@ -286,12 +325,17 @@ class AIClient:
         responses = await asyncio.gather(*tasks, return_exceptions=True)
 
         signals = []
-        confidences: Dict[str, int] = {}
+        confidences: Dict[str, float] = {}
         failed_providers = []
 
         for provider, response in zip(providers, responses):
             if isinstance(response, Exception):
                 logger.error(f"[AI错误] {provider} 调用失败: {response}")
+                failed_providers.append(provider)
+                continue
+
+            if not isinstance(response, str):
+                logger.error(f"[AI错误] {provider} 响应类型异常: {type(response)}")
                 failed_providers.append(provider)
                 continue
 
@@ -335,8 +379,8 @@ class AIClient:
 
         # 如果所有提供商都失败，直接返回默认HOLD信号，不再尝试备用方案
         if not signals:
-            logger.warning("[AI融合] 所有AI提供商都失败，返回默认HOLD信号")
-            return "hold", 0.40
+            logger.warning("[AI融合] 所有AI提供商都失败，尝试 fallback 提供商")
+            return await self._fallback_fusion(market_data)
 
         # 使用融合策略
         strategy = self._get_fusion_strategy(self.config.fusion_strategy)
@@ -344,32 +388,20 @@ class AIClient:
         # 传递market_data以支持动态阈值计算
         fused_signal = strategy.fuse(
             signals,
-            self.config.fusion_weights,
+            fusion_weights,
             self.config.fusion_threshold,
             confidences=confidences,
             market_data=market_data,
         )
 
-        # 获取各信号得分
-        weighted_scores = {"buy": 0, "hold": 0, "sell": 0, "short": 0}
-        for s in signals:
-            weight = self.config.fusion_weights.get(s["provider"], 1.0)
-            weighted_scores[s["signal"]] += weight
-
-        total = sum(weighted_scores.values())
-        if total > 0:
-            for sig in weighted_scores:
-                weighted_scores[sig] = weighted_scores[sig] / total
-
-        # 计算信号值
-        max_score = max(weighted_scores.values())
-        max_signal = max(weighted_scores, key=weighted_scores.get)
-
-        # 信号有效性判断
-        is_valid = max_score >= self.config.fusion_threshold
+        # 使用融合结果中的标准评分输出，避免与具体策略实现解耦失效
+        max_score = max(fused_signal.scores.values()) if fused_signal.scores else 0.0
+        is_valid = fused_signal.is_valid
 
         logger.info(
-            f"[AI融合] 结果: {max_signal} (信号值:{max_score:.2f}, 阈值:{self.config.fusion_threshold}, 有效:{is_valid})"
+            f"[AI融合] 结果: {fused_signal.signal} "
+            f"(信号值:{max_score:.2f}, 阈值:{fused_signal.threshold:.2f}, 有效:{is_valid}, "
+            f"策略:{fused_signal.strategy_used})"
         )
 
         # 记录信号分布
@@ -380,7 +412,24 @@ class AIClient:
 
     async def _fallback_fusion(self, market_data: Dict[str, Any]) -> tuple:
         """备用融合方案 - 当主提供商失败时使用"""
-        fallback_providers = ["qwen", "openai", "deepseek"]
+        preferred_order = ["gemini", "qwen", "openai", "deepseek", "kimi", "minimax"]
+        seen = set()
+        fallback_providers = []
+
+        # 优先使用不在主融合链路中的 provider，避免重复失败路径
+        for provider in preferred_order:
+            if provider in seen:
+                continue
+            seen.add(provider)
+            if provider in self.config.fusion_providers:
+                continue
+            fallback_providers.append(provider)
+
+        for provider in self.config.fusion_providers:
+            if provider not in seen:
+                fallback_providers.append(provider)
+                seen.add(provider)
+
         available = []
 
         for provider in fallback_providers:
@@ -449,6 +498,9 @@ class AIClient:
                     )
                     break
 
+        if last_error is None:
+            raise RuntimeError(f"AI[{provider}] 调用失败，且未捕获到明确异常")
+
         raise last_error
 
     def _should_retry_error(
@@ -499,6 +551,8 @@ class AIClient:
         self, provider: str, market_data: Dict[str, Any], api_key: str
     ) -> str:
         """调用单个AI - 差异化"""
+        aiohttp_module = importlib.import_module("aiohttp")
+
         # 获取提供商配置
         from .providers import get_provider_config
 
@@ -526,7 +580,7 @@ class AIClient:
         timeout_config = self._get_timeout_config(provider)
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp_module.ClientSession() as session:
                 async with session.post(
                     config["base_url"],
                     headers=headers,
@@ -536,12 +590,11 @@ class AIClient:
                     # 检查HTTP状态码
                     if response.status != 200:
                         response_text = await response.text()
+                        sanitized_body = _redact_sensitive_text(response_text, 200)
                         logger.error(
-                            f"AI[{provider}]HTTP错误: status={response.status}, body={response_text[:500]}"
+                            f"AI[{provider}]HTTP错误: status={response.status}, body={sanitized_body}"
                         )
-                        raise ValueError(
-                            f"AI[{provider}]HTTP {response.status}: {response_text[:200]}"
-                        )
+                        raise ValueError(f"AI[{provider}]HTTP {response.status}")
                     result = await response.json()
                     # 检查响应是否包含有效的choices字段
                     if "choices" not in result or not result["choices"]:
@@ -554,17 +607,27 @@ class AIClient:
                             "balance" in error_msg.lower()
                             or "insufficient" in error_msg.lower()
                         ):
-                            logger.error(f"AI[{provider}]余额不足: {error_msg}")
+                            logger.error(
+                                f"AI[{provider}]余额不足: {_redact_sensitive_text(error_msg)}"
+                            )
                             raise ValueError(
-                                f"AI[{provider}]余额不足，请检查API账户余额: {error_msg}"
+                                f"AI[{provider}]余额不足，请检查API账户余额"
                             )
                         elif error_msg:
+                            sanitized_error = _redact_sensitive_text(error_msg)
+                            # Gemini 常见鉴权错误映射
+                            if provider == "gemini" and (
+                                "api key" in error_msg.lower()
+                                or "permission" in error_msg.lower()
+                                or "invalid" in error_msg.lower()
+                            ):
+                                raise ValueError(
+                                    f"AI[{provider}]鉴权失败，请检查 GEMINI_API_KEY/GOOGLE_API_KEY"
+                                )
                             logger.error(
-                                f"AI[{provider}]API错误 [{error_type}]: {error_msg}"
+                                f"AI[{provider}]API错误 [{error_type}]: {sanitized_error}"
                             )
-                            raise ValueError(
-                                f"AI[{provider}]请求失败 [{error_type}]: {error_msg}"
-                            )
+                            raise ValueError(f"AI[{provider}]请求失败 [{error_type}]")
                         else:
                             logger.error(f"AI[{provider}]响应格式错误: {result}")
                             raise ValueError(
@@ -575,7 +638,7 @@ class AIClient:
 
         except ValueError:
             raise
-        except aiohttp.ClientError as e:
+        except aiohttp_module.ClientError as e:
             logger.error(f"AI[{provider}]网络错误: {type(e).__name__}: {e}")
             raise ValueError(f"AI[{provider}]网络错误: {e}") from e
         except asyncio.TimeoutError:
@@ -585,18 +648,20 @@ class AIClient:
             logger.error(f"AI[{provider}]调用失败: {type(e).__name__}: {e}")
             raise
 
-    def _get_timeout_config(self, provider: str) -> "aiohttp.ClientTimeout":
+    def _get_timeout_config(self, provider: str) -> Any:
         """获取提供商特定超时配置"""
+        aiohttp_module = importlib.import_module("aiohttp")
         timeout_map = {
             "kimi": 90,  # Kimi 晚间慢，增加到 90 秒
             "deepseek": 60,
             "openai": 60,
             "qwen": 45,
+            "gemini": 75,
             "minimax": 120,  # MiniMax 可能需要更长超时
         }
 
         timeout_seconds = timeout_map.get(provider, 60)
-        return aiohttp.ClientTimeout(total=timeout_seconds)
+        return aiohttp_module.ClientTimeout(total=timeout_seconds)
 
 
 async def get_signal(market_data: Dict[str, Any], mode: str = "single") -> str:

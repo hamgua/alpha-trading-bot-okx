@@ -12,13 +12,14 @@ ML 学习集成器
 
 import asyncio
 import logging
-from typing import Dict, Any, Optional
-from datetime import datetime, timezone
+from typing import Callable, Dict, Any, Optional
+from datetime import datetime
 from dataclasses import dataclass
 
-from .ml_data_manager import MLDataManager, get_ml_data_manager
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
+
+from .ml_data_manager import get_ml_data_manager
 from .adaptive_weight_optimizer import (
-    AdaptiveWeightOptimizer,
     EnsembleWeightOptimizer,
     get_weight_optimizer,
 )
@@ -69,10 +70,16 @@ class MLLearningIntegrator:
         self.data_manager = get_ml_data_manager(db_path)
         self.weight_optimizer = get_weight_optimizer(db_path)
         self.ensemble_optimizer = EnsembleWeightOptimizer(db_path)
+        self.default_providers = get_runtime_fusion_providers()
 
         # 状态
         self._last_optimize_time: Optional[datetime] = None
         self._is_running = False
+
+    def _default_weights(self) -> Dict[str, float]:
+        """返回学习回路默认权重。"""
+        equal = 1.0 / len(self.default_providers)
+        return {provider: equal for provider in self.default_providers}
 
     async def run_learning_cycle(self) -> LearningResult:
         """
@@ -93,7 +100,7 @@ class MLLearningIntegrator:
                 logger.warning(f"[ML学习] 数据不足: {len(signals)} 条信号")
                 return LearningResult(
                     success=False,
-                    weights={"deepseek": 0.5, "kimi": 0.5},
+                    weights=self._default_weights(),
                     confidence=0.0,
                     method="none",
                     training_samples=len(signals),
@@ -113,9 +120,15 @@ class MLLearningIntegrator:
             ml_trained = False
             if len(features) > 0:
                 try:
-                    self.weight_optimizer.train_ml_model(features.values, labels.values)
-                    ml_trained = True
-                    logger.info("[ML学习] ML模型训练完成")
+                    train_method = getattr(
+                        self.weight_optimizer, "train_ml_model", None
+                    )
+                    if callable(train_method):
+                        train_method(features.values, labels.values)
+                        ml_trained = True
+                        logger.info("[ML学习] ML模型训练完成")
+                    else:
+                        logger.debug("[ML学习] 当前优化器未提供 train_ml_model，跳过")
                 except Exception as e:
                     logger.error(f"[ML学习] ML模型训练失败: {e}")
 
@@ -144,7 +157,7 @@ class MLLearningIntegrator:
             logger.error(f"[ML学习] 学习失败: {e}")
             return LearningResult(
                 success=False,
-                weights={"deepseek": 0.5, "kimi": 0.5},
+                weights=self._default_weights(),
                 confidence=0.0,
                 method="error",
                 training_samples=0,
@@ -154,7 +167,9 @@ class MLLearningIntegrator:
             )
 
     async def run_continuous_learning(
-        self, stop_event: asyncio.Event, optimize_callback: Optional[callable] = None
+        self,
+        stop_event: asyncio.Event,
+        optimize_callback: Optional[Callable[[Dict[str, float]], None]] = None,
     ) -> None:
         """
         运行持续学习任务

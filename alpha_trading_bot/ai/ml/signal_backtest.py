@@ -12,12 +12,14 @@
 
 import logging
 import sqlite3
-import json
-from typing import Dict, Any, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from dataclasses import dataclass
-import numpy as np
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,12 @@ class SignalBacktestLearner:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.default_providers = get_runtime_fusion_providers()
+
+    def _default_weights(self) -> Dict[str, float]:
+        """返回回测学习默认权重。"""
+        equal = 1.0 / len(self.default_providers)
+        return {provider: equal for provider in self.default_providers}
 
     def get_connection(self) -> sqlite3.Connection:
         """获取数据库连接"""
@@ -70,6 +78,8 @@ class SignalBacktestLearner:
             List[Dict]: 信号列表
         """
         try:
+            import pandas as pd
+
             with self.get_connection() as conn:
                 query = """
                     SELECT * FROM ai_signals
@@ -101,6 +111,8 @@ class SignalBacktestLearner:
             List[Dict]: 市场数据
         """
         try:
+            import pandas as pd
+
             with self.get_connection() as conn:
                 query = """
                     SELECT * FROM market_data
@@ -146,6 +158,9 @@ class SignalBacktestLearner:
             Dict: 假设盈亏信息
         """
         try:
+            import numpy as np
+            import pandas as pd
+
             signal_dt = datetime.fromisoformat(signal_time.replace("Z", "+00:00"))
 
             # 尝试获取持有期间的市场数据
@@ -242,41 +257,6 @@ class SignalBacktestLearner:
             logger.error(f"[回测] 计算假设盈亏失败: {e}")
             return None
 
-            df = pd.DataFrame(market_data)
-
-            # 假设在信号发出后 15 分钟买入
-            entry_price = df.iloc[0]["open"] if "open" in df.columns else signal_price
-
-            # 在持有期结束时卖出
-            exit_price = (
-                df.iloc[-1]["close"]
-                if "close" in df.columns
-                else df.iloc[-1].get("price", signal_price)
-            )
-
-            # 计算盈亏
-            pnl_percent = (exit_price - entry_price) / entry_price * 100
-            pnl = exit_price - entry_price
-
-            return {
-                "entry_time": (
-                    df.iloc[0]["timestamp"]
-                    if "timestamp" in df.columns
-                    else signal_time
-                ),
-                "entry_price": entry_price,
-                "exit_time": (
-                    df.iloc[-1]["timestamp"]
-                    if "timestamp" in df.columns
-                    else end_dt.isoformat()
-                ),
-                "exit_price": exit_price,
-                "pnl": pnl,
-                "pnl_percent": pnl_percent,
-                "high": df["high"].max() if "high" in df.columns else exit_price,
-                "low": df["low"].min() if "low" in df.columns else entry_price,
-            }
-
         except Exception as e:
             logger.error(f"[回测] 计算假设盈亏失败: {e}")
             return None
@@ -299,7 +279,7 @@ class SignalBacktestLearner:
         signals = self.get_historical_signals(days=days, min_confidence=min_confidence)
 
         if not signals:
-            logger.warning(f"[回测] 无历史信号")
+            logger.warning("[回测] 无历史信号")
             return BacktestResult(
                 total_signals=0,
                 winning_signals=0,
@@ -334,7 +314,7 @@ class SignalBacktestLearner:
                 backtest_results.append({**signal, **pnl_info})
 
         if not backtest_results:
-            logger.warning(f"[回测] 无法计算任何信号的假设盈亏")
+            logger.warning("[回测] 无法计算任何信号的假设盈亏")
             return BacktestResult(
                 total_signals=0,
                 winning_signals=0,
@@ -347,6 +327,8 @@ class SignalBacktestLearner:
             )
 
         # 转换为 DataFrame
+        import pandas as pd
+
         df = pd.DataFrame(backtest_results)
 
         # 计算总体指标
@@ -438,7 +420,7 @@ class SignalBacktestLearner:
 
         if result.total_signals == 0:
             logger.warning("[回测学习] 无回测结果，返回默认权重")
-            return {"deepseek": 0.5, "kimi": 0.5}
+            return self._default_weights()
 
         # 基于回测结果计算权重
         weights = {}
@@ -474,6 +456,8 @@ class SignalBacktestLearner:
             Dict: 分析结果
         """
         # 获取信号
+        import pandas as pd
+
         signals = self.get_historical_signals(days=days)
 
         if not signals:

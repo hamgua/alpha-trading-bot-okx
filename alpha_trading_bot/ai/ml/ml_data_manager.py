@@ -13,12 +13,14 @@ ML 数据管理器
 
 import logging
 import sqlite3
-import json
-from typing import Dict, Any, List, Optional, Tuple
-from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Dict, Any, List, Optional, Tuple
+from datetime import datetime
 from dataclasses import dataclass
-import numpy as np
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+from alpha_trading_bot.ai.provider_utils import get_runtime_fusion_providers
 
 logger = logging.getLogger(__name__)
 
@@ -28,8 +30,8 @@ class MLError:
     """ML错误信息"""
 
     error: str
-    timestamp: str = None
-    details: Dict[str, Any] = None
+    timestamp: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -51,13 +53,24 @@ class MLDataManager:
             db_path: 数据库路径
         """
         self.db_path = db_path
+        self.default_providers: List[str] = get_runtime_fusion_providers()
+
+    def _default_weights(
+        self, providers: Optional[List[str]] = None
+    ) -> Dict[str, float]:
+        """构建默认均匀权重。"""
+        target_providers = providers or self.default_providers
+        if not target_providers:
+            target_providers = get_runtime_fusion_providers()
+        equal = 1.0 / len(target_providers)
+        return {provider: equal for provider in target_providers}
 
     def get_connection(self) -> sqlite3.Connection:
         """获取数据库连接"""
         return sqlite3.connect(self.db_path)
 
     def get_historical_trades(
-        self, symbol: str = None, days: int = 30, status: str = "closed"
+        self, symbol: Optional[str] = None, days: int = 30, status: str = "closed"
     ) -> List[Dict[str, Any]]:
         """
         获取历史交易记录
@@ -71,6 +84,8 @@ class MLDataManager:
             List[Dict]: 交易记录列表
         """
         try:
+            import pandas as pd
+
             with self.get_connection() as conn:
                 query = """
                     SELECT * FROM trades
@@ -106,6 +121,8 @@ class MLDataManager:
             List[Dict]: 信号列表，包含交易结果
         """
         try:
+            import pandas as pd
+
             with self.get_connection() as conn:
                 # ai_signals 表已经包含 trade_result 和 pnl 字段
                 query = """
@@ -217,7 +234,7 @@ class MLDataManager:
 
     def get_market_features(
         self, symbol: str = "BTC/USDT", periods: int = 100
-    ) -> pd.DataFrame:
+    ) -> "pd.DataFrame":
         """
         获取市场特征数据（用于 ML 训练）
 
@@ -229,6 +246,9 @@ class MLDataManager:
             DataFrame: 市场特征数据
         """
         try:
+            import numpy as np
+            import pandas as pd
+
             with self.get_connection() as conn:
                 query = """
                     SELECT * FROM market_data
@@ -284,7 +304,7 @@ class MLDataManager:
 
     def get_training_data(
         self, min_trades: int = 50, days: int = 60
-    ) -> Tuple[pd.DataFrame, pd.Series, Dict[str, Any]]:
+    ) -> Tuple["pd.DataFrame", "pd.Series", Dict[str, Any]]:
         """
         获取 ML 训练数据
 
@@ -296,6 +316,8 @@ class MLDataManager:
             Tuple[DataFrame, Series, Dict]: 特征、标签、元信息
         """
         # 获取信号和结果
+        import pandas as pd
+
         signals = self.get_ai_signals_with_outcomes(days=days)
 
         if len(signals) < min_trades:
@@ -394,7 +416,7 @@ class MLDataManager:
 
         if not signals:
             # 默认权重
-            return {"deepseek": 0.5, "kimi": 0.5}
+            return self._default_weights()
 
         performance = self.calculate_provider_performance(signals)
 

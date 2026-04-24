@@ -4,7 +4,10 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Type, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .consensus_boosted import FusionResult
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +22,9 @@ class FusionStrategy(ABC):
         weights: Dict[str, float],
         threshold: float,
         *,
-        confidences: Optional[Dict[str, int]] = None,
+        confidences: Optional[Dict[str, float]] = None,
         market_data: Optional[Dict[str, Any]] = None,
-    ) -> str:
+    ) -> "FusionResult":
         """
         融合信号
 
@@ -29,11 +32,11 @@ class FusionStrategy(ABC):
             signals: [{"provider": "deepseek", "signal": "buy"}, ...]
             weights: {"deepseek": 0.5, "kimi": 0.5, ...}
             threshold: 融合阈值
-            confidences: {"deepseek": 70, "kimi": 75, ...} 置信度（可选）
+            confidences: {"deepseek": 0.7, "kimi": 0.75, ...} 置信度（可选）
             market_data: 市场数据字典，用于动态阈值计算（可选）
 
         Returns:
-            融合后的信号: buy/hold/sell
+            融合结果对象（包含 signal/confidence/scores）
         """
         pass
 
