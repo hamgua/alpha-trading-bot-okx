@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 class ExchangeClient:
     """OKX交易所客户端 - 组合模式"""
 
+    SIMULATED_PREFIX = "SIMULATED_"
+
     def __init__(
         self,
         api_key: str = "",
@@ -27,13 +29,15 @@ class ExchangeClient:
         symbol: str = "BTC/USDT:USDT",
         allow_short_selling: bool = True,
         test_mode: bool = True,
+        max_position_usage: float = 0.30,
     ):
         self.api_key = api_key
         self.secret = secret
         self.password = password
         self.symbol = symbol
-        self.allow_short_selling = allow_short_selling  # 是否允许做空
+        self.allow_short_selling = allow_short_selling
         self.test_mode = test_mode
+        self._max_position_usage = max_position_usage
         self.exchange: Optional[ccxt.okx] = None
 
         # 组合服务
@@ -113,8 +117,13 @@ class ExchangeClient:
     async def calculate_max_contracts(self, price: float, leverage: int) -> float:
         """根据余额和杠杆计算最大可开合约数"""
         return await self._market_data_service.calculate_max_contracts(
-            price, leverage, self.get_balance
+            price, leverage, self.get_balance, self._max_position_usage
         )
+
+    @staticmethod
+    def is_simulated_order(order_id: str) -> bool:
+        """判断是否为TEST_MODE下生成的模拟订单"""
+        return bool(order_id) and order_id.startswith(ExchangeClient.SIMULATED_PREFIX)
 
     async def create_order(
         self,

@@ -58,6 +58,7 @@ class TradingBot:
                 symbol=self.config.exchange.symbol,
                 allow_short_selling=self.config.trading.allow_short_selling,
                 test_mode=self.config.trading.test_mode,
+                max_position_usage=self.config.exchange.max_position_usage,
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
@@ -302,7 +303,10 @@ class TradingBot:
             logger.warning(f"[信号执行] 未知信号: {signal}")
 
     async def _open_position(self, price: float) -> None:
-        """开仓 - 根据余额动态计算交易量"""
+        """开仓 - 根据余额动态计算交易量
+
+        止损保护：如果止损单创建失败，立即市价平仓，不允许无止损持仓。
+        """
         logger.info(f"[开仓] 开始开仓流程, 当前价格: {price}")
 
         live_allowed, reason = self.config.check_live_trading_preconditions()
@@ -329,13 +333,26 @@ class TradingBot:
             amount=amount,
             price=None,
         )
+
+        if not order_id:
+            logger.error("[开仓] 开仓订单创建失败，取消后续操作")
+            return
+
+        # TEST_MODE 模拟订单检测
+        from ..exchange.client import ExchangeClient
+
+        if ExchangeClient.is_simulated_order(order_id):
+            logger.info(
+                f"[开仓] TEST_MODE 模拟开仓: ID={order_id}, 跳过本地状态更新"
+            )
+            return
+
         logger.info(f"[开仓] 订单创建成功: 订单ID={order_id}")
 
         self.position_manager.update_position(
             amount, price, self.config.exchange.symbol
         )
 
-        # 统一使用 PositionManager 计算止损价
         stop_price = self.position_manager.calculate_stop_price(price)
         logger.info(
             f"[止损计算] 入场价={price}, 止损价={stop_price:.1f} (由PositionManager统一计算)"
@@ -347,12 +364,36 @@ class TradingBot:
             amount=amount,
             stop_price=stop_price,
         )
-        logger.info(f"[开仓] 止损单创建成功: 止损ID={stop_order_id}")
 
-        self.position_manager.set_stop_order(stop_order_id, stop_price)
-        logger.info(
-            f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, 止损:{stop_price}"
-        )
+        if stop_order_id:
+            self.position_manager.set_stop_order(stop_order_id, stop_price)
+            logger.info(
+                f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, 止损:{stop_price}"
+            )
+        else:
+            logger.critical(
+                f"[止损保护] 止损单创建失败！立即市价平仓保护资金安全。"
+                f"开仓订单={order_id}, 数量={amount}张"
+            )
+            try:
+                close_order_id = await self._exchange.create_order(
+                    symbol=self.config.exchange.symbol,
+                    side="sell",
+                    amount=amount,
+                    price=None,
+                )
+                if close_order_id:
+                    logger.info(f"[止损保护] 紧急平仓成功: {close_order_id}")
+                else:
+                    logger.critical(
+                        "[止损保护] 紧急平仓也失败！需要人工介入检查持仓状态！"
+                    )
+            except Exception as e:
+                logger.critical(
+                    f"[止损保护] 紧急平仓异常: {e}！需要人工介入检查持仓状态！"
+                )
+            finally:
+                self.position_manager.clear_position()
 
     async def _get_existing_stop_order_id(self) -> Optional[str]:
         """查询交易所中现有的止损单ID（委托给StopLossManager）"""
@@ -406,6 +447,13 @@ class TradingBot:
             amount=amount,
             price=None,
         )
+
+        from ..exchange.client import ExchangeClient
+
+        if ExchangeClient.is_simulated_order(order_id):
+            logger.info(f"[平仓] TEST_MODE 模拟平仓: ID={order_id}, 跳过状态清理")
+            return
+
         logger.info(f"[平仓] 平仓订单创建成功: 订单ID={order_id}")
 
         if self.position_manager.stop_order_id:

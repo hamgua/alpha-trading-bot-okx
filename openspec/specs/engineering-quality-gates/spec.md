@@ -1,14 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: CI SHALL 作为阻断式质量门禁
-项目 CI MUST 将测试、类型检查、格式检查与静态检查设为阻断条件，禁止在主分支合并前以非阻断方式跳过失败项。
+项目 CI MUST 将测试、类型检查、格式检查与静态检查设为阻断条件，禁止在主分支合并前以非阻断方式跳过失败项；同时 MUST 对关键交易路径与 Gemini 相关回归建立最小覆盖门槛。
 
 #### Scenario: 质量检查失败阻断合并
 - **WHEN** 任一质量任务（pytest/mypy/flake8/black）失败
 - **THEN** CI MUST 失败并阻断合并，且输出可定位失败原因
 
+#### Scenario: Gemini 回归未通过阻断合并
+- **WHEN** Gemini provider 相关回归用例失败
+- **THEN** CI MUST 阻断合并，避免将不稳定 provider 行为带入主分支
+
 ### Requirement: 系统 SHALL 建立安全扫描范围与噪声治理基线
-安全审计流程 MUST 仅扫描受控源码与配置路径，并明确排除第三方依赖缓存与临时目录，避免误报淹没真实风险。
+安全审计流程 MUST 仅扫描受控源码与配置路径，并明确排除第三方依赖缓存与临时目录，避免误报淹没真实风险；同时 MUST 提供扫描配置版本化管理。
 
 #### Scenario: 安全扫描聚焦源码
 - **WHEN** 触发代码安全与漏洞扫描
@@ -19,7 +23,7 @@
 - **THEN** 结果 MUST 按严重度分级（P0/P1/P2）并附带整改建议与处理时限
 
 ### Requirement: 系统 SHALL 强制密钥与凭据治理
-系统 MUST 将密钥管理纳入开发与发布流程，包含提交前泄漏检测、历史泄漏轮换、以及环境变量规范化。
+系统 MUST 将密钥管理纳入开发与发布流程，包含提交前泄漏检测、历史泄漏轮换、以及环境变量规范化；并要求 `.env` 仅用于本地开发且不得入库。
 
 #### Scenario: 提交阶段拦截密钥泄漏
 - **WHEN** 开发者提交包含疑似凭据的变更
@@ -30,21 +34,29 @@
 - **THEN** 团队 MUST 执行轮换并记录处置结果
 
 ### Requirement: 流水线 SHALL 支持 SBOM 与策略治理
-项目发布流水线 MUST 具备 SBOM 生成/导入与策略执行能力，确保依赖组件满足组织安全与合规要求。
+项目发布流水线 MUST 具备 SBOM 生成/导入与策略执行能力，确保依赖组件满足组织安全与合规要求，并对违规组件提供阻断或例外审批机制。
 
 #### Scenario: SBOM 策略执行
 - **WHEN** 构建或部署流程执行 SBOM Policy Enforcement
 - **THEN** 对不符合 allow/deny 策略的组件 MUST 报告违规，并按策略阻断或告警
 
 ### Requirement: 流水线 SHALL 支持供应链签名与来源验证
-项目流水线 MUST 提供制品签名与来源证明（provenance）验证能力，确保下游仅消费可信构建产物。
+项目流水线 MUST 提供制品签名与来源证明（provenance）验证能力，确保下游仅消费可信构建产物；验证失败 MUST 阻断发布。
 
 #### Scenario: 生成并校验来源证明
 - **WHEN** 制品构建完成并进入发布路径
 - **THEN** 系统 MUST 生成/保存可验证 provenance，并在后续阶段执行验证与策略检查
 
+#### Scenario: provenance 验证失败阻断发布
+- **WHEN** provenance 校验失败或策略验证未通过
+- **THEN** 系统 MUST 阻断发布，不得以仅告警方式放行
+
 ### Requirement: 变更 SHALL 具备可回滚发布策略
-涉及 provider 或安全门禁策略的变更 MUST 以分阶段发布执行，支持配置级回滚并保留审计轨迹。
+涉及 provider 或安全门禁策略的变更 MUST 以分阶段发布执行，支持配置级回滚并保留审计轨迹；且 MUST 提供发布脚本可重复性与回滚演练记录。
+
+#### Scenario: 发布脚本可重复执行
+- **WHEN** 发布流程在不同环境复跑
+- **THEN** 系统 MUST 使用存在且版本化管理的构建脚本与 Dockerfile，保证可重复构建
 
 #### Scenario: 分阶段发布与回滚
 - **WHEN** Gemini 或门禁策略在灰度阶段触发异常

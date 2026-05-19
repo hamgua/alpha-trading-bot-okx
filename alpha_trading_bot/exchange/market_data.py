@@ -159,15 +159,27 @@ class MarketDataService:
         return 0.0
 
     async def calculate_max_contracts(
-        self, price: float, leverage: int, get_balance_func
+        self, price: float, leverage: int, get_balance_func,
+        max_position_usage: float = 0.30,
     ) -> float:
+        """根据余额和杠杆计算最大可开合约数
+
+        Args:
+            price: 当前价格
+            leverage: 杠杆倍数
+            get_balance_func: 获取余额的异步函数
+            max_position_usage: 最大使用余额比例 (默认30%)
+
+        Returns:
+            可开合约数量
+        """
         try:
             balance = await get_balance_func()
             if balance <= 0:
                 logger.warning("余额为0，无法开仓")
                 return 0.0
 
-            safe_balance = balance * 0.95
+            safe_balance = balance * max_position_usage
             max_contracts = (safe_balance * leverage) / price
 
             contracts = float(f"{max_contracts:.4f}")
@@ -177,7 +189,9 @@ class MarketDataService:
                 return 0.0
 
             logger.info(
-                f"最大可开合约数: {contracts} (余额:{balance} USDT, 杠杆:{leverage}x, 价格:{price})"
+                f"最大可开合约数: {contracts} "
+                f"(余额:{balance} USDT, 使用比例:{max_position_usage * 100:.0f}%, "
+                f"杠杆:{leverage}x, 价格:{price})"
             )
             return contracts
 

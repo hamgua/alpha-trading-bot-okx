@@ -264,8 +264,8 @@ class PositionManager:
             )
             return stop_price
         else:
-            # 做空亏钱时(价格上涨): 止损价 = 当前价格 × 101.0%
-            stop_percent = self.config.stop_loss.stop_loss_profit_percent * 2
+            # 做空亏钱时(价格上涨): 使用亏损止损比例（与做多亏损一致）
+            stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = current_price * (1 + stop_percent)
             logger.debug(
                 f"[止损计算-做空] 亏损(价格上涨): 当前价({current_price}) < 入场价({self._entry_price}), "
@@ -302,33 +302,33 @@ class PositionManager:
         return take_profit_price
 
     def calculate_short_take_profit_price(self, current_price: float) -> float:
-        """
-        计算做空仓位的止盈价 (做空仓位)
+        """计算做空仓位的止盈价 (做空仓位)"""
 
-        做空止盈逻辑:
-        - 价格下跌到目标价位时自动平仓获利
-        - 止盈价 = 入场价 × 0.94 (6% 止盈，即价格下跌6%)
-
-        Args:
-            current_price: 当前价格
-
-        Returns:
-            止盈价 (做空)
-        """
         if self._position is None or self._entry_price == 0:
             return 0.0
 
-        # 只处理做空仓位
         if self._position.side != "short":
             return 0.0
 
-        # 止盈价 = 入场价 × 0.94 (6% 止盈，即价格下跌6%)
         take_profit_percent = self.config.stop_loss.take_profit_percent
         take_profit_price = self._entry_price * (1 - take_profit_percent)
         logger.debug(
             f"[止盈计算-做空] 入场价:{self._entry_price}, 止盈比例:{take_profit_percent * 100}%, 止盈价:{take_profit_price}"
         )
         return take_profit_price
+
+    def calculate_stop_price_unified(self, current_price: float) -> float:
+        """统一的止损价计算入口（自动判断做多/做空）"""
+        if self._position is None or self._entry_price == 0:
+            return 0.0
+
+        if self._position.side == "long":
+            return self.calculate_stop_price(current_price)
+        elif self._position.side == "short":
+            return self.calculate_short_stop_price(current_price)
+        else:
+            logger.warning(f"[止损计算] 未知持仓方向: {self._position.side}")
+            return 0.0
 
     def log_stop_loss_info(self, current_price: float, new_stop: float) -> None:
         """记录止损信息（支持做多和做空）"""

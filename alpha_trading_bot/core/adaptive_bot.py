@@ -113,7 +113,12 @@ class AdaptiveTradingBot:
         self._param_applier = ParamApplier(self.config, self._ai_client)
         self._take_profit_calculator = TakeProfitCalculator(self.config)
 
-        logger.info("[自适应] 所有组件初始化完成（含Manager分层架构）")
+        # 属性别名：兼容旧代码中的直接引用
+        self.regime_detector = self.market_manager._regime_detector
+        self.performance_tracker = self.market_manager._performance_tracker
+        self.strategy_library = self.strategy_manager._strategy_library
+
+        logger.info("[自适应] 所有组件初始化完成（含Manager分层架构 + 属性别名）")
 
     @property
     def exchange(self):
@@ -139,6 +144,7 @@ class AdaptiveTradingBot:
                 symbol=self.config.exchange.symbol,
                 allow_short_selling=self.config.trading.allow_short_selling,
                 test_mode=self.config.trading.test_mode,
+                max_position_usage=self.config.exchange.max_position_usage,
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)

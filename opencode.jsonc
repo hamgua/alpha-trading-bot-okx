@@ -1,0 +1,13 @@
+// OpenCode project configuration for 入梦 Agent workflow.
+// Profile: glm-5
+// Model: fcloud-glm-5/glm-5
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "dream-runner",
+  "model": "fcloud-glm-5/glm-5",
+  "permission": {
+    "edit": "ask",
+    "bash": "ask"
+  },
+  "share": "manual"
+}

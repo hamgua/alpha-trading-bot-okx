@@ -93,7 +93,8 @@ class ExchangeConfig:
     secret: str = ""
     password: str = ""
     symbol: str = "BTC/USDT:USDT"
-    leverage: int = 10
+    leverage: int = 5  # 安全默认值（从10降至5），用户可通过 OKX_LEVERAGE 环境变量覆盖
+    max_position_usage: float = 0.30  # 单次开仓最大使用余额比例 (30%)
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -106,6 +107,8 @@ class ExchangeConfig:
             errors.append("OKX_PASSWORD 未配置")
         if self.leverage < 1 or self.leverage > 125:
             errors.append(f"杠杆倍数 {self.leverage} 不在有效范围 (1-125)")
+        if self.max_position_usage <= 0 or self.max_position_usage > 1:
+            errors.append(f"仓位使用比例 {self.max_position_usage} 不在有效范围 (0-1)")
         return errors
 
 
@@ -335,10 +338,10 @@ class AIConfig:
 class StopLossConfig:
     """止损配置"""
 
-    stop_loss_percent: float = 0.005  # 亏损时止损比例 (如 0.005 = 0.5%)
-    stop_loss_profit_percent: float = 0.002  # 盈利时止损比例 (如 0.002 = 0.2%)
+    stop_loss_percent: float = 0.015  # 亏损时止损比例 (1.5%)
+    stop_loss_profit_percent: float = 0.008  # 盈利时止损比例 (0.8%)
     stop_loss_tolerance_percent: float = (
-        0.001  # 止损价容错比例 (如 0.001 = 0.1%, 约77美元对于BTC)
+        0.001  # 止损价容错比例 (如 0.001 = 0.1%)
     )
     take_profit_percent: float = 0.06  # 止盈比例 (如 0.06 = 6%)
 
@@ -427,7 +430,8 @@ class Config:
                 secret=os.getenv("OKX_SECRET", ""),
                 password=os.getenv("OKX_PASSWORD", ""),
                 symbol=os.getenv("OKX_SYMBOL", "BTC/USDT:USDT"),
-                leverage=int(os.getenv("OKX_LEVERAGE", "10")),
+                leverage=int(os.getenv("OKX_LEVERAGE", "5")),
+                max_position_usage=float(os.getenv("MAX_POSITION_USAGE", "0.30")),
             ),
             trading=TradingConfig(
                 cycle_minutes=int(os.getenv("CYCLE_MINUTES", "15")),
@@ -445,9 +449,9 @@ class Config:
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(
-                stop_loss_percent=float(os.getenv("STOP_LOSS_PERCENT", "0.005")),
+                stop_loss_percent=float(os.getenv("STOP_LOSS_PERCENT", "0.015")),
                 stop_loss_profit_percent=float(
-                    os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.002")
+                    os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.008")
                 ),
                 take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.06")),
             ),
