@@ -87,6 +87,26 @@ class StrategyExecutionManager:
         """获取当前策略"""
         return self._current_strategy
 
+    def analyze_and_select(
+        self,
+        market_data: Dict[str, Any],
+        position_data: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """分析市场并选择策略
+
+        代理方法：委托给 AdaptiveStrategyManager.analyze_and_select()，
+        解决 adaptive_bot.py 中调用 self.strategy_manager.analyze_and_select()
+        时 AttributeError 的问题。
+
+        Args:
+            market_data: 市场数据
+            position_data: 持仓数据（可选，无持仓时为None）
+
+        Returns:
+            SelectedStrategy: 选中的策略
+        """
+        return self._strategy_selector.analyze_and_select(market_data, position_data)
+
     def get_strategy_info(self, strategy_name: str) -> Dict[str, Any]:
         """获取策略信息"""
         return {
