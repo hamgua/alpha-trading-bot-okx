@@ -287,12 +287,15 @@ class OrderService:
 
         try:
             order = await asyncio.get_event_loop().run_in_executor(
-                self.exchange.create_order,
-                symbol,
-                "market",
-                side,
-                amount,
-                params,
+                None,
+                lambda: self.exchange.create_order(
+                    symbol=symbol,
+                    type="market",
+                    side=side,
+                    amount=amount,
+                    price=None,
+                    params=params,
+                ),
             )
 
             algo_id = order.get("info", {}).get("algoId", order.get("id", ""))

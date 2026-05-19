@@ -149,11 +149,21 @@ class PositionManager:
         return self._position is not None and self._entry_price > 0
 
     def update_from_exchange(self, position_data: dict) -> None:
-        """从交易所数据更新持仓信息（并持久化）"""
+        """从交易所数据更新持仓信息（并持久化）
+
+        当 allow_short_selling=False 时，AccountService 返回 side="short_to_close"，
+        表示需要平仓的做空仓位，此处归一化为 "short" 以确保止损计算正常工作。
+        """
         if position_data:
+            side = position_data["side"]
+            # short_to_close 归一化为 short，确保止损/止盈计算能正确处理
+            if side == "short_to_close":
+                side = "short"
+                logger.info("[仓位更新] short_to_close 归一化为 short，用于止损计算")
+
             self._position = Position(
                 symbol=position_data["symbol"],
-                side=position_data["side"],
+                side=side,
                 amount=position_data["amount"],
                 entry_price=position_data["entry_price"],
             )
@@ -175,7 +185,7 @@ class PositionManager:
             # 持久化保存
             self._persistence.save_position(
                 symbol=position_data["symbol"],
-                side=position_data["side"],
+                side=side,
                 amount=position_data["amount"],
                 entry_price=position_data["entry_price"],
                 stop_order_id=self._stop_order_id,
@@ -322,12 +332,13 @@ class PositionManager:
         if self._position is None or self._entry_price == 0:
             return 0.0
 
-        if self._position.side == "long":
+        side = self._position.side
+        if side == "long":
             return self.calculate_stop_price(current_price)
-        elif self._position.side == "short":
+        elif side in ("short", "short_to_close"):
             return self.calculate_short_stop_price(current_price)
         else:
-            logger.warning(f"[止损计算] 未知持仓方向: {self._position.side}")
+            logger.warning(f"[止损计算] 未知持仓方向: {side}")
             return 0.0
 
     def log_stop_loss_info(self, current_price: float, new_stop: float) -> None:

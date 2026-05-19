@@ -72,7 +72,7 @@ class StopLossManager:
         return None
 
     async def update_stop_loss(self, current_price: float) -> None:
-        """更新止损订单（带容错判断，避免频繁更新）"""
+        """更新止损订单（带容错判断，避免频繁更新，支持做多/做空）"""
         if not self._position_manager.has_position():
             return
 
@@ -91,14 +91,18 @@ class StopLossManager:
 
         has_existing_stop_order = local_stop_order_id is not None
 
-        new_stop = self._position_manager.calculate_stop_price(current_price)
+        # 使用统一止损计算入口，自动判断做多/做空（M2修复：统一参数来源）
+        new_stop = self._position_manager.calculate_stop_price_unified(current_price)
         self._position_manager.log_stop_loss_info(current_price, new_stop)
+
+        # 根据持仓方向动态决定止损方向（M4修复：做多→sell，做空→buy）
+        stop_side = "sell" if position.side == "long" else "buy"
 
         if not has_existing_stop_order:
             logger.info("[止损更新] 当前无止损单，直接创建")
-            logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
+            logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}, 方向={stop_side}")
             stop_order_id = await self.create_stop_loss_with_retry(
-                position.amount, new_stop, current_price
+                position.amount, new_stop, current_price, stop_side=stop_side
             )
             if stop_order_id:
                 self._position_manager.set_stop_order(stop_order_id, new_stop)
@@ -148,10 +152,10 @@ class StopLossManager:
             if old_stop_order_id:
                 logger.info(f"[止损更新] 本地记录 {old_stop_order_id} 已失效")
 
-        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}")
+        logger.info(f"[止损更新] 创建新止损单: 止损价={new_stop}, 方向={stop_side}")
         stop_order_id = await self._exchange.create_stop_loss(
             symbol=self._config.exchange.symbol,
-            side="sell",
+            side=stop_side,
             amount=position.amount,
             stop_price=new_stop,
         )
@@ -165,13 +169,22 @@ class StopLossManager:
         stop_price: float,
         current_price: float,
         max_retries: int = 2,
+        stop_side: str = "sell",
     ) -> Optional[str]:
-        """创建止损单（带重试机制）"""
+        """创建止损单（带重试机制，支持做多/做空方向）
+
+        Args:
+            amount: 持仓数量
+            stop_price: 止损价
+            current_price: 当前价格
+            max_retries: 最大重试次数
+            stop_side: 止损方向 (做多→sell, 做空→buy)
+        """
         for attempt in range(max_retries + 1):
             try:
                 stop_order_id = await self._exchange.create_stop_loss(
                     symbol=self._config.exchange.symbol,
-                    side="sell",
+                    side=stop_side,
                     amount=amount,
                     stop_price=stop_price,
                 )
