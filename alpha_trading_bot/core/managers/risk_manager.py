@@ -121,6 +121,85 @@ class RiskControlManager:
         """
         return daily_pnl_percent < -0.03
 
+    def assess_risk(
+        self,
+        market_data: Dict[str, Any],
+        position_data: Optional[Dict[str, Any]] = None,
+    ) -> Any:
+        """评估当前风险状态
+
+        委托给 AI 底层 RiskControlManager.assess_risk，
+        直接透传 RiskState 对象以保持与 adaptive_bot 的兼容。
+
+        Args:
+            market_data: 市场数据
+            position_data: 持仓数据（可选，无持仓时为None）
+
+        Returns:
+            ai.adaptive.risk_manager.RiskState: 风险状态
+        """
+        return self._risk_manager.assess_risk(market_data, position_data)
+
+    def calculate_trade_params(
+        self,
+        signal: Dict[str, Any],
+        market_data: Dict[str, Any],
+        risk_score: float = 0.5,
+        rule_adjustments: Optional[Dict[str, float]] = None,
+    ) -> Dict[str, Any]:
+        """计算交易参数（带风险控制）
+
+        委托给 AI 底层 RiskControlManager.calculate_trade_params。
+
+        Args:
+            signal: 原始信号
+            market_data: 市场数据
+            risk_score: 风险分数
+            rule_adjustments: 规则引擎的调整参数（可选）
+
+        Returns:
+            带风险控制参数的信号字典
+        """
+        return self._risk_manager.calculate_trade_params(
+            signal, market_data, risk_score, rule_adjustments
+        )
+
+    def get_risk_summary(self) -> Dict[str, Any]:
+        """获取风险摘要
+
+        委托给 AI 底层 RiskControlManager.get_risk_summary。
+
+        Returns:
+            风险摘要字典
+        """
+        return self._risk_manager.get_risk_summary()
+
+    def record_trade_result(self, trade_result: Dict[str, Any]) -> None:
+        """记录交易结果
+
+        委托给 AI 底层 RiskControlManager.record_trade_result。
+
+        Args:
+            trade_result: {"pnl_percent": float, "outcome": "win"|"loss"}
+        """
+        self._risk_manager.record_trade_result(trade_result)
+
+    def can_open_position(
+        self, market_data: Dict, position_data: Dict
+    ) -> tuple:
+        """检查是否可以开仓
+
+        委托给 AI 底层 RiskControlManager.can_open_position。
+
+        Args:
+            market_data: 市场数据
+            position_data: 持仓数据
+
+        Returns:
+            (是否允许, 原因)
+        """
+        return self._risk_manager.can_open_position(market_data, position_data)
+
     def get_risk_config(self) -> Dict[str, float]:
         """获取风险配置"""
         return {
