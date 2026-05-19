@@ -245,7 +245,7 @@ class AdaptiveTradingBot:
                 f"趋势: {market_state.trend_strength:.2f}"
             )
 
-            current_params = self.param_manager.get_current_params()
+            current_params = self.param_manager.get_parameters()
             if self._param_applier:
                 self._param_applier.apply_adaptive_params(current_params)
             # 4. 获取所有策略信号
@@ -405,7 +405,7 @@ class AdaptiveTradingBot:
                 return
 
         # 获取交易参数
-        params = self.param_manager.get_current_params()
+        params = self.param_manager.get_parameters()
 
         # === P3: 获取规则引擎的调整 ===
         rule_adjustments = {}
@@ -694,7 +694,7 @@ class AdaptiveTradingBot:
         existing_stop_id, exchange_stop_price = await self._get_existing_stop_order_id()
 
         # === P2: 获取配置参数和ATR ===
-        params = self.param_manager.get_current_params()
+        params = self.param_manager.get_parameters()
         base_stop_loss_pct = params.get("stop_loss_percent", 0.005)
         base_stop_loss_profit_pct = params.get("stop_loss_profit_percent", 0.002)
         technical = market_data.get("technical", {})
