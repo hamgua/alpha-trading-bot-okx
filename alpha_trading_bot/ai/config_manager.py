@@ -23,14 +23,22 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AIConfig:
-    """AI核心配置"""
+    """AI核心配置
 
-    mode: str = "fusion"  # single | fusion
+    推荐融合方案: DeepSeek(0.55) + Gemini(0.45)
+    理由: DeepSeek Thinking推理深入 + Gemini多时间框架分析互补
+    """
+
+    mode: str = "fusion"
     default_provider: str = "deepseek"
-    fusion_providers: list = field(default_factory=lambda: ["deepseek", "kimi"])
+    fusion_providers: list = field(
+        default_factory=lambda: ["deepseek", "gemini"]
+    )
     fusion_strategy: str = "consensus_boosted"
     fusion_threshold: float = 0.5
-    fusion_weights: dict = field(default_factory=lambda: {"deepseek": 0.5, "kimi": 0.5})
+    fusion_weights: dict = field(
+        default_factory=lambda: {"deepseek": 0.55, "gemini": 0.45}
+    )
 
 
 @dataclass

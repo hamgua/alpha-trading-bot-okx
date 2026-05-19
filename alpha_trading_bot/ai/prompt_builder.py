@@ -135,11 +135,11 @@ class PromptBuilder:
         pos_amount = position_info.get("amount", 0) if position_info else 0
         entry_price = position_info.get("entry_price", 0) if position_info else 0
         unrealized_pnl = position_info.get("unrealized_pnl", 0) if position_info else 0
-
-        if entry_price > 0:
-            pnl_percent = (current_price - entry_price) / entry_price * 100
-        else:
-            pnl_percent = 0
+        pnl_percent = position_info.get("pnl_percent", 0) if position_info else 0
+        duration_hours = position_info.get("duration_hours", 0) if position_info else 0
+        health = position_info.get("health", "none") if position_info else "none"
+        highest_price = position_info.get("highest_price", 0) if position_info else 0
+        lowest_price = position_info.get("lowest_price", 0) if position_info else 0
 
         # 判断是否处于暴跌/暴涨状态
         cfg = cls._cfg()
@@ -171,6 +171,10 @@ class PromptBuilder:
             entry_price=entry_price,
             unrealized_pnl=unrealized_pnl,
             pnl_percent=pnl_percent,
+            duration_hours=duration_hours,
+            health=health,
+            highest_price=highest_price,
+            lowest_price=lowest_price,
             current_price=current_price,
             rsi=rsi,
             macd=macd,
@@ -198,6 +202,10 @@ class PromptBuilder:
         entry_price: float,
         unrealized_pnl: float,
         pnl_percent: float,
+        duration_hours: float,
+        health: str,
+        highest_price: float,
+        lowest_price: float,
         current_price: float,
         rsi: float,
         macd: float,
@@ -212,7 +220,6 @@ class PromptBuilder:
         recent_rise: float = 0.0,
         is_rising: bool = False,
         is_oversold: bool = False,
-        # 差异化参数
         is_deepseek_rebound: bool = False,
         is_kimi_high_volatility: bool = False,
         provider: str = "default",
@@ -263,6 +270,10 @@ class PromptBuilder:
 - 持仓数量: {pos_amount:.4f} 张
 - 入场价格: {entry_price:.2f} USDT
 - 当前浮盈: {unrealized_pnl:.2f} USDT ({pnl_percent:.2f}%)
+- 持仓时长: {duration_hours:.1f} 小时
+- 持仓健康度: {health} {'⚠️ 亏损持仓过久，优先考虑止损' if health == 'stale' else '📈 盈利持仓可继续持有' if health == 'profitable' else ''}
+{"- 持仓期间最高价: " + f"{highest_price:.2f}" if highest_price > 0 else ""}
+{"- 持仓期间最低价: " + f"{lowest_price:.2f}" if lowest_price > 0 else ""}
 
 【当前市场状态】（所有指标基于1小时周期计算）
 - 当前价格: {current_price:.2f}

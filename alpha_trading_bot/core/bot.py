@@ -228,23 +228,16 @@ class TradingBot:
                 f"方向:{position_info.side}, 数量:{position_info.amount}张, "
                 f"入场价:{position_info.entry_price}"
             )
+            position_context = pm.get_position_context(current_price)
             unrealized_pnl = position_info.unrealized_pnl
-            pnl_percent = (
-                (current_price - position_info.entry_price)
-                / position_info.entry_price
-                * 100
-                if position_info.entry_price > 0
-                else 0
-            )
+            pnl_percent = position_context.get("pnl_percent", 0)
+            duration_hours = position_context.get("duration_hours", 0)
+            health = position_context.get("health", "unknown")
             logger.info(
-                f"[持仓状态] 未实现盈亏: {unrealized_pnl:.2f} USDT ({pnl_percent:.2f}%)"
+                f"[持仓状态] 未实现盈亏: {unrealized_pnl:.2f} USDT ({pnl_percent:.2f}%), "
+                f"持仓时长: {duration_hours:.1f}小时, 健康度: {health}"
             )
-            market_data["position"] = {
-                "side": position_info.side,
-                "amount": position_info.amount,
-                "entry_price": position_info.entry_price,
-                "unrealized_pnl": unrealized_pnl,
-            }
+            market_data["position"] = position_context
         else:
             logger.info("[持仓状态] 无持仓")
             market_data["position"] = {}

@@ -5,8 +5,9 @@
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Dict, Any
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from ..config.models import Config
@@ -24,6 +25,7 @@ class Position:
     amount: float
     entry_price: float
     unrealized_pnl: float = 0.0
+    entry_time: Optional[str] = None  # 入场时间ISO格式，向后兼容
 
 
 class PositionManager:
@@ -42,6 +44,7 @@ class PositionManager:
         self._take_profit_order_id: Optional[str] = None  # 止盈单ID
         self._last_take_profit_price: float = 0.0  # 上次设置的止盈价
 
+        self._entry_time: Optional[str] = None  # 入场时间ISO格式
         # 追踪持仓期间的最高价/最低价（真正的追踪止损）
         self._highest_price_since_entry: float = 0.0  # 做多时追踪最高价
         self._lowest_price_since_entry: float = 0.0  # 做空时追踪最低价
@@ -147,6 +150,68 @@ class PositionManager:
     def has_position(self) -> bool:
         """是否有持仓"""
         return self._position is not None and self._entry_price > 0
+
+    def get_position_duration_hours(self) -> float:
+        """获取持仓时长（小时），无持仓返回0"""
+        if not self._entry_time:
+            return 0.0
+        try:
+            entry_dt = datetime.fromisoformat(self._entry_time)
+            delta = datetime.now() - entry_dt
+            return max(0.0, delta.total_seconds() / 3600.0)
+        except (ValueError, TypeError):
+            return 0.0
+
+    def get_position_health(self, current_price: float = 0.0) -> str:
+        """评估持仓健康度
+
+        业务逻辑:
+        - fresh: 新开仓(<1小时)
+        - healthy: 持仓中且浮盈
+        - warning: 持仓中且浮亏
+        - profitable: 持仓较久且显著盈利
+        - stale: 持仓过久且亏损
+        """
+        if not self.has_position():
+            return "none"
+        duration = self.get_position_duration_hours()
+        if duration < 1.0:
+            return "fresh"
+        pnl_pct = 0.0
+        if current_price > 0 and self._entry_price > 0:
+            if self._position and self._position.side == "long":
+                pnl_pct = (current_price - self._entry_price) / self._entry_price * 100
+            elif self._position and self._position.side == "short":
+                pnl_pct = (self._entry_price - current_price) / self._entry_price * 100
+        if duration > 4.0:
+            if pnl_pct > 2.0:
+                return "profitable"
+            if pnl_pct < 0:
+                return "stale"
+            return "healthy"
+        if pnl_pct >= 0:
+            return "healthy"
+        return "warning"
+
+    def get_position_context(self, current_price: float = 0.0) -> Dict[str, Any]:
+        """获取持仓上下文信息（供AI Prompt使用）"""
+        if not self.has_position() or not self._position:
+            return {}
+        return {
+            "side": self._position.side,
+            "amount": self._position.amount,
+            "entry_price": self._entry_price,
+            "unrealized_pnl": self._position.unrealized_pnl,
+            "pnl_percent": (
+                (current_price - self._entry_price) / self._entry_price * 100
+                if self._entry_price > 0 and current_price > 0
+                else 0.0
+            ),
+            "duration_hours": round(self.get_position_duration_hours(), 2),
+            "health": self.get_position_health(current_price),
+            "highest_price": self._highest_price_since_entry,
+            "lowest_price": self._lowest_price_since_entry,
+        }
 
     def update_from_exchange(self, position_data: dict) -> None:
         """从交易所数据更新持仓信息（并持久化）
@@ -516,6 +581,7 @@ class PositionManager:
 
         self._position = None
         self._entry_price = 0.0
+        self._entry_time = None
         self._stop_order_id = None
         self._last_stop_price = 0.0
         self._highest_price_since_entry = 0.0
@@ -545,6 +611,7 @@ class PositionManager:
         self.reset_price_tracking()
 
         self._entry_price = entry_price
+        self._entry_time = datetime.now().isoformat()
         self._position = Position(
             symbol=symbol,
             side=side,
