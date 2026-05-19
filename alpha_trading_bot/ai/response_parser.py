@@ -94,6 +94,9 @@ class ResponseParser:
         if not text:
             return None
 
+        # 清除思考标签内容（如 DeepSeek 等推理模型的内部推理）
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+
         # 兼容 markdown code block
         if text.startswith("```"):
             text = re.sub(r"^```(?:json)?", "", text).strip()

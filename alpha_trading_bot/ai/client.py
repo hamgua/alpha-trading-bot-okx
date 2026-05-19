@@ -574,8 +574,9 @@ class AIClient:
             "max_tokens": 100,
         }
 
-        # MiniMax 使用推理模型，思考过程长，需要更多 output tokens
-        if provider == "minimax":
+        # MiniMax / DeepSeek 使用推理模型，思考过程长，需要更多 output tokens
+        # DeepSeek Thinking Mode 的 max_tokens 包含 CoT（链式思考）部分
+        if provider in ("minimax", "deepseek"):
             data["max_tokens"] = 800
 
         # 根据提供商类型设置不同的超时时间
@@ -646,7 +647,15 @@ class AIClient:
                                 f"AI[{provider}]响应缺少choices字段: "
                                 f"{result}"
                             )
-                    content = result["choices"][0]["message"]["content"]
+                    message = result["choices"][0]["message"]
+                    content = message.get("content", "") or ""
+                    # DeepSeek Thinking Mode: content 可能为空，
+                    # 推理内容在 reasoning_content 中
+                    if not content.strip() and message.get("reasoning_content"):
+                        logger.warning(
+                            f"AI[{provider}] content为空但存在reasoning_content，"
+                            "Thinking Mode可能因max_tokens不足导致最终答案被截断"
+                        )
                     if provider == "gemini":
                         record_gemini_request(True)
                     return content.strip()
