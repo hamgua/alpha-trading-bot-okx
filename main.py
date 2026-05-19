@@ -150,13 +150,22 @@ async def main() -> None:
 
     from alpha_trading_bot.config.models import Config
 
+    # --real-trading 参数必须在 Config.from_env() 之前注入环境变量，
+    # 否则 from_env() 内部的 validate_or_raise() 会因
+    # TEST_MODE=false + REAL_TRADING_CONFIRMED=false 而直接抛异常，
+    # 导致后续的覆盖逻辑永远无法执行。
+    if args.real_trading:
+        os.environ["TEST_MODE"] = "false"
+        os.environ["REAL_TRADING_CONFIRMED"] = "true"
+        if (
+            os.getenv("RUNTIME_ENVIRONMENT", os.getenv("RUNTIME_ENV", "dev")).lower()
+            not in ["prod", "production"]
+        ):
+            os.environ["RUNTIME_ENVIRONMENT"] = "prod"
+
     config = Config.from_env()
 
     if args.real_trading:
-        config.trading.test_mode = False
-        config.trading.real_trading_confirmed = True
-        if config.trading.runtime_environment not in ["prod", "production"]:
-            config.trading.runtime_environment = "prod"
         logger.warning("[实盘确认] 已启用 --real-trading，系统将按实盘前置条件执行")
 
     # 覆盖交易品种
