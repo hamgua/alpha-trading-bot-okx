@@ -207,8 +207,15 @@ class PositionManager:
         计算止损价 (做多仓位)
 
         止损逻辑:
-        1. 新建仓/亏损状态: 止损价 = 当前价格 × 99.5% (确保低于当前价)
-        2. 盈利状态(当前价 > 入场价): 止损价 = 当前价格 × 99.8% (追踪止损)
+        当 stop_loss_entry_based=True (智能止损模式):
+        1. 首次建仓/亏损状态(当前价 <= 建仓价): 止损价 = 建仓价 × 99.95%
+        2. 盈利状态(当前价 > 建仓价):
+           - 价差 >= 容错(0.1%): 止损价 = 建仓价 × 99.98% (收紧止损)
+           - 价差 < 容错(0.1%): 止损价 = 建仓价 × 99.95% (不更新)
+
+        当 stop_loss_entry_based=False (传统模式):
+        1. 新建仓/亏损状态: 止损价 = 当前价格 × (1 - stop_loss_percent)
+        2. 盈利状态(当前价 > 入场价): 止损价 = 当前价格 × (1 - stop_loss_profit_percent)
 
         Args:
             current_price: 当前价格
@@ -223,22 +230,77 @@ class PositionManager:
         if self._position.side != "long":
             return 0.0
 
-        # 新建仓/亏损状态: 止损价 = 当前价格 × 99.5%
-        # 使用当前价格而非入场价，确保止损价低于当前价格，避免OKX拒绝
-        if current_price <= self._entry_price:
+        if self.config.stop_loss.stop_loss_entry_based:
+            return self._calculate_entry_based_stop_loss(current_price)
+        else:
+            return self._calculate_current_price_based_stop_loss(current_price)
+
+    def _calculate_entry_based_stop_loss(self, current_price: float) -> float:
+        """
+        基于建仓价的智能止损计算 (做多)
+
+        业务逻辑:
+        - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 0.05%) = 建仓价 × 99.95%
+        - 盈利且价差 >= 容错: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
+        - 盈利但价差 < 容错: 止损 = 建仓价 × 99.95% (视为未明显盈利)
+        """
+        entry_price = self._entry_price
+        tolerance = self.config.stop_loss.price_vs_entry_tolerance_percent
+
+        # 计算当前价与建仓价的偏差
+        price_vs_entry_percent = (
+            (current_price - entry_price) / entry_price if entry_price > 0 else 0
+        )
+
+        if current_price <= entry_price:
+            # 亏损/首次建仓: 止损 = 建仓价 × 99.95%
             stop_percent = self.config.stop_loss.stop_loss_percent
-            stop_price = current_price * (1 - stop_percent)
+            stop_price = entry_price * (1 - stop_percent)
             logger.debug(
-                f"[止损计算-做多] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
+                f"[止损计算-做多-智能] 亏损/建仓: 当前价({current_price}) <= "
+                f"建仓价({entry_price}), 止损比例:{stop_percent * 100}%, "
+                f"止损价:{stop_price}"
+            )
+            return stop_price
+        elif price_vs_entry_percent >= tolerance:
+            # 盈利且价差 >= 容错: 止损 = 建仓价 × 99.98%
+            stop_percent = self.config.stop_loss.stop_loss_profit_percent
+            stop_price = entry_price * (1 - stop_percent)
+            logger.debug(
+                f"[止损计算-做多-智能] 盈利(价差{price_vs_entry_percent * 100:.4f}% "
+                f">= 容错{tolerance * 100}%): 建仓价({entry_price}), "
                 f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
             )
             return stop_price
         else:
-            # 盈利状态: 止损价 = 当前价格 × 99.8% (追踪止损，只升不降)
+            # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损
+            stop_percent = self.config.stop_loss.stop_loss_percent
+            stop_price = entry_price * (1 - stop_percent)
+            logger.debug(
+                f"[止损计算-做多-智能] 盈利但价差不足(价差"
+                f"{price_vs_entry_percent * 100:.4f}% < 容错{tolerance * 100}%): "
+                f"建仓价({entry_price}), 止损比例:{stop_percent * 100}%, "
+                f"止损价:{stop_price}"
+            )
+            return stop_price
+
+    def _calculate_current_price_based_stop_loss(self, current_price: float) -> float:
+        """
+        基于当前价的传统止损计算 (做多，兼容旧逻辑)
+        """
+        if current_price <= self._entry_price:
+            stop_percent = self.config.stop_loss.stop_loss_percent
+            stop_price = current_price * (1 - stop_percent)
+            logger.debug(
+                f"[止损计算-做多-传统] 亏损/新建仓: 当前价({current_price}) <= 入场价({self._entry_price}), "
+                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
+            )
+            return stop_price
+        else:
             stop_percent = self.config.stop_loss.stop_loss_profit_percent
             stop_price = current_price * (1 - stop_percent)
             logger.debug(
-                f"[止损计算-做多] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
+                f"[止损计算-做多-传统] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
                 f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
             )
             return stop_price

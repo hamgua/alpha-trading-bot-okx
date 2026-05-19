@@ -338,12 +338,17 @@ class AIConfig:
 class StopLossConfig:
     """止损配置"""
 
-    stop_loss_percent: float = 0.015  # 亏损时止损比例 (1.5%)
-    stop_loss_profit_percent: float = 0.008  # 盈利时止损比例 (0.8%)
+    stop_loss_percent: float = 0.0005  # 亏损时止损比例 (0.05%, 即建仓价99.95%)
+    stop_loss_profit_percent: float = 0.0002  # 盈利时止损比例 (0.02%, 即建仓价99.98%)
     stop_loss_tolerance_percent: float = (
         0.001  # 止损价容错比例 (如 0.001 = 0.1%)
     )
     take_profit_percent: float = 0.06  # 止盈比例 (如 0.06 = 6%)
+    # 智能止损模式：基于建仓价计算止损
+    stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
+    price_vs_entry_tolerance_percent: float = (
+        0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
+    )
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -358,6 +363,10 @@ class StopLossConfig:
             errors.append(f"止损容错比例 {self.stop_loss_tolerance_percent} 不能为负数")
         if self.take_profit_percent <= 0 or self.take_profit_percent > 1:
             errors.append(f"止盈比例 {self.take_profit_percent} 不在有效范围 (0-1)")
+        if self.price_vs_entry_tolerance_percent < 0:
+            errors.append(
+                f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数"
+            )
         return errors
 
 
@@ -449,11 +458,18 @@ class Config:
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(
-                stop_loss_percent=float(os.getenv("STOP_LOSS_PERCENT", "0.015")),
+                stop_loss_percent=float(os.getenv("STOP_LOSS_PERCENT", "0.0005")),
                 stop_loss_profit_percent=float(
-                    os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.008")
+                    os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.0002")
                 ),
                 take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.06")),
+                stop_loss_entry_based=os.getenv(
+                    "STOP_LOSS_ENTRY_BASED", "true"
+                ).lower()
+                == "true",
+                price_vs_entry_tolerance_percent=float(
+                    os.getenv("PRICE_VS_ENTRY_TOLERANCE_PERCENT", "0.001")
+                ),
             ),
             system=SystemConfig(
                 log_level=os.getenv("LOG_LEVEL", "INFO"),

@@ -693,7 +693,84 @@ class AdaptiveTradingBot:
         # === P1: 查询交易所实际止损单 ===
         existing_stop_id, exchange_stop_price = await self._get_existing_stop_order_id()
 
-        # === P2: 获取配置参数和ATR ===
+        # === 智能止损模式：基于建仓价计算 ===
+        if self.config.stop_loss.stop_loss_entry_based and position_side == "long":
+            new_stop_price = self.position_manager.calculate_stop_price(current_price)
+
+            # 检查当前价与建仓价的容错
+            price_vs_entry_tolerance = (
+                self.config.stop_loss.price_vs_entry_tolerance_percent
+            )
+            if entry_price > 0:
+                price_vs_entry_percent = (
+                    current_price - entry_price
+                ) / entry_price
+                if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
+                    logger.info(
+                        f"[止损-智能] 当前价与建仓价差值"
+                        f"({price_vs_entry_percent * 100:.4f}%) < "
+                        f"容错({price_vs_entry_tolerance * 100}%)，跳过止损更新"
+                    )
+                    return
+
+            # 首次创建止损单
+            if not existing_stop_id:
+                initial_stop = entry_price * (
+                    1 - self.config.stop_loss.stop_loss_percent
+                )
+                logger.info(
+                    f"[止损-智能] 首次创建，初始止损: {initial_stop:.1f}"
+                )
+                stop_order_id = await self._create_stop_loss_with_retry(
+                    amount=amount,
+                    stop_price=initial_stop,
+                    current_price=current_price,
+                    position_side=position_side,
+                    max_retries=3,
+                )
+                if stop_order_id:
+                    self.position_manager.set_stop_order(stop_order_id, initial_stop)
+                return
+
+            # 已有止损单：检查是否需要更新（只升不降）
+            old_stop = (
+                exchange_stop_price
+                if exchange_stop_price
+                else self.position_manager.last_stop_price
+            )
+            if old_stop > 0 and new_stop_price <= old_stop:
+                logger.info(
+                    f"[止损-智能] 只升不降: 新止损{new_stop_price:.1f} <= "
+                    f"旧止损{old_stop:.1f}，跳过"
+                )
+                return
+
+            # 执行更新
+            logger.info(
+                f"[止损-智能] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}"
+            )
+            try:
+                await self._exchange.cancel_algo_order(
+                    str(existing_stop_id), self._exchange.symbol
+                )
+            except Exception as e:
+                logger.warning(f"[止损-智能] 取消旧止损单失败: {e}")
+
+            stop_order_id = await self._create_stop_loss_with_retry(
+                amount=amount,
+                stop_price=new_stop_price,
+                current_price=current_price,
+                position_side=position_side,
+                max_retries=3,
+            )
+            if stop_order_id:
+                self.position_manager.set_stop_order(
+                    stop_order_id, new_stop_price
+                )
+                logger.info(f"[止损-智能] 更新成功: {stop_order_id}")
+            return
+
+        # === 传统模式：ATR动态止损 ===
         params = self.param_manager.get_parameters()
         base_stop_loss_pct = params.get("stop_loss_percent", 0.005)
         base_stop_loss_profit_pct = params.get("stop_loss_profit_percent", 0.002)

@@ -72,7 +72,11 @@ class StopLossManager:
         return None
 
     async def update_stop_loss(self, current_price: float) -> None:
-        """更新止损订单（带容错判断，避免频繁更新，支持做多/做空）"""
+        """更新止损订单（带容错判断，避免频繁更新，支持做多/做空）
+
+        智能止损模式下，新增"当前价与建仓价容错"判断：
+        当做多持仓时，如果当前价与建仓价差值 < 0.1%，则不更新止损订单。
+        """
         if not self._position_manager.has_position():
             return
 
@@ -90,6 +94,29 @@ class StopLossManager:
             local_stop_order_id = exchange_stop_order_id
 
         has_existing_stop_order = local_stop_order_id is not None
+
+        # 智能止损模式：检查当前价与建仓价的容错
+        if (
+            self._config.stop_loss.stop_loss_entry_based
+            and position.side == "long"
+            and has_existing_stop_order
+        ):
+            entry_price = self._position_manager.entry_price
+            price_vs_entry_tolerance = (
+                self._config.stop_loss.price_vs_entry_tolerance_percent
+            )
+            if entry_price > 0:
+                price_vs_entry_percent = (
+                    current_price - entry_price
+                ) / entry_price
+                # 当前价与建仓价差值的绝对值 < 容错值(0.1%)，不更新止损
+                if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
+                    logger.info(
+                        f"[止损更新-智能] 当前价与建仓价差值"
+                        f"({price_vs_entry_percent * 100:.4f}%) < "
+                        f"容错({price_vs_entry_tolerance * 100}%)，跳过止损更新"
+                    )
+                    return
 
         # 使用统一止损计算入口，自动判断做多/做空（M2修复：统一参数来源）
         new_stop = self._position_manager.calculate_stop_price_unified(current_price)

@@ -59,10 +59,11 @@ from alpha_trading_bot.core.position_manager import PositionManager, Position
 
 
 def test_stop_loss_defaults_are_safe():
-    """默认止损参数应对BTC噪音有足够容忍度"""
+    """智能止损模式下，止损比例基于建仓价计算，值更小但以建仓价为基准"""
     config = StopLossConfig()
-    assert config.stop_loss_percent >= 0.01
-    assert config.stop_loss_profit_percent >= 0.005
+    assert config.stop_loss_percent > 0
+    assert config.stop_loss_profit_percent > 0
+    assert config.stop_loss_entry_based is True
 
 
 def test_stop_loss_profit_ratio_reasonable():
@@ -73,12 +74,16 @@ def test_stop_loss_profit_ratio_reasonable():
 
 
 def test_position_manager_long_stop_price():
-    """做多止损价应给出足够噪音缓冲"""
+    """做多止损价应给出足够噪音缓冲（传统模式）"""
     from alpha_trading_bot.config.models import Config, ExchangeConfig, TradingConfig, AIConfig, StopLossConfig
 
     config = Config(
         exchange=ExchangeConfig(api_key="k", secret="s", password="p"),
-        stop_loss=StopLossConfig(stop_loss_percent=0.015, stop_loss_profit_percent=0.008),
+        stop_loss=StopLossConfig(
+            stop_loss_percent=0.015,
+            stop_loss_profit_percent=0.008,
+            stop_loss_entry_based=False,
+        ),
     )
 
     pm = PositionManager(config)
@@ -115,12 +120,16 @@ def test_position_manager_short_stop_price_uses_loss_percent():
 
 
 def test_unified_stop_price_long():
-    """统一止损入口应正确路由做多"""
+    """统一止损入口应正确路由做多（传统模式）"""
     from alpha_trading_bot.config.models import Config, ExchangeConfig, StopLossConfig
 
     config = Config(
         exchange=ExchangeConfig(api_key="k", secret="s", password="p"),
-        stop_loss=StopLossConfig(stop_loss_percent=0.015, stop_loss_profit_percent=0.008),
+        stop_loss=StopLossConfig(
+            stop_loss_percent=0.015,
+            stop_loss_profit_percent=0.008,
+            stop_loss_entry_based=False,
+        ),
     )
 
     pm = PositionManager(config)
