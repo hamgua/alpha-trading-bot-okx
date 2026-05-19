@@ -6,7 +6,7 @@ AI提供商配置
 PROVIDERS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com/chat/completions",
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
     },
     "kimi": {
         "base_url": "https://api.moonshot.cn/v1/chat/completions",
