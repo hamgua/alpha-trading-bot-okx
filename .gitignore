@@ -178,4 +178,4 @@ ao-output/
 workflows/
 
 # archived openspec history kept locally by default
-/openspec/changes/archive/
+openspec/
