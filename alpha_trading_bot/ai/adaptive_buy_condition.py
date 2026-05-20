@@ -36,7 +36,7 @@ class BuyConditions:
     """买入条件配置"""
 
     # 常规模式参数
-    regular_trend_strength_min: float = 0.15
+    regular_trend_strength_min: float = 0.12  # 0.15→0.12，适度放宽
     regular_rsi_max: float = 70
     regular_bb_position_max: float = 0.70
     regular_adx_min: float = 15
@@ -53,15 +53,29 @@ class BuyConditions:
     # 强势支撑模式参数
     support_enabled: bool = True
     support_price_position_max: float = 0.40
-    support_rsi_max: float = 45  # 保持45
-    support_momentum_min: float = 0.002  # 保持0.002
-    support_position_factor: float = 0.85  # 0.8→0.85
+    support_rsi_max: float = 45
+    support_momentum_min: float = 0.002
+    support_position_factor: float = 0.85
 
     # 趋势确认模式参数
     confirmation_enabled: bool = True
-    confirmation_consecutive_up: int = 2  # 保持2
-    confirmation_rsi_max: float = 60  # 保持60
-    confirmation_position_factor: float = 0.9  # 保持0.9
+    confirmation_consecutive_up: int = 2
+    confirmation_rsi_max: float = 60
+    confirmation_position_factor: float = 0.9
+
+    # 突破确认买入模式参数（新增）
+    breakout_enabled: bool = True
+    breakout_trend_strength_min: float = 0.18
+    breakout_rsi_max: float = 65
+    breakout_bb_position_min: float = 0.55
+    breakout_position_factor: float = 0.7
+
+    # 强势回调买入模式参数（新增）
+    pullback_enabled: bool = True
+    pullback_rsi_min: float = 40
+    pullback_rsi_max: float = 58
+    pullback_bb_position_max: float = 0.55
+    pullback_position_factor: float = 0.8
 
 
 class AdaptiveBuyCondition:
@@ -194,6 +208,20 @@ class AdaptiveBuyCondition:
         if self.conditions.confirmation_enabled:
             confirmation_result = self._check_trend_confirmation_mode(market_data, rsi)
             results["trend_confirmation"] = confirmation_result
+
+        # 5. 突破确认买入模式检查（新增）
+        if self.conditions.breakout_enabled:
+            breakout_result = self._check_breakout_confirmation_mode(
+                market_data, rsi, trend_strength, trend_direction, bb_position
+            )
+            results["breakout_confirmation"] = breakout_result
+
+        # 6. 强势回调买入模式检查（新增）
+        if self.conditions.pullback_enabled:
+            pullback_result = self._check_pullback_buy_mode(
+                market_data, rsi, trend_strength, trend_direction, bb_position
+            )
+            results["pullback_buy"] = pullback_result
 
         # 选择最佳模式
         best_mode, best_result = self._select_best_mode(results)
@@ -557,6 +585,220 @@ class AdaptiveBuyCondition:
             "consecutive_up": consecutive_up,
             "position_factor": c.confirmation_position_factor,
             "reason": f"趋势确认: 连续{consecutive_up}上涨, {passed}/{len(checks)}条件通过, 仓位系数={c.confirmation_position_factor}",
+        }
+
+    def _check_breakout_confirmation_mode(
+        self,
+        market_data: Dict[str, Any],
+        rsi: float,
+        trend_strength: float,
+        trend_direction: str,
+        bb_position: float,
+    ) -> Dict[str, Any]:
+        """
+        检查突破确认买入模式
+
+        条件:
+        - 趋势向上且强度足够
+        - RSI在合理区间（不超买但有一定动量）
+        - 布林带位置突破中轨
+        - 价格突破近期高点
+
+        设计思路:
+        - 资深交易员最看重的入场方式之一
+        - 突破后回踩确认是高胜率交易
+        - 仓位保守，因为突破可能失败
+        """
+        c = self.conditions
+
+        technical = market_data.get("technical", {})
+        price_position = technical.get("price_position", 0.5)
+        recent_change = market_data.get("recent_change_percent", 0)
+        hourly_changes = market_data.get("hourly_changes", [])
+
+        try:
+            price_position = float(price_position) if price_position is not None else 0.5
+        except (ValueError, TypeError):
+            price_position = 0.5
+        try:
+            recent_change = float(str(recent_change))
+        except (ValueError, TypeError):
+            recent_change = 0
+        try:
+            hourly_changes = [float(str(x)) for x in hourly_changes if x is not None]
+        except (ValueError, TypeError):
+            hourly_changes = []
+
+        # 下跌趋势禁止突破买入
+        if trend_direction == "down":
+            return {
+                "passed": False,
+                "confidence": 0.35,
+                "checks": {
+                    "trend_up": False,
+                    "rsi": rsi < c.breakout_rsi_max,
+                    "bb_breakout": bb_position > c.breakout_bb_position_min,
+                    "momentum": recent_change > 0.005,
+                },
+                "pass_rate": 0.25,
+                "position_factor": c.breakout_position_factor,
+                "reason": "突破确认: 趋势向下，禁止买入",
+            }
+
+        checks = {
+            "trend_up": trend_direction == "up" and trend_strength >= c.breakout_trend_strength_min,
+            "rsi": rsi < c.breakout_rsi_max,
+            "bb_breakout": bb_position > c.breakout_bb_position_min,
+            "momentum": recent_change > 0.005,
+        }
+
+        passed = sum(1 for v in checks.values() if v)
+        pass_rate = passed / len(checks)
+
+        base_confidence = 0.60
+
+        # 强趋势突破加分
+        if trend_strength > 0.35:
+            base_confidence += 0.12
+        elif trend_strength > 0.25:
+            base_confidence += 0.08
+
+        # RSI在健康区间加分（50-60最佳，有动量但不超买）
+        if 50 <= rsi <= 60:
+            base_confidence += 0.10
+        elif rsi < 50:
+            base_confidence += 0.05
+
+        # 价格位置较高但趋势强劲
+        if price_position > 0.6 and trend_strength > 0.25:
+            base_confidence += 0.05
+
+        # 连续上涨确认突破
+        consecutive_up = 0
+        for change in hourly_changes[:3]:
+            if change > 0:
+                consecutive_up += 1
+            else:
+                break
+        if consecutive_up >= 3:
+            base_confidence += 0.08
+
+        final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
+
+        return {
+            "passed": passed >= 3,
+            "confidence": final_confidence,
+            "checks": checks,
+            "pass_rate": pass_rate,
+            "position_factor": c.breakout_position_factor,
+            "reason": f"突破确认: {passed}/{len(checks)}条件通过, 仓位系数={c.breakout_position_factor}",
+        }
+
+    def _check_pullback_buy_mode(
+        self,
+        market_data: Dict[str, Any],
+        rsi: float,
+        trend_strength: float,
+        trend_direction: str,
+        bb_position: float,
+    ) -> Dict[str, Any]:
+        """
+        检查强势回调买入模式
+
+        条件:
+        - 趋势向上（核心前提）
+        - RSI从高位回调到45-58区间（回调但未破坏趋势）
+        - 布林带位置在中轨附近或略低
+        - 价格回调但趋势结构未破坏
+
+        设计思路:
+        - 资深交易员最爱的入场方式——趋势中的回调
+        - 回调买入比追涨买入风险更低
+        - 仓位较大，因为趋势已经确认
+        """
+        c = self.conditions
+
+        technical = market_data.get("technical", {})
+        price_position = technical.get("price_position", 0.5)
+        recent_change = market_data.get("recent_change_percent", 0)
+        hourly_changes = market_data.get("hourly_changes", [])
+
+        try:
+            price_position = float(price_position) if price_position is not None else 0.5
+        except (ValueError, TypeError):
+            price_position = 0.5
+        try:
+            recent_change = float(str(recent_change))
+        except (ValueError, TypeError):
+            recent_change = 0
+
+        # 非上涨趋势不适用回调买入
+        if trend_direction != "up":
+            return {
+                "passed": False,
+                "confidence": 0.35,
+                "checks": {
+                    "trend_up": False,
+                    "rsi_pullback": c.pullback_rsi_min <= rsi <= c.pullback_rsi_max,
+                    "bb_position": bb_position < c.pullback_bb_position_max,
+                    "structure_intact": True,
+                },
+                "pass_rate": 0.25,
+                "position_factor": c.pullback_position_factor,
+                "reason": "回调买入: 非上涨趋势，不适用",
+            }
+
+        # 检查RSI是否在回调区间（从高位回落但仍偏强）
+        rsi_in_pullback = c.pullback_rsi_min <= rsi <= c.pullback_rsi_max
+
+        # 检查价格是否回调（近期有小幅下跌或震荡）
+        is_pulling_back = recent_change < 0.005  # 涨幅不大，可能在回调
+
+        # 检查趋势结构是否完好（价格位置不在极低位置，说明是回调而非反转）
+        structure_intact = price_position > 0.25
+
+        checks = {
+            "trend_up": trend_direction == "up" and trend_strength >= 0.15,
+            "rsi_pullback": rsi_in_pullback,
+            "bb_position": bb_position < c.pullback_bb_position_max,
+            "structure_intact": structure_intact,
+        }
+
+        passed = sum(1 for v in checks.values() if v)
+        pass_rate = passed / len(checks)
+
+        base_confidence = 0.65
+
+        # 强趋势回调加分（趋势越强，回调买入越安全）
+        if trend_strength > 0.35:
+            base_confidence += 0.12
+        elif trend_strength > 0.25:
+            base_confidence += 0.08
+
+        # RSI在最佳回调区间
+        if 45 <= rsi <= 52:
+            base_confidence += 0.10
+
+        # 价格位置中等偏上（说明是强势回调）
+        if 0.35 <= price_position <= 0.65:
+            base_confidence += 0.05
+
+        # 有回调迹象但趋势未破坏
+        if is_pulling_back and structure_intact:
+            base_confidence += 0.05
+
+        final_confidence = max(min(base_confidence + pass_rate * 0.08, 0.92), 0.50)
+
+        # RSI必须在回调区间内才允许通过（核心条件）
+        passed_with_rsi = passed >= 3 and checks["rsi_pullback"]
+
+        return {
+            "passed": passed_with_rsi,
+            "confidence": final_confidence,
+            "checks": checks,
+            "pass_rate": pass_rate,
+            "position_factor": c.pullback_position_factor,
+            "reason": f"回调买入: {passed}/{len(checks)}条件通过, 仓位系数={c.pullback_position_factor}",
         }
 
     def _select_best_mode(self, results: Dict[str, Dict[str, Any]]) -> tuple:

@@ -34,6 +34,8 @@ from .sustained_decline_detector import (
     DeclineDetectionResult,
 )
 from .integrator_config import IntegrationConfig, SignalThresholdsConfig
+from .market_structure import MarketStructureAnalyzer, MarketStructureResult
+from .risk_reward_calculator import RiskRewardCalculator, RiskRewardResult
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +52,9 @@ class IntegratedSignalResult:
     optimized_signal: Optional[OptimizedSignal] = None
     high_price_result: Optional[Dict] = None
     btc_level_result: Optional[Dict] = None
-    sustained_decline_result: Optional[DeclineDetectionResult] = None  # 新增
+    sustained_decline_result: Optional[DeclineDetectionResult] = None
+    market_structure_result: Optional[MarketStructureResult] = None  # 新增
+    risk_reward_result: Optional[RiskRewardResult] = None  # 新增
 
     # 最终结果
     final_signal: str = "HOLD"
@@ -60,7 +64,7 @@ class IntegratedSignalResult:
     price_level: str = "mid"
     is_high_risk: bool = False
     is_low_opportunity: bool = False
-    is_sustained_decline: bool = False  # 新增：是否检测到持续下跌
+    is_sustained_decline: bool = False
     adjustments_made: list = None
 
 
@@ -147,6 +151,12 @@ class AISignalIntegrator:
             self.sustained_decline_detector = SustainedDeclineDetector(decline_config)
         else:
             self.sustained_decline_detector = None
+
+        # MarketStructureAnalyzer - 市场结构分析
+        self.market_structure_analyzer = MarketStructureAnalyzer()
+
+        # RiskRewardCalculator - 风险收益比计算器
+        self.risk_reward_calculator = RiskRewardCalculator()
 
     def process(
         self,
@@ -486,6 +496,84 @@ class AISignalIntegrator:
                 logger.warning(
                     f"AdaptiveBuyCondition处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
+
+        # 1.5. 市场结构分析 + 风险收益比过滤（新增）
+        try:
+            price_history = market_data.get("price_history", [])
+            current_price = market_data.get("price", 0)
+            technical = market_data.get("technical", {})
+            atr_percent = technical.get("atr_percent", 0)
+
+            if price_history and current_price > 0:
+                structure_result = self.market_structure_analyzer.analyze(
+                    price_history=price_history,
+                    current_price=current_price,
+                    atr_percent=atr_percent,
+                )
+                result.market_structure_result = structure_result
+
+                # 风险收益比过滤 - 只对BUY信号生效
+                if original_signal == "BUY" and structure_result.risk_reward_ratio > 0:
+                    rr_result = self.risk_reward_calculator.calculate_for_long(
+                        current_price=current_price,
+                        support=structure_result.nearest_support,
+                        resistance=structure_result.nearest_resistance,
+                        atr_percent=atr_percent,
+                    )
+                    result.risk_reward_result = rr_result
+
+                    if not rr_result.should_trade:
+                        # R/R比不足，BUY降级为HOLD
+                        old_signal = original_signal
+                        original_signal = "HOLD"
+                        result.adjustments_made.append(
+                            f"R/R过滤: {old_signal}→HOLD, "
+                            f"R/R={rr_result.rr_ratio:.2f}不足(最低1.5)"
+                        )
+                        logger.info(
+                            f"[R/R过滤] {old_signal}→HOLD: R/R={rr_result.rr_ratio:.2f}不足"
+                        )
+                    elif rr_result.quality == "marginal":
+                        # R/R勉强，降低置信度
+                        old_conf = original_confidence
+                        original_confidence *= 0.85
+                        result.adjustments_made.append(
+                            f"R/R过滤: R/R={rr_result.rr_ratio:.2f}勉强, "
+                            f"置信度降低15%({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((2, "R/R过滤", original_confidence))
+                    elif rr_result.quality == "excellent":
+                        # R/R优质，小幅提升置信度
+                        old_conf = original_confidence
+                        original_confidence = min(original_confidence * 1.05, self._t().confidence_ceiling)
+                        result.adjustments_made.append(
+                            f"R/R过滤: R/R={rr_result.rr_ratio:.2f}优质, "
+                            f"置信度提升5%({old_conf:.0%}→{original_confidence:.0%})"
+                        )
+                        conf_history.append((2, "R/R优质", original_confidence))
+
+                # SHORT信号的R/R过滤
+                elif original_signal == "SHORT" and structure_result.risk_reward_ratio > 0:
+                    rr_result = self.risk_reward_calculator.calculate_for_short(
+                        current_price=current_price,
+                        support=structure_result.nearest_support,
+                        resistance=structure_result.nearest_resistance,
+                        atr_percent=atr_percent,
+                    )
+                    result.risk_reward_result = rr_result
+
+                    if not rr_result.should_trade:
+                        old_signal = original_signal
+                        original_signal = "HOLD"
+                        result.adjustments_made.append(
+                            f"R/R过滤: {old_signal}→HOLD, "
+                            f"R/R={rr_result.rr_ratio:.2f}不足(最低1.5)"
+                        )
+
+        except Exception as e:
+            logger.warning(
+                f"市场结构/R/R分析失败: {e}, 位置: {traceback.format_exc(limit=3)}"
+            )
 
         # 2. SignalOptimizer
         if self.signal_optimizer and self.config.enable_signal_optimizer:

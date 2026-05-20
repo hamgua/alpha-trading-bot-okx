@@ -1,12 +1,21 @@
 """决策引擎模块
 
 从 AdaptiveTradingBot 中提取的交易决策逻辑
+
+增强功能：
+- 风险收益比(R/R)门禁
+- 市场结构判断
+- 交易员级仓位管理建议
 """
 
 import logging
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
+
+# R/R比门禁阈值
+MIN_RR_RATIO = 1.5  # 最低可接受R/R比
+GOOD_RR_RATIO = 2.0  # 良好R/R比
 
 
 class DecisionEngine:
@@ -64,8 +73,39 @@ class DecisionEngine:
                 )
                 return {"action": "skip", "reason": "高波动市场禁止开仓",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
-            return {"action": "open", "reason": "AI信号买入",
-                    "confidence": selected.confidence, "strategy": selected.strategy_type}
+
+            # R/R比门禁：从integrator结果中获取
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
+            market_structure = market_data.get("market_structure", "sideways")
+
+            if rr_ratio > 0 and rr_ratio < MIN_RR_RATIO:
+                logger.warning(
+                    f"[R/R门禁] R/R={rr_ratio:.2f} < {MIN_RR_RATIO}，风险收益比不足，禁止开仓"
+                )
+                return {"action": "skip",
+                        "reason": f"R/R={rr_ratio:.2f}不足(最低{MIN_RR_RATIO})",
+                        "confidence": selected.confidence, "strategy": selected.strategy_type}
+
+            # 市场结构判断：下跌结构中禁止做多
+            if market_structure == "bearish":
+                logger.warning(
+                    f"[市场结构] 下跌结构中禁止做多"
+                )
+                return {"action": "skip", "reason": "市场结构为下跌，禁止做多",
+                        "confidence": selected.confidence, "strategy": selected.strategy_type}
+
+            # 仓位建议：基于R/R比
+            position_advice = ""
+            if rr_ratio >= GOOD_RR_RATIO:
+                position_advice = f"R/R={rr_ratio:.2f}良好，正常仓位"
+            elif rr_ratio >= MIN_RR_RATIO:
+                position_advice = f"R/R={rr_ratio:.2f}勉强，建议减仓"
+
+            result = {"action": "open", "reason": "AI信号买入",
+                      "confidence": selected.confidence, "strategy": selected.strategy_type}
+            if position_advice:
+                result["position_advice"] = position_advice
+            return result
 
         # SHORT 信号处理
         if signal == "SHORT":
