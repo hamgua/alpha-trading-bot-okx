@@ -570,6 +570,14 @@ class AISignalIntegrator:
                             f"R/R={rr_result.rr_ratio:.2f}不足(最低1.5)"
                         )
 
+                # HOLD信号时，市场结构确认（诊断增强，不修改逻辑）
+                elif original_signal == "HOLD" and structure_result.risk_reward_ratio > 0:
+                    if structure_result.risk_reward_ratio < 1.5:
+                        result.adjustments_made.append(
+                            f"市场结构确认: R/R={structure_result.risk_reward_ratio:.2f}不足，"
+                            f"HOLD决策合理"
+                        )
+
         except Exception as e:
             logger.warning(
                 f"市场结构/R/R分析失败: {e}, 位置: {traceback.format_exc(limit=3)}"

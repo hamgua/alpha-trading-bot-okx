@@ -258,6 +258,19 @@ class AdaptiveTradingBot:
             ai_signal = SignalProcessor.process(ai_signal)
             logger.info(f"[AI] 原始信号: {ai_signal}")
 
+            # 5.5 HOLD+无持仓快速退出：避免两个"不操作"信号叠加浪费周期
+            if ai_signal == "HOLD":
+                position_data_early = (
+                    await self._exchange.get_position_with_retry(
+                        max_retries=1, retry_delay=0.5
+                    )
+                    or {}
+                )
+                if not position_data_early.get("amount", 0) > 0:
+                    logger.info("[快速退出] AI=HOLD + 无持仓，跳过后续策略选择和决策流程")
+                    logger.info("=" * 60)
+                    return
+
             # 6. 策略选择（此时还没有持仓数据）
             selected = self.strategy_manager.analyze_and_select(
                 market_data,
@@ -305,7 +318,7 @@ class AdaptiveTradingBot:
                 logger.info("跳过后续交易，等待下一个周期")
                 return
 
-            # 9. 规则评估
+            # 9. 规则评估（缓存结果供后续使用）
             perf = self.performance_tracker.get_performance_metrics()
             market_state = self.regime_detector.detect(market_data)
             rule_result = self.rules_engine.evaluate_all(market_state, perf)
@@ -347,7 +360,7 @@ class AdaptiveTradingBot:
                 logger.info("=" * 60)
                 return
 
-            # 11. 执行交易
+            # 11. 执行交易（传入缓存的规则结果）
             await self._execute_trade(
                 final_signal["action"],
                 current_price,
@@ -355,6 +368,7 @@ class AdaptiveTradingBot:
                 position_data,
                 market_data,
                 selected_strategy=selected,
+                cached_rule_result=rule_result,
             )
             # 检测到空单平仓后，跳过后续所有交易，等待下一个周期
             if final_signal.get("action") == "close_short":
@@ -393,6 +407,7 @@ class AdaptiveTradingBot:
         position_data: Dict[str, Any],
         market_data: Dict[str, Any],
         selected_strategy: Optional[Any] = None,
+        cached_rule_result: Optional[Dict[str, Any]] = None,
     ) -> None:
         """执行交易"""
         logger.info(f"[执行] {action}: {current_price}")
@@ -407,18 +422,25 @@ class AdaptiveTradingBot:
         # 获取交易参数
         params = self.param_manager.get_parameters()
 
-        # === P3: 获取规则引擎的调整 ===
+        # === P3: 获取规则引擎的调整（优先使用缓存） ===
         rule_adjustments = {}
-        perf = self.performance_tracker.get_performance_metrics()
-        market_state = self.regime_detector.detect(market_data)
-        rule_result = self.rules_engine.evaluate_all(market_state, perf)
-
-        if rule_result["adjustments"]:
-            rule_adjustments = rule_result["adjustments"]
+        if cached_rule_result and cached_rule_result.get("adjustments"):
+            rule_adjustments = cached_rule_result["adjustments"]
             logger.info(
-                f"[规则] 触发 {len(rule_result['triggered_rules'])} 个规则: "
-                f"{rule_result['triggered_rules']}"
+                f"[规则] 使用缓存结果: 触发 {len(cached_rule_result.get('triggered_rules', []))} 个规则: "
+                f"{cached_rule_result.get('triggered_rules', [])}"
             )
+        else:
+            perf = self.performance_tracker.get_performance_metrics()
+            market_state = self.regime_detector.detect(market_data)
+            rule_result = self.rules_engine.evaluate_all(market_state, perf)
+
+            if rule_result["adjustments"]:
+                rule_adjustments = rule_result["adjustments"]
+                logger.info(
+                    f"[规则] 触发 {len(rule_result['triggered_rules'])} 个规则: "
+                    f"{rule_result['triggered_rules']}"
+                )
             # 应用规则调整到参数
             self.param_manager.config.apply_adjustments(rule_adjustments)
 

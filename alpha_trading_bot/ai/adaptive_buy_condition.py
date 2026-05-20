@@ -734,6 +734,10 @@ class AdaptiveBuyCondition:
 
         # 非上涨趋势不适用回调买入
         if trend_direction != "up":
+            if trend_direction == "sideways" and trend_strength < 0.08:
+                reason = "回调买入: 弱震荡市不适用(需明确上涨趋势)"
+            else:
+                reason = "回调买入: 非上涨趋势，不适用"
             return {
                 "passed": False,
                 "confidence": 0.35,
@@ -745,7 +749,7 @@ class AdaptiveBuyCondition:
                 },
                 "pass_rate": 0.25,
                 "position_factor": c.pullback_position_factor,
-                "reason": "回调买入: 非上涨趋势，不适用",
+                "reason": reason,
             }
 
         # 检查RSI是否在回调区间（从高位回落但仍偏强）

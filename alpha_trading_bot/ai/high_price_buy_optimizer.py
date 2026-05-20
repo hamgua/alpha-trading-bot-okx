@@ -161,6 +161,9 @@ class HighPriceBuyOptimizer:
         # 判断是否为原始 BUY 信号
         is_original_buy = original_signal.upper() == "BUY"
 
+        # P1优化: HOLD信号免惩罚——HOLD本身表示"不操作"，降低其置信度无实际意义
+        is_hold_signal = original_signal.upper() == "HOLD"
+
         # BUY 信号惩罚系数
         penalty_factor = 1.0
 
@@ -169,40 +172,42 @@ class HighPriceBuyOptimizer:
             penalty_factor = self.config.strong_trend_penalty_reduction
             adjustment_reason += f"强趋势({trend_strength:.2f}>0.8): 惩罚减免50%; "
 
-        # 6.1 价格水平调整
-        if price_level == "high":
+        # 6.1 价格水平调整 (HOLD信号跳过惩罚)
+        if not is_hold_signal and price_level == "high":
             if original_confidence < 0.75:
                 adjusted_confidence = max(
                     adjusted_confidence - (0.10 * penalty_factor), 0.35
                 )
                 adjustment_reason += f"高位警告: 置信度降低{10 * penalty_factor:.0f}%; "
 
-        # 6.2 价格位置检查
-        if price_position >= thresholds["price_position_threshold"]:
+        # 6.2 价格位置检查 (HOLD信号跳过惩罚)
+        if not is_hold_signal and price_position >= thresholds["price_position_threshold"]:
             adjusted_confidence = max(
                 adjusted_confidence - (0.15 * penalty_factor), 0.35
             )
             adjustment_reason += f"价格位置过高({price_position:.1f}%>{thresholds['price_position_threshold']}%): 置信度降低{15 * penalty_factor:.0f}%; "
             penalty_applied = True
 
-        # 6.3 RSI检查
-        if rsi >= thresholds["rsi_threshold"]:
+        # 6.3 RSI检查 - 渐进式惩罚 (HOLD信号跳过惩罚)
+        if not is_hold_signal and rsi >= thresholds["rsi_threshold"]:
+            overshoot = (rsi - thresholds["rsi_threshold"]) / 10
+            rsi_penalty = min(overshoot * 0.12, 0.12) * penalty_factor
             adjusted_confidence = max(
-                adjusted_confidence - (0.12 * penalty_factor), 0.35
+                adjusted_confidence - rsi_penalty, 0.35
             )
-            adjustment_reason += f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低{12 * penalty_factor:.0f}%; "
+            adjustment_reason += f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低{rsi_penalty * 100:.1f}%; "
             penalty_applied = True
 
-        # 6.4 趋势强度检查
-        if trend_strength < thresholds["trend_strength_threshold"]:
+        # 6.4 趋势强度检查 (HOLD信号跳过惩罚)
+        if not is_hold_signal and trend_strength < thresholds["trend_strength_threshold"]:
             adjusted_confidence = max(
                 adjusted_confidence - (0.05 * penalty_factor), 0.35
             )
             adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低{5 * penalty_factor:.0f}%; "
             penalty_applied = True
 
-        # 6.5 价格位置上升惩罚
-        if len(self.price_history) >= 5:
+        # 6.5 价格位置上升惩罚 (HOLD信号跳过惩罚)
+        if not is_hold_signal and len(self.price_history) >= 5:
             position_change = self._calculate_price_position_change()
             if position_change > self.config.price_position_rise_threshold:
                 penalty = self.config.price_position_rise_penalty * penalty_factor
@@ -210,14 +215,15 @@ class HighPriceBuyOptimizer:
                 adjustment_reason += f"价格位置快速上升({position_change:.1f}%): 置信度降低{penalty * 100:.0f}%; "
                 penalty_applied = True
 
-        # 6.6 近期高点检测
-        near_high = self._is_near_recent_high(price)
-        if near_high:
-            adjusted_confidence = max(
-                adjusted_confidence - (0.08 * penalty_factor), 0.35
-            )
-            adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
-            penalty_applied = True
+        # 6.6 近期高点检测 (HOLD信号跳过惩罚)
+        if not is_hold_signal:
+            near_high = self._is_near_recent_high(price)
+            if near_high:
+                adjusted_confidence = max(
+                    adjusted_confidence - (0.08 * penalty_factor), 0.35
+                )
+                adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
+                penalty_applied = True
 
         # 6.7 低位/超卖奖励机制
         reward_applied = False
