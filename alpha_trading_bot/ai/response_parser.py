@@ -83,6 +83,13 @@ class ResponseParser:
             return "sell"
         elif "hold" in response:
             return "hold"
+        # 中文信号关键词回退（reasoning_content中可能使用中文）
+        elif "买入" in response and "卖出" not in response and "持有" not in response:
+            return "buy"
+        elif "卖出" in response and "持有" not in response:
+            return "sell"
+        elif "持有" in response or "观望" in response:
+            return "hold"
         else:
             logger.warning(f"无法解析响应: {response}，默认hold")
             return "hold"

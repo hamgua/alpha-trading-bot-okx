@@ -197,6 +197,9 @@ class AISignalIntegrator:
             adjustments_made=[],
         )
 
+        # 统一信号为大写，避免大小写不一致导致比较逻辑遗漏
+        original_signal = original_signal.upper()
+
         # 置信度范围校验: 确保 confidence 在 0-1 范围内
         if original_confidence > 1:
             logger.warning(

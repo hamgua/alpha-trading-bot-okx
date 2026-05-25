@@ -259,6 +259,8 @@ class AdaptiveTradingBot:
             logger.info(f"[AI] 原始信号: {ai_signal}")
 
             # 5.5 HOLD+无持仓快速退出：避免两个"不操作"信号叠加浪费周期
+            # 优化：AI=HOLD时仍允许策略层评估，高置信度策略BUY可覆盖AI-HOLD
+            fast_exit = False
             if ai_signal == "HOLD":
                 position_data_early = (
                     await self._exchange.get_position_with_retry(
@@ -267,9 +269,9 @@ class AdaptiveTradingBot:
                     or {}
                 )
                 if not position_data_early.get("amount", 0) > 0:
-                    logger.info("[快速退出] AI=HOLD + 无持仓，跳过后续策略选择和决策流程")
-                    logger.info("=" * 60)
-                    return
+                    logger.info(
+                        "[信号评估] AI=HOLD + 无持仓，继续评估策略信号..."
+                    )
 
             # 6. 策略选择（此时还没有持仓数据）
             selected = self.strategy_manager.analyze_and_select(

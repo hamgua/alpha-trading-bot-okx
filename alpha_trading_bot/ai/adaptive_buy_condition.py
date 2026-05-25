@@ -346,7 +346,7 @@ class AdaptiveBuyCondition:
 
         # 🔴 核心修复：下跌趋势时直接返回不通过
         if trend_direction == "down":
-            logger.warning(
+            logger.debug(
                 f"[超卖反弹] 趋势向下({trend_direction})，禁止触发超卖反弹买入"
             )
             return {
@@ -444,7 +444,7 @@ class AdaptiveBuyCondition:
 
         # 🔴 核心修复：下跌趋势时禁止强势支撑买入
         if trend_direction == "down":
-            logger.warning(f"[强势支撑] 趋势向下({trend_direction})，禁止触发买入")
+            logger.debug(f"[强势支撑] 趋势向下({trend_direction})，禁止触发买入")
             return {
                 "passed": False,
                 "confidence": 0.35,

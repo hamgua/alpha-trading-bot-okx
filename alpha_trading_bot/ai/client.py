@@ -67,10 +67,14 @@ class SignalCache:
 
     def _generate_key(self, market_data: Dict[str, Any]) -> str:
         """生成缓存键"""
+        technical = market_data.get("technical", {})
         key_data = {
             "price": market_data.get("price", 0),
-            "rsi": market_data.get("technical", {}).get("rsi", 50),
-            "trend": market_data.get("technical", {}).get("trend_direction", ""),
+            "rsi": technical.get("rsi", 50),
+            "trend": technical.get("trend_direction", ""),
+            "trend_strength": round(float(technical.get("trend_strength", 0)), 2),
+            "price_position": round(float(technical.get("price_position", 0.5)), 2),
+            "macd_hist": round(float(technical.get("macd_hist", 0)), 4),
         }
         key_str = str(sorted(key_data.items()))
         return hashlib.sha256(key_str.encode()).hexdigest()
@@ -79,17 +83,21 @@ class SignalCache:
         """获取缓存的信号"""
         key = self._generate_key(market_data)
         if key in self._cache:
-            signal, timestamp, confidence = self._cache[key]
-            if time.time() - timestamp < self._ttl:
+            entry = self._cache[key]
+            signal, timestamp, confidence = entry[0], entry[1], entry[2]
+            entry_ttl = entry[3] if len(entry) > 3 else self._ttl
+            if time.time() - timestamp < entry_ttl:
                 logger.info(f"[AI缓存] 命中缓存: {signal} (置信度: {confidence:.0%})")
                 return signal
         return None
 
     def set(self, market_data: Dict[str, Any], signal: str, confidence: float) -> None:
-        """设置缓存"""
+        """设置缓存，HOLD信号使用更短的TTL以避免掩盖新交易机会"""
         key = self._generate_key(market_data)
-        self._cache[key] = (signal, time.time(), confidence)
-        logger.debug(f"[AI缓存] 已缓存信号: {signal}")
+        hold_ttl = 180  # HOLD信号仅缓存3分钟
+        entry_ttl = self._ttl if signal.upper() != "HOLD" else hold_ttl
+        self._cache[key] = (signal, time.time(), confidence, entry_ttl)
+        logger.debug(f"[AI缓存] 已缓存信号: {signal}, TTL={entry_ttl}s")
 
     def clear(self) -> None:
         """清除缓存"""
@@ -99,7 +107,8 @@ class SignalCache:
     def get_stats(self) -> Dict[str, Any]:
         """获取缓存统计"""
         valid_count = sum(
-            1 for _, (_, ts, _) in self._cache.items() if time.time() - ts < self._ttl
+            1 for _, entry in self._cache.items()
+            if time.time() - entry[1] < (entry[3] if len(entry) > 3 else self._ttl)
         )
         return {
             "total_entries": len(self._cache),
@@ -576,8 +585,9 @@ class AIClient:
 
         # MiniMax / DeepSeek 使用推理模型，思考过程长，需要更多 output tokens
         # DeepSeek Thinking Mode 的 max_tokens 包含 CoT（链式思考）部分
+        # 原800tokens导致reasoning消耗完全部配额，content为空 → 默认hold
         if provider in ("minimax", "deepseek"):
-            data["max_tokens"] = 800
+            data["max_tokens"] = 2000  # 800→2000，确保推理后仍有足够空间输出答案
 
         # 根据提供商类型设置不同的超时时间
         timeout_config = self._get_timeout_config(provider)
@@ -652,10 +662,26 @@ class AIClient:
                     # DeepSeek Thinking Mode: content 可能为空，
                     # 推理内容在 reasoning_content 中
                     if not content.strip() and message.get("reasoning_content"):
+                        reasoning_text = message.get("reasoning_content", "")
                         logger.warning(
                             f"AI[{provider}] content为空但存在reasoning_content，"
                             "Thinking Mode可能因max_tokens不足导致最终答案被截断"
                         )
+                        # 尝试从reasoning_content末尾提取信号决策
+                        extracted = self._extract_signal_from_reasoning(
+                            reasoning_text
+                        )
+                        if extracted:
+                            content = extracted
+                            logger.info(
+                                f"AI[{provider}] 从reasoning_content提取到信号文本: "
+                                f"{content[:100]}"
+                            )
+                        else:
+                            logger.warning(
+                                f"AI[{provider}] reasoning_content中也无法提取信号，"
+                                "将触发重试"
+                            )
                     if provider == "gemini":
                         record_gemini_request(True)
                     return content.strip()
@@ -692,6 +718,34 @@ class AIClient:
 
         timeout_seconds = timeout_map.get(provider, 60)
         return aiohttp_module.ClientTimeout(total=timeout_seconds)
+
+    @staticmethod
+    def _extract_signal_from_reasoning(reasoning_text: str) -> str:
+        """从reasoning_content末尾提取信号决策文本。
+
+        DeepSeek Thinking Mode在max_tokens不足时，最终答案可能
+        只存在于reasoning_content的推理链末尾而非content字段。
+        """
+        if not reasoning_text or not reasoning_text.strip():
+            return ""
+
+        tail = reasoning_text[-500:] if len(reasoning_text) > 500 else reasoning_text
+        tail_lower = tail.lower()
+
+        signal_keywords = [
+            ("buy", r"\bbuy\b"),
+            ("sell", r"\bsell\b"),
+            ("hold", r"\bhold\b"),
+            ("short", r"\bshort\b"),
+            ("buy", r"买入"),
+            ("sell", r"卖出"),
+            ("hold", r"持有|观望"),
+        ]
+        for signal, pattern in signal_keywords:
+            if re.search(pattern, tail_lower):
+                return f"{signal} confidence:60%"
+
+        return ""
 
 
 async def get_signal(market_data: Dict[str, Any], mode: str = "single") -> str:

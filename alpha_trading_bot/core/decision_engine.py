@@ -13,8 +13,8 @@ from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-# R/R比门禁阈值
-MIN_RR_RATIO = 1.5  # 最低可接受R/R比
+# R/R比门禁阈值（原1.5过于严格，加密货币市场R/R<1.5很常见）
+MIN_RR_RATIO = 1.2  # 1.5→1.2
 GOOD_RR_RATIO = 2.0  # 良好R/R比
 
 
@@ -49,6 +49,18 @@ class DecisionEngine:
             if is_downtrend and signal == "SHORT":
                 logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
             elif not has_position:
+                # safe_mode + 上升趋势 + AI=BUY: 允许减半仓位开仓
+                if trend_direction == "up" and signal == "BUY":
+                    logger.info(
+                        "[安全] 安全模式+上升趋势+AI=BUY，允许减半仓位开仓"
+                    )
+                    return {
+                        "action": "open",
+                        "reason": "安全模式减半开仓: 上升趋势+AI=BUY",
+                        "confidence": selected.confidence * 0.5,
+                        "strategy": "safe_mode_reduced",
+                        "position_advice": "安全模式，建议半仓",
+                    }
                 logger.info("[安全] 安全模式触发，但无持仓，跳过降低仓位")
                 return {
                     "action": "skip",
@@ -67,9 +79,11 @@ class DecisionEngine:
 
         # BUY 信号处理
         if signal == "BUY":
-            if atr_percent > 0.40:
+            # BTC波动率40%在加密货币市场属于常见水平，不应做绝对禁止条件
+            # 原0.40→0.55，避免在常见波动环境下过度保守
+            if atr_percent > 0.55:
                 logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，高波动市场禁止开仓"
+                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止开仓"
                 )
                 return {"action": "skip", "reason": "高波动市场禁止开仓",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
@@ -109,9 +123,9 @@ class DecisionEngine:
 
         # SHORT 信号处理
         if signal == "SHORT":
-            if atr_percent > 0.40:
+            if atr_percent > 0.55:
                 logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，高波动市场禁止做空"
+                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止做空"
                 )
                 return {"action": "skip", "reason": "高波动市场禁止做空",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
@@ -141,9 +155,9 @@ class DecisionEngine:
 
         # HOLD 信号处理
         if signal == "HOLD":
-            if atr_percent > 0.40:
+            if atr_percent > 0.55:
                 logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 40%，HOLD信号下完全停仓"
+                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，HOLD信号下完全停仓"
                 )
                 return {"action": "skip",
                         "reason": f"AI-HOLD+高波动停仓(ATR={atr_percent * 100:.1f}%)",
@@ -151,6 +165,28 @@ class DecisionEngine:
             if selected.signal.upper() == "HOLD":
                 return {"action": "skip", "reason": "AI和策略都是HOLD",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
+            # 策略信号与AI-HOLD冲突：高置信度策略BUY可覆盖AI-HOLD
+            market_structure = market_data.get("market_structure", "sideways")
+            if (
+                selected.signal.upper() == "BUY"
+                and selected.confidence >= 0.80
+                and market_structure != "bearish"
+            ):
+                logger.info(
+                    f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD"
+                )
+                result = {
+                    "action": "open",
+                    "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%})",
+                    "confidence": selected.confidence * 0.8,  # 降权20%作为保守处理
+                    "strategy": selected.strategy_type,
+                }
+                rr_ratio = market_data.get("risk_reward_ratio", 0)
+                if rr_ratio >= GOOD_RR_RATIO:
+                    result["position_advice"] = f"R/R={rr_ratio:.2f}良好，正常仓位"
+                elif rr_ratio >= MIN_RR_RATIO:
+                    result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
+                return result
             logger.warning(
                 f"[决策] AI-HOLD但策略={selected.signal}，保守处理"
             )

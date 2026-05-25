@@ -140,11 +140,25 @@ class TestDecisionEngineRR:
 
     # === 高波动门禁仍然生效 ===
 
-    def test_buy_blocked_by_high_volatility(self):
-        """测试高波动仍然阻止开仓"""
+    def test_buy_allowed_under_moderate_volatility(self):
+        """测试中等波动(ATR=45%)允许开仓（阈值已从40%调整到55%）"""
         selected = self._make_selected("BUY")
         market_data = {
             "technical": {"atr_percent": 0.45, "rsi": 50},
+            "has_position": False,
+            "risk_reward_ratio": 3.0,
+            "market_structure": "bullish",
+        }
+
+        result = self.engine.make_decision("BUY", selected, market_data)
+
+        assert result["action"] == "open"
+
+    def test_buy_blocked_by_high_volatility(self):
+        """测试极端高波动(ATR>55%)仍然阻止开仓"""
+        selected = self._make_selected("BUY")
+        market_data = {
+            "technical": {"atr_percent": 0.60, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 3.0,
             "market_structure": "bullish",
