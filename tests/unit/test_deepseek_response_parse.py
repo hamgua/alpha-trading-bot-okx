@@ -159,7 +159,7 @@ class TestAIClientDeepSeekHandling:
     """测试 AIClient 对 DeepSeek 的特殊处理"""
 
     def test_deepseek_max_tokens_increased(self):
-        """验证 DeepSeek 的 max_tokens 设为 800"""
+        """验证 DeepSeek 的 max_tokens 设为 2000"""
         from alpha_trading_bot.ai.client import AIClient
 
         client = AIClient(enable_cache=False)
@@ -167,10 +167,10 @@ class TestAIClientDeepSeekHandling:
 
         source = inspect.getsource(client._call_ai)
         assert '"deepseek"' in source or "'deepseek'" in source
-        assert "800" in source
+        assert "2000" in source
 
     def test_minimax_max_tokens_unchanged(self):
-        """T19: MiniMax 的 max_tokens 仍为 800（回归测试）"""
+        """T19: MiniMax 的 max_tokens 也设为 2000（回归测试）"""
         from alpha_trading_bot.ai.client import AIClient
 
         client = AIClient(enable_cache=False)
@@ -178,7 +178,7 @@ class TestAIClientDeepSeekHandling:
 
         source = inspect.getsource(client._call_ai)
         assert "minimax" in source
-        assert "800" in source
+        assert "2000" in source
 
 
 class TestReasoningContentHandling:

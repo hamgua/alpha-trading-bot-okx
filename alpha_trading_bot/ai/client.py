@@ -94,7 +94,7 @@ class SignalCache:
     def set(self, market_data: Dict[str, Any], signal: str, confidence: float) -> None:
         """设置缓存，HOLD信号使用更短的TTL以避免掩盖新交易机会"""
         key = self._generate_key(market_data)
-        hold_ttl = 180  # HOLD信号仅缓存3分钟
+        hold_ttl = 120  # HOLD信号缓存2分钟，更快发现新交易机会
         entry_ttl = self._ttl if signal.upper() != "HOLD" else hold_ttl
         self._cache[key] = (signal, time.time(), confidence, entry_ttl)
         logger.debug(f"[AI缓存] 已缓存信号: {signal}, TTL={entry_ttl}s")
@@ -743,7 +743,7 @@ class AIClient:
         ]
         for signal, pattern in signal_keywords:
             if re.search(pattern, tail_lower):
-                return f"{signal} confidence:60%"
+                return f"{signal} confidence:70%"
 
         return ""
 

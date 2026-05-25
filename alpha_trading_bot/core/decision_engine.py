@@ -3,18 +3,26 @@
 从 AdaptiveTradingBot 中提取的交易决策逻辑
 
 增强功能：
-- 风险收益比(R/R)门禁
+- 风险收益比(R/R)门禁 - 按投资类型差异化
 - 市场结构判断
 - 交易员级仓位管理建议
+- safe_mode减半开仓辅助条件
 """
 
 import logging
+import os
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-# R/R比门禁阈值（原1.5过于严格，加密货币市场R/R<1.5很常见）
-MIN_RR_RATIO = 1.2  # 1.5→1.2
+# R/R比门禁阈值 - 按投资类型差异化
+# 加密货币市场R/R<1.5很常见，原1.5过于严格
+INVESTMENT_RR_THRESHOLDS = {
+    "conservative": 1.0,  # 保守型: 低频交易为主，R/R 1.0+即可
+    "moderate": 1.2,      # 中等型: 当前默认值（原1.5→1.2）
+    "aggressive": 0.8,    # 激进型: 高频参与，低R/R也可接受
+}
+DEFAULT_RR_THRESHOLD = 1.2  # 无投资类型配置时的默认值
 GOOD_RR_RATIO = 2.0  # 良好R/R比
 
 
@@ -23,6 +31,23 @@ class DecisionEngine:
 
     def __init__(self, config: Any):
         self._config = config
+        # 从配置中获取投资类型，决定R/R门禁阈值
+        self._investment_type = self._detect_investment_type()
+        self._min_rr = INVESTMENT_RR_THRESHOLDS.get(
+            self._investment_type, DEFAULT_RR_THRESHOLD
+        )
+        logger.info(
+            f"[决策引擎] 投资类型={self._investment_type}, "
+            f"R/R最低阈值={self._min_rr}"
+        )
+
+    def _detect_investment_type(self) -> str:
+        """检测投资类型（从环境变量读取）"""
+        return os.getenv("INVESTMENT_TYPE", "moderate").lower()
+
+    def _get_min_rr(self) -> float:
+        """获取当前投资类型的最低R/R阈值"""
+        return self._min_rr
 
     def make_decision(
         self,
@@ -45,22 +70,35 @@ class DecisionEngine:
         if is_safe_mode:
             trend_direction = technical.get("trend_direction", "neutral")
             is_downtrend = trend_direction == "down"
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
 
             if is_downtrend and signal == "SHORT":
                 logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
             elif not has_position:
-                # safe_mode + 上升趋势 + AI=BUY: 允许减半仓位开仓
-                if trend_direction == "up" and signal == "BUY":
+                # safe_mode + 上升趋势 + AI=BUY + 辅助条件: 允许减半仓位开仓
+                # 辅助条件: R/R>=1.0 且 ATR<40%，确保收益覆盖风险且波动可控
+                if (
+                    trend_direction == "up"
+                    and signal == "BUY"
+                    and rr_ratio >= 1.0
+                    and atr_percent < 0.40
+                ):
                     logger.info(
-                        "[安全] 安全模式+上升趋势+AI=BUY，允许减半仓位开仓"
+                        "[安全] 安全模式+上升趋势+AI=BUY+R/R≥1.0+ATR<40%，"
+                        "允许减半仓位开仓"
                     )
                     return {
                         "action": "open",
-                        "reason": "安全模式减半开仓: 上升趋势+AI=BUY",
+                        "reason": "安全模式减半开仓: 上升趋势+AI=BUY+R/R≥1.0+ATR<40%",
                         "confidence": selected.confidence * 0.5,
                         "strategy": "safe_mode_reduced",
                         "position_advice": "安全模式，建议半仓",
                     }
+                elif trend_direction == "up" and signal == "BUY":
+                    logger.info(
+                        f"[安全] 安全模式+上升趋势+AI=BUY，但辅助条件不满足 "
+                        f"(R/R={rr_ratio:.2f}, ATR={atr_percent * 100:.1f}%)，跳过"
+                    )
                 logger.info("[安全] 安全模式触发，但无持仓，跳过降低仓位")
                 return {
                     "action": "skip",
@@ -92,12 +130,12 @@ class DecisionEngine:
             rr_ratio = market_data.get("risk_reward_ratio", 0)
             market_structure = market_data.get("market_structure", "sideways")
 
-            if rr_ratio > 0 and rr_ratio < MIN_RR_RATIO:
+            if rr_ratio > 0 and rr_ratio < self._get_min_rr():
                 logger.warning(
-                    f"[R/R门禁] R/R={rr_ratio:.2f} < {MIN_RR_RATIO}，风险收益比不足，禁止开仓"
+                    f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
                 )
                 return {"action": "skip",
-                        "reason": f"R/R={rr_ratio:.2f}不足(最低{MIN_RR_RATIO})",
+                        "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
 
             # 市场结构判断：下跌结构中禁止做多
@@ -112,7 +150,7 @@ class DecisionEngine:
             position_advice = ""
             if rr_ratio >= GOOD_RR_RATIO:
                 position_advice = f"R/R={rr_ratio:.2f}良好，正常仓位"
-            elif rr_ratio >= MIN_RR_RATIO:
+            elif rr_ratio >= self._get_min_rr():
                 position_advice = f"R/R={rr_ratio:.2f}勉强，建议减仓"
 
             result = {"action": "open", "reason": "AI信号买入",
@@ -184,7 +222,7 @@ class DecisionEngine:
                 rr_ratio = market_data.get("risk_reward_ratio", 0)
                 if rr_ratio >= GOOD_RR_RATIO:
                     result["position_advice"] = f"R/R={rr_ratio:.2f}良好，正常仓位"
-                elif rr_ratio >= MIN_RR_RATIO:
+                elif rr_ratio >= self._get_min_rr():
                     result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
                 return result
             logger.warning(
