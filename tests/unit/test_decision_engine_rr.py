@@ -47,13 +47,13 @@ class TestDecisionEngineRR:
     # === R/R门禁测试 - 默认投资类型(moderate) ===
 
     def test_buy_blocked_by_low_rr(self):
-        """测试低R/R比阻止BUY开仓（moderate类型，阈值1.2）"""
+        """测试低R/R比阻止BUY开仓（moderate类型，阈值1.0）"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
             "technical": {"atr_percent": 0.02, "rsi": 50},
             "has_position": False,
-            "risk_reward_ratio": 1.0,  # R/R < 1.2
+            "risk_reward_ratio": 0.9,  # R/R < 1.0
             "market_structure": "bullish",
         }
 
@@ -201,67 +201,26 @@ class TestDecisionEngineRR:
     # === R/R门禁投资类型差异化测试 ===
 
     def test_conservative_rr_threshold(self):
-        """测试保守型投资R/R阈值=1.0"""
+        """测试保守型投资R/R阈值=0.8"""
         os.environ["INVESTMENT_TYPE"] = "conservative"
         engine = DecisionEngine(self.config)
 
-        assert engine._get_min_rr() == 1.0
+        assert engine._get_min_rr() == 0.8
 
         selected = self._make_selected("BUY")
-        # R/R=1.1 > 1.0，保守型应允许
+        # R/R=0.9 > 0.8，保守型应允许
         market_data = {
             "technical": {"atr_percent": 0.02, "rsi": 50},
             "has_position": False,
-            "risk_reward_ratio": 1.1,
+            "risk_reward_ratio": 0.9,
             "market_structure": "bullish",
         }
         result = engine.make_decision("BUY", selected, market_data)
         assert result["action"] == "open"
 
     def test_conservative_rr_blocks_below_threshold(self):
-        """测试保守型投资R/R<1.0被阻止"""
+        """测试保守型投资R/R<0.8被阻止"""
         os.environ["INVESTMENT_TYPE"] = "conservative"
-        engine = DecisionEngine(self.config)
-
-        selected = self._make_selected("BUY")
-        market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
-            "has_position": False,
-            "risk_reward_ratio": 0.9,
-            "market_structure": "bullish",
-        }
-        result = engine.make_decision("BUY", selected, market_data)
-        assert result["action"] == "skip"
-        assert "R/R" in result["reason"]
-
-    def test_moderate_rr_threshold(self):
-        """测试中等型投资R/R阈值=1.2（默认）"""
-        os.environ.pop("INVESTMENT_TYPE", None)
-        engine = DecisionEngine(self.config)
-
-        assert engine._get_min_rr() == 1.2
-
-    def test_aggressive_rr_threshold(self):
-        """测试激进型投资R/R阈值=0.8"""
-        os.environ["INVESTMENT_TYPE"] = "aggressive"
-        engine = DecisionEngine(self.config)
-
-        assert engine._get_min_rr() == 0.8
-
-        selected = self._make_selected("BUY")
-        # R/R=0.9 > 0.8，激进型应允许
-        market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
-            "has_position": False,
-            "risk_reward_ratio": 0.9,
-            "market_structure": "bullish",
-        }
-        result = engine.make_decision("BUY", selected, market_data)
-        assert result["action"] == "open"
-
-    def test_aggressive_rr_blocks_below_threshold(self):
-        """测试激进型投资R/R<0.8被阻止"""
-        os.environ["INVESTMENT_TYPE"] = "aggressive"
         engine = DecisionEngine(self.config)
 
         selected = self._make_selected("BUY")
@@ -269,6 +228,47 @@ class TestDecisionEngineRR:
             "technical": {"atr_percent": 0.02, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
+            "market_structure": "bullish",
+        }
+        result = engine.make_decision("BUY", selected, market_data)
+        assert result["action"] == "skip"
+        assert "R/R" in result["reason"]
+
+    def test_moderate_rr_threshold(self):
+        """测试中等型投资R/R阈值=1.0（默认）"""
+        os.environ.pop("INVESTMENT_TYPE", None)
+        engine = DecisionEngine(self.config)
+
+        assert engine._get_min_rr() == 1.0
+
+    def test_aggressive_rr_threshold(self):
+        """测试激进型投资R/R阈值=0.6"""
+        os.environ["INVESTMENT_TYPE"] = "aggressive"
+        engine = DecisionEngine(self.config)
+
+        assert engine._get_min_rr() == 0.6
+
+        selected = self._make_selected("BUY")
+        # R/R=0.7 > 0.6，激进型应允许
+        market_data = {
+            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "has_position": False,
+            "risk_reward_ratio": 0.7,
+            "market_structure": "bullish",
+        }
+        result = engine.make_decision("BUY", selected, market_data)
+        assert result["action"] == "open"
+
+    def test_aggressive_rr_blocks_below_threshold(self):
+        """测试激进型投资R/R<0.6被阻止"""
+        os.environ["INVESTMENT_TYPE"] = "aggressive"
+        engine = DecisionEngine(self.config)
+
+        selected = self._make_selected("BUY")
+        market_data = {
+            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "has_position": False,
+            "risk_reward_ratio": 0.5,
             "market_structure": "bullish",
         }
         result = engine.make_decision("BUY", selected, market_data)

@@ -356,7 +356,7 @@ class StopLossConfig:
         if self.stop_loss_percent <= 0 or self.stop_loss_percent > 1:
             errors.append(f"止损比例 {self.stop_loss_percent} 不在有效范围 (0-1)")
         if self.stop_loss_profit_percent <= 0 or self.stop_loss_profit_percent > 1:
-            errors.append(
+            errors.append(  
                 f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)"
             )
         if self.stop_loss_tolerance_percent < 0:

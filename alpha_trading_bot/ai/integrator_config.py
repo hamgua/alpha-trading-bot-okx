@@ -9,15 +9,15 @@ class SignalThresholdsConfig:
     """信号转换阈值配置"""
 
     # 趋势强度阈值
-    strong_trend_strength: float = 0.30
-    weak_trend_strength: float = 0.15
+    strong_trend_strength: float = 0.25
+    weak_trend_strength: float = 0.10
     strong_trend_rsi: float = 55
-    strong_trend_position_max: float = 0.30
-    strong_trend_drop_min: float = -1.5
+    strong_trend_position_max: float = 0.35
+    strong_trend_drop_min: float = -1.2
 
     # 置信度配置
-    confidence_floor: float = 0.35
-    confidence_ceiling: float = 0.95
+    confidence_floor: float = 0.30
+    confidence_ceiling: float = 0.97
     confidence_dual_confirm: float = 0.65
     confidence_sustained: float = 0.60
     confidence_general: float = 0.55

@@ -29,8 +29,8 @@ class HighPriceBuyConfig:
     price_position_threshold_high: float = 0.70
 
     # 价格水平划分
-    price_level_mid_threshold: float = 0.70  # 价格>近期70%为中高位
-    price_level_high_threshold: float = 0.85  # 价格>近期85%为高位
+    price_level_mid_threshold: float = 0.75  # 0.70→0.75，放宽中高位判定
+    price_level_high_threshold: float = 0.90  # 0.85→0.90，放宽高位判定
 
     # RSI阈值 - 牛市中大幅放宽
     rsi_threshold_low: float = 50  # 低价位RSI上限
@@ -39,12 +39,12 @@ class HighPriceBuyConfig:
 
     # 趋势强度要求 - 降低
     trend_strength_threshold_low: float = 0.05  # 低价位趋势强度
-    trend_strength_threshold_mid: float = 0.10  # 中价位趋势强度
-    trend_strength_threshold_high: float = 0.15  # 高价位趋势强度：牛市中降低
+    trend_strength_threshold_mid: float = 0.08  # 0.10→0.08，降低中位趋势要求
+    trend_strength_threshold_high: float = 0.12  # 0.15→0.12，降低高位趋势要求
 
     # 价格位置上升惩罚 - 大幅放宽
     price_position_rise_threshold: float = 0.60  # 上涨位置>60%时惩罚
-    price_position_rise_penalty: float = 0.03  # 惩罚幅度降低
+    price_position_rise_penalty: float = 0.02  # 0.03→0.02，减少上升惩罚
 
     # 近期高点检测
     recent_high_periods: int = 10

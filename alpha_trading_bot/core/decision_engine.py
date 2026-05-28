@@ -18,11 +18,11 @@ logger = logging.getLogger(__name__)
 # R/R比门禁阈值 - 按投资类型差异化
 # 加密货币市场R/R<1.5很常见，原1.5过于严格
 INVESTMENT_RR_THRESHOLDS = {
-    "conservative": 1.0,  # 保守型: 低频交易为主，R/R 1.0+即可
-    "moderate": 1.2,      # 中等型: 当前默认值（原1.5→1.2）
-    "aggressive": 0.8,    # 激进型: 高频参与，低R/R也可接受
+    "conservative": 0.8,   # 保守型: 低频交易为主，R/R 0.8+即可（原1.0→0.8）
+    "moderate": 1.0,       # 中等型: 当前默认值（原1.2→1.0）
+    "aggressive": 0.6,     # 激进型: 高频参与，低R/R也可接受（原0.8→0.6）
 }
-DEFAULT_RR_THRESHOLD = 1.2  # 无投资类型配置时的默认值
+DEFAULT_RR_THRESHOLD = 1.0  # 无投资类型配置时的默认值（原1.2→1.0）
 GOOD_RR_RATIO = 2.0  # 良好R/R比
 
 

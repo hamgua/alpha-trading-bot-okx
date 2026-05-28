@@ -36,18 +36,18 @@ class BuyConditions:
     """买入条件配置"""
 
     # 常规模式参数
-    regular_trend_strength_min: float = 0.12  # 0.15→0.12，适度放宽
+    regular_trend_strength_min: float = 0.08  # 0.12→0.08，适度放宽
     regular_rsi_max: float = 70
     regular_bb_position_max: float = 0.70
     regular_adx_min: float = 15
-    regular_momentum_min: float = 0.003
+    regular_momentum_min: float = 0.001  # 0.003→0.001，降低动量要求
 
     # 超卖反弹模式参数 - 适度放宽以增加买入机会
     oversold_enabled: bool = True
-    oversold_rsi_max: float = 38  # 35→38，适度放宽超卖阈值
-    oversold_momentum_min: float = 0.004  # 0.005→0.004，小幅降低动量要求
-    oversold_trend_strength_min: float = 0.12  # 0.15→0.12，小幅降低趋势要求
-    oversold_bb_position_max: float = 0.42  # 0.40→0.42，轻微放宽布林带位置
+    oversold_rsi_max: float = 42  # 38→42，适度放宽超卖阈值
+    oversold_momentum_min: float = 0.002  # 0.004→0.002，降低动量要求
+    oversold_trend_strength_min: float = 0.08  # 0.12→0.08，降低趋势要求
+    oversold_bb_position_max: float = 0.48  # 0.42→0.48，放宽布林带位置
     oversold_position_factor: float = 0.55  # 0.5→0.55，轻微提高仓位
 
     # 强势支撑模式参数

@@ -284,6 +284,10 @@ class TradingBot:
                 await self._update_stop_loss(current_price)
             else:
                 logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
+                logger.info(
+                    "[机会评估] 当前为HOLD信号，系统持续监控中。"
+                    "如需更多交易机会，可考虑: 1)缩短CYCLE_MINUTES 2)切换AI_FUSION模式 3)调整INVESTMENT_TYPE=aggressive"
+                )
 
         elif signal == "SELL":
             if has_position:
@@ -336,7 +340,13 @@ class TradingBot:
 
         if ExchangeClient.is_simulated_order(order_id):
             logger.info(
-                f"[开仓] TEST_MODE 模拟开仓: ID={order_id}, 跳过本地状态更新"
+                f"[模拟交易] ✅ TEST_MODE模拟开仓成功: "
+                f"价格={price}, 数量={amount}张, 杠杆={self.config.exchange.leverage}x, "
+                f"模拟订单ID={order_id}"
+            )
+            logger.info(
+                f"[模拟交易] 提示: 切换实盘需设置 TEST_MODE=false + "
+                f"REAL_TRADING_CONFIRMED=true + RUNTIME_ENVIRONMENT=prod"
             )
             return
 

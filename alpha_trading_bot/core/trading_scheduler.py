@@ -35,7 +35,7 @@ class TradingScheduler:
         now = datetime.now()
         cycle_minutes = self.trading_config.cycle_minutes
         offset_range = self.trading_config.random_offset_range
-        min_wait = max(30, cycle_minutes * 30)
+        min_wait = max(30, cycle_minutes * 20)
 
         current_minute = now.minute
         current_second = now.second
@@ -72,7 +72,7 @@ class TradingScheduler:
         now = datetime.now()
         cycle_minutes = self.trading_config.cycle_minutes
         offset_range = self.trading_config.random_offset_range
-        min_wait = max(30, cycle_minutes * 30)
+        min_wait = max(30, cycle_minutes * 20)
 
         current_minute = now.minute
         current_second = now.second
