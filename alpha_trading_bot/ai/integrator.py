@@ -526,16 +526,41 @@ class AISignalIntegrator:
                     result.risk_reward_result = rr_result
 
                     if not rr_result.should_trade:
-                        # R/R比不足，BUY降级为HOLD
-                        old_signal = original_signal
-                        original_signal = "HOLD"
-                        result.adjustments_made.append(
-                            f"R/R过滤: {old_signal}→HOLD, "
-                            f"R/R={rr_result.rr_ratio:.2f}不足(最低1.5)"
-                        )
-                        logger.info(
-                            f"[R/R过滤] {old_signal}→HOLD: R/R={rr_result.rr_ratio:.2f}不足"
-                        )
+                        if rr_result.rr_ratio <= 0:
+                            # R/R计算因数据不足返回0，降低置信度但保留BUY信号
+                            old_conf = original_confidence
+                            original_confidence *= 0.70
+                            result.adjustments_made.append(
+                                f"R/R过滤: R/R数据不足(R/R=0)，"
+                                f"置信度降低30%({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                            conf_history.append((2, "R/R数据不足", original_confidence))
+                            logger.info(
+                                f"[R/R过滤] BUY信号R/R数据不足(R/R=0)，降级但保留BUY"
+                            )
+                        elif rr_result.rr_ratio >= 1.0:
+                            # R/R在1.0-1.5之间，降低置信度但保留BUY信号（精而准策略）
+                            old_conf = original_confidence
+                            original_confidence *= 0.80
+                            result.adjustments_made.append(
+                                f"R/R过滤: R/R={rr_result.rr_ratio:.2f}偏低，"
+                                f"置信度降低20%({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                            conf_history.append((2, "R/R偏低", original_confidence))
+                            logger.info(
+                                f"[R/R过滤] BUY信号R/R={rr_result.rr_ratio:.2f}偏低，降低置信度"
+                            )
+                        else:
+                            # R/R < 1.0，风险过高，降级为HOLD
+                            old_signal = original_signal
+                            original_signal = "HOLD"
+                            result.adjustments_made.append(
+                                f"R/R过滤: {old_signal}→HOLD, "
+                                f"R/R={rr_result.rr_ratio:.2f}不足(最低1.0)"
+                            )
+                            logger.info(
+                                f"[R/R过滤] {old_signal}→HOLD: R/R={rr_result.rr_ratio:.2f}不足"
+                            )
                     elif rr_result.quality == "marginal":
                         # R/R勉强，降低置信度
                         old_conf = original_confidence
@@ -566,12 +591,27 @@ class AISignalIntegrator:
                     result.risk_reward_result = rr_result
 
                     if not rr_result.should_trade:
-                        old_signal = original_signal
-                        original_signal = "HOLD"
-                        result.adjustments_made.append(
-                            f"R/R过滤: {old_signal}→HOLD, "
-                            f"R/R={rr_result.rr_ratio:.2f}不足(最低1.5)"
-                        )
+                        if rr_result.rr_ratio <= 0:
+                            old_conf = original_confidence
+                            original_confidence *= 0.70
+                            result.adjustments_made.append(
+                                f"R/R过滤: SHORT R/R数据不足(R/R=0)，"
+                                f"置信度降低30%({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                        elif rr_result.rr_ratio >= 1.0:
+                            old_conf = original_confidence
+                            original_confidence *= 0.80
+                            result.adjustments_made.append(
+                                f"R/R过滤: SHORT R/R={rr_result.rr_ratio:.2f}偏低，"
+                                f"置信度降低20%({old_conf:.0%}→{original_confidence:.0%})"
+                            )
+                        else:
+                            old_signal = original_signal
+                            original_signal = "HOLD"
+                            result.adjustments_made.append(
+                                f"R/R过滤: {old_signal}→HOLD, "
+                                f"R/R={rr_result.rr_ratio:.2f}不足(最低1.0)"
+                            )
 
                 # HOLD信号时，市场结构确认（诊断增强，不修改逻辑）
                 elif original_signal == "HOLD" and structure_result.risk_reward_ratio > 0:

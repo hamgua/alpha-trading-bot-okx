@@ -235,7 +235,17 @@ class HighPriceBuyOptimizer:
             adjusted_confidence += reward
             reward_reason += f"极低位(位置{price_position * 100:.1f}%<20%): 置信度+{reward * 100:.0f}%; "
             reward_applied = True
-        # 6.7.2 超卖奖励
+        # 6.7.2 超卖奖励 - 分级增强
+        elif rsi < 20:
+            reward = 0.18
+            adjusted_confidence += reward
+            reward_reason += f"极度超卖(RSI={rsi:.1f}<20): 置信度+{reward * 100:.0f}%; "
+            reward_applied = True
+        elif rsi < 25:
+            reward = 0.15
+            adjusted_confidence += reward
+            reward_reason += f"严重超卖(RSI={rsi:.1f}<25): 置信度+{reward * 100:.0f}%; "
+            reward_applied = True
         elif rsi < 30:
             reward = 0.10
             adjusted_confidence += reward

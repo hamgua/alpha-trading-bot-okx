@@ -344,11 +344,30 @@ class AdaptiveBuyCondition:
         """
         c = self.conditions
 
-        # 🔴 核心修复：下跌趋势时直接返回不通过
+        # 趋势向下时的超卖反弹：严重超卖(RSI<25)允许抄底但大幅降仓
         if trend_direction == "down":
-            logger.debug(
-                f"[超卖反弹] 趋势向下({trend_direction})，禁止触发超卖反弹买入"
-            )
+            # 极端超卖时允许逆势抄底（资深交易员的"接飞刀"策略）
+            severe_oversold = rsi < 25
+            if severe_oversold:
+                base_confidence = 0.40
+                if rsi < 20:
+                    base_confidence += 0.08
+                if bb_position < 0.25:
+                    base_confidence += 0.05
+                return {
+                    "passed": True,
+                    "confidence": base_confidence,
+                    "checks": {
+                        "rsi": rsi < c.oversold_rsi_max,
+                        "momentum": recent_change > c.oversold_momentum_min,
+                        "trend": trend_strength > c.oversold_trend_strength_min,
+                        "bb": bb_position < c.oversold_bb_position_max,
+                        "trend_direction": False,
+                    },
+                    "pass_rate": 0.6,
+                    "position_factor": 0.3,
+                    "reason": f"超卖反弹: 严重超卖RSI={rsi:.0f}，逆势抄底(降仓30%)",
+                }
             return {
                 "passed": False,
                 "confidence": 0.35,
@@ -357,7 +376,7 @@ class AdaptiveBuyCondition:
                     "momentum": recent_change > c.oversold_momentum_min,
                     "trend": trend_strength > c.oversold_trend_strength_min,
                     "bb": bb_position < c.oversold_bb_position_max,
-                    "trend_direction": False,  # 强制失败
+                    "trend_direction": False,
                 },
                 "pass_rate": 0.8,
                 "position_factor": c.oversold_position_factor,
@@ -442,8 +461,27 @@ class AdaptiveBuyCondition:
         except (ValueError, TypeError):
             price_position = 0.5
 
-        # 🔴 核心修复：下跌趋势时禁止强势支撑买入
+        # 趋势向下时的强势支撑：极低位(RSI<25+price_position<0.2)允许抄底但降仓
         if trend_direction == "down":
+            extreme_oversold = rsi < 25 and price_position < 0.20
+            if extreme_oversold:
+                base_confidence = 0.40
+                if rsi < 20:
+                    base_confidence += 0.08
+                return {
+                    "passed": True,
+                    "confidence": base_confidence,
+                    "checks": {
+                        "price_position": price_position < c.support_price_position_max,
+                        "rsi": rsi < c.support_rsi_max,
+                        "momentum": recent_change > c.support_momentum_min,
+                        "trend_direction": False,
+                    },
+                    "pass_rate": 0.5,
+                    "position_factor": 0.25,
+                    "price_position": price_position,
+                    "reason": f"强势支撑: 极端超卖RSI={rsi:.0f}+极低位，逆势抄底(降仓25%)",
+                }
             logger.debug(f"[强势支撑] 趋势向下({trend_direction})，禁止触发买入")
             return {
                 "passed": False,
@@ -578,7 +616,7 @@ class AdaptiveBuyCondition:
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.95), 0.52)
 
         return {
-            "passed": passed >= 2 and consecutive_up >= 3,
+            "passed": passed >= 2 and consecutive_up >= 2,
             "confidence": final_confidence,
             "checks": checks,
             "pass_rate": pass_rate,
@@ -732,9 +770,24 @@ class AdaptiveBuyCondition:
         except (ValueError, TypeError):
             recent_change = 0
 
-        # 非上涨趋势不适用回调买入
+        # 震荡市中弱趋势+超卖也允许回调买入
         if trend_direction != "up":
             if trend_direction == "sideways" and trend_strength < 0.08:
+                # 震荡+超卖(RSI<30)允许低仓位买入
+                if rsi < 30 and bb_position < 0.30:
+                    return {
+                        "passed": True,
+                        "confidence": 0.42,
+                        "checks": {
+                            "trend_up": False,
+                            "rsi_pullback": True,
+                            "bb_position": True,
+                            "structure_intact": True,
+                        },
+                        "pass_rate": 0.5,
+                        "position_factor": 0.25,
+                        "reason": f"回调买入: 震荡超卖RSI={rsi:.0f}，低仓位试探",
+                    }
                 reason = "回调买入: 弱震荡市不适用(需明确上涨趋势)"
             else:
                 reason = "回调买入: 非上涨趋势，不适用"

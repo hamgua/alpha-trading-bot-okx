@@ -306,8 +306,14 @@ class MarketStructureAnalyzer:
         if below_lows:
             return max(below_lows)  # 最近的支撑
 
-        # 如果没有下方支撑，使用最低点
-        return min(swing_lows) if swing_lows else current_price * 0.97
+        # 当前价低于所有摆动低点：使用最低点减去ATR缓冲作为保护性支撑
+        if swing_lows:
+            lowest = min(swing_lows)
+            # 当前价已跌破历史低点，使用1%缓冲作为支撑
+            buffer = lowest * 0.01
+            return lowest - buffer
+
+        return current_price * 0.97
 
     def _find_nearest_resistance(
         self, swing_highs: List[float], current_price: float
@@ -329,8 +335,13 @@ class MarketStructureAnalyzer:
         if above_highs:
             return min(above_highs)  # 最近的阻力
 
-        # 如果没有上方阻力，使用最高点
-        return max(swing_highs) if swing_highs else current_price * 1.03
+        # 当前价高于所有摆动高点：使用最高点加上1%缓冲作为保护性阻力
+        if swing_highs:
+            highest = max(swing_highs)
+            buffer = highest * 0.01
+            return highest + buffer
+
+        return current_price * 1.03
 
     def _calculate_risk_reward(
         self,

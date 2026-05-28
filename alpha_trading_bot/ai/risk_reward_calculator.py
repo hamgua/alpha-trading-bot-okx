@@ -87,11 +87,18 @@ class RiskRewardCalculator:
 
         # 计算止损距离
         support_distance = current_price - support
+        # 当支撑位高于当前价时（价格已在支撑位附近或下方），视为低风险
+        # 使用 ATR 或固定百分比计算合理的风险距离
         atr_stop = current_price * atr_percent * self.ATR_STOP_MULTIPLIER
+
+        # 修复：当 atr_percent 为 0 时，使用固定百分比作为风险距离
+        if atr_stop <= 0:
+            atr_stop = current_price * 0.02  # 默认2%止损距离
 
         risk_distance = max(support_distance, atr_stop)
         if risk_distance <= 0:
-            risk_distance = current_price * 0.02  # 默认2%止损
+            # 支撑位接近当前价且ATR也为0，使用保守默认值
+            risk_distance = current_price * 0.015  # 1.5%最小止损距离
 
         # 计算止损价
         stop_loss_price = current_price - risk_distance
@@ -99,10 +106,11 @@ class RiskRewardCalculator:
         # 计算止盈距离和止盈价
         reward_distance = resistance - current_price
         if reward_distance <= 0:
-            # 当前价已在阻力位上方，使用保守目标
+            # 当前价已在阻力位上方，使用动态保守目标
             reward_distance = current_price * atr_percent * 2.0
             if reward_distance <= 0:
-                reward_distance = current_price * 0.04  # 默认4%止盈
+                # ATR也无效时，基于风险距离计算合理止盈（确保R/R >= 1.5）
+                reward_distance = risk_distance * 2.0  # 默认R/R=2.0
 
         take_profit_price = current_price + reward_distance
 
@@ -158,9 +166,12 @@ class RiskRewardCalculator:
         resistance_distance = resistance - current_price
         atr_stop = current_price * atr_percent * self.ATR_STOP_MULTIPLIER
 
+        if atr_stop <= 0:
+            atr_stop = current_price * 0.02
+
         risk_distance = max(resistance_distance, atr_stop)
         if risk_distance <= 0:
-            risk_distance = current_price * 0.02
+            risk_distance = current_price * 0.015
 
         stop_loss_price = current_price + risk_distance
 
@@ -168,7 +179,7 @@ class RiskRewardCalculator:
         if reward_distance <= 0:
             reward_distance = current_price * atr_percent * 2.0
             if reward_distance <= 0:
-                reward_distance = current_price * 0.04
+                reward_distance = risk_distance * 2.0
 
         take_profit_price = current_price - reward_distance
 

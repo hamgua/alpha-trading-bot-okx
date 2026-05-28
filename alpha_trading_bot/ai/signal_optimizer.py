@@ -59,7 +59,7 @@ class OptimizerConfig:
 
     # 信号优化参数 - 适度放宽以增加信号多样性
     # 异常信号过滤
-    confidence_floor: float = 0.42  # 0.45→0.42，轻微降低门槛
+    confidence_floor: float = 0.35  # 0.42→0.35，与integrator confidence_floor对齐
     confidence_ceiling: float = 0.95  # 保持最高置信度
     rapid_change_threshold: float = 0.20  # 0.25→0.20，更敏感于信号变化
 
@@ -326,6 +326,10 @@ class SignalOptimizer:
         if len(self.signal_history) == 0:
             return confidence
 
+        # HOLD 信号不做反向信号降级（HOLD 与历史多数相反无实际影响）
+        if signal.lower() == "hold":
+            return confidence
+
         # 检查最近N个信号
         recent_signals = list(self.signal_history)[-self.config.smoothing_window :]
 
@@ -340,8 +344,8 @@ class SignalOptimizer:
         total = len(recent_signals)
 
         if total > 0 and current_count / total < 0.3:
-            # 当前信号与历史多数相反，降低置信度
-            confidence = confidence * 0.8
+            # BUY/SELL/SHORT 信号与历史多数相反，降低置信度
+            confidence = confidence * 0.85
             adjustments.append(
                 f"信号与历史多数相反({current_count}/{total})，置信度降低"
             )
