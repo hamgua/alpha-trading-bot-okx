@@ -57,8 +57,8 @@ class RiskRewardCalculator:
 
     EXCELLENT_RR = 3.0
     GOOD_RR = 2.0
-    MARGINAL_RR = 1.5
-    ATR_STOP_MULTIPLIER = 1.5
+    MARGINAL_RR_THRESHOLD = 1.0
+    ATR_STOP_MULTIPLIER = 0.5
     SUPPORT_BUFFER_ATR_RATIO = 0.5
 
     def calculate_for_long(
@@ -225,7 +225,7 @@ class RiskRewardCalculator:
                 0.8,
                 f"R/R={rr_ratio:.2f}>=2.0，良好交易机会",
             )
-        elif rr_ratio >= self.MARGINAL_RR:
+        elif rr_ratio >= self.MARGINAL_RR_THRESHOLD:
             return (
                 "marginal",
                 True,
