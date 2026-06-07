@@ -24,5 +24,5 @@ ENV PYTHONPATH=/app
 ENTRYPOINT ["python", "main.py"]
 
 # docker 构建业务镜像命令
-# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.0.9 -f Dockerfile ./
-# docker push hamgua/alpha-trading-bot-okx:v3.0.9
+# docker buildx build --platform linux/amd64 --no-cache -t hamgua/alpha-trading-bot-okx:v3.120.207 -f Dockerfile ./
+# docker push hamgua/alpha-trading-bot-okx:v3.120.207
