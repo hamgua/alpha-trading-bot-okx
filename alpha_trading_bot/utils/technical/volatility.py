@@ -31,9 +31,11 @@ def calculate_atr(
     tr = calculate_true_range(high, low, close)
     atr = sum(tr[-period:]) / period
 
-    # 计算ATR百分比
+    # 计算ATR百分比（以小数形式返回，如0.0165表示1.65%）
+    # 注意：所有下游代码（decision_engine, risk_reward_calculator等）
+    # 均以0~1范围处理atr_percent，因此此处不再乘以100
     if close[-1] > 0:
-        atr_percent = (atr / close[-1]) * 100
+        atr_percent = atr / close[-1]
     else:
         atr_percent = 0.0
 
