@@ -111,7 +111,7 @@ class StrategySelector:
             return "strong_trend" if trend > 0 else "strong_downtrend"
         elif rsi < 35:
             return "oversold"
-        elif rsi > 65:
+        elif rsi > 70:
             return "overbought"
         else:
             return "normal"
@@ -228,10 +228,10 @@ class StrategySelector:
         regime_priority = {
             "high_volatility": ["safe_mode", "trend_following"],
             "strong_trend": ["trend_following", "mean_reversion"],
-            "strong_downtrend": ["trend_following", "mean_reversion"],
-            "oversold": ["mean_reversion", "breakout"],
+            "strong_downtrend": ["trend_following", "crash_bounce", "mean_reversion"],
+            "oversold": ["mean_reversion", "crash_bounce", "breakout"],
             "overbought": ["mean_reversion", "breakout"],
-            "normal": ["trend_following", "mean_reversion", "breakout"],
+            "normal": ["trend_following", "mean_reversion", "crash_bounce", "breakout"],
         }
 
         priority_order = regime_priority.get(regime, ["trend_following"])

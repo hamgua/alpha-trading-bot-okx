@@ -515,6 +515,15 @@ class AISignalIntegrator:
                 )
                 result.market_structure_result = structure_result
 
+                # 将市场结构信息附加到 market_data 供决策引擎使用
+                # （注意：必须操作原始 market_data 引用，确保外部可见）
+                market_data["market_structure"] = structure_result.structure
+                market_data["market_structure_direction"] = structure_result.suggested_direction
+                market_data["risk_reward_ratio"] = structure_result.risk_reward_ratio
+                market_data["nearest_support"] = structure_result.nearest_support
+                market_data["nearest_resistance"] = structure_result.nearest_resistance
+                market_data["position_size_factor"] = structure_result.position_size_factor
+
                 # 风险收益比过滤 - 只对BUY信号生效
                 if original_signal == "BUY" and structure_result.risk_reward_ratio > 0:
                     rr_result = self.risk_reward_calculator.calculate_for_long(

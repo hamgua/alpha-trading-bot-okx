@@ -251,6 +251,11 @@ class AdaptiveTradingBot:
             # 4. 获取所有策略信号
             strategy_signals = self.strategy_library.get_all_signals(market_data)
             logger.info(f"[策略] {len(strategy_signals)} 个策略产生信号")
+            for s in strategy_signals:
+                logger.info(
+                    f"  - {s.strategy_type.value}: {s.signal.upper()} "
+                    f"(置信度: {s.confidence:.0%}, 原因: {s.reason})"
+                )
 
             # 5. 获取AI融合信号
             logger.info("[AI] 获取融合信号...")
