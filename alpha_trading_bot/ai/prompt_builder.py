@@ -34,7 +34,7 @@ class PromptConfig:
     kimi_conservative_buy: bool = True
     deepseek_low_position_threshold: float = 0.35
     deepseek_rebound_mode_enabled: bool = True
-    deepseek_rebound_rsi_max: float = 58
+    deepseek_rebound_rsi_max: float = 65
 
 
 class PromptBuilder:
@@ -93,7 +93,7 @@ class PromptBuilder:
     # Deepseek：更容易出 buy，追加低位反弹模式
     DEEPSEEK_LOW_POSITION_THRESHOLD = 0.35  # 35% 以下为低位
     DEEPSEEK_REBOUND_MODE_ENABLED = True  # 启用低位反弹模式
-    DEEPSEEK_REBOUND_RSI_MAX = 58  # 反弹模式 RSI 上限
+    DEEPSEEK_REBOUND_RSI_MAX = 65  # 反弹模式 RSI 上限（原58，放宽以覆盖更多反弹场景）
 
     @classmethod
     def build(cls, market_data: Dict[str, Any], provider: str = "default") -> str:
@@ -141,6 +141,14 @@ class PromptBuilder:
         highest_price = position_info.get("highest_price", 0) if position_info else 0
         lowest_price = position_info.get("lowest_price", 0) if position_info else 0
 
+        # 获取市场结构信息（由 integrator 附加到 market_data）
+        mkt_structure = market_data.get("market_structure", "")
+        mkt_direction = market_data.get("market_structure_direction", "")
+        mkt_rr = market_data.get("risk_reward_ratio", 0)
+        mkt_support = market_data.get("nearest_support", 0)
+        mkt_resistance = market_data.get("nearest_resistance", 0)
+        mkt_pos_factor = market_data.get("position_size_factor", 0)
+
         # 判断是否处于暴跌/暴涨状态
         cfg = cls._cfg()
         is_crashing = recent_drop < cfg.crash_drop_threshold
@@ -164,6 +172,22 @@ class PromptBuilder:
 
         # Kimi 高波动风险提示
         is_kimi_high_volatility = provider == "kimi" and atr_pct > 0.05  # ATR > 5%
+
+        # 暴跌反弹行情提示
+        crash_bounce_guide = ""
+        if price_history and len(price_history) >= 2:
+            hist_high = max(price_history)
+            hist_low = min(price_history)
+            if hist_high > 0:
+                drop_pct = (hist_high - current_price) / hist_high
+                if drop_pct > 0.12:
+                    crash_bounce_guide = f"""
+跌{drop_pct:.1%}）。在此类大跌后的首次企稳阶段，策略上可考虑：
+   - 【暴跌反弹买入】：跌幅>15%，RSI从低位回升至30-60区间，波动率正常→积极关注买入机会
+   - 【超跌反弹做空】：反弹至阻力位附近遇阻，可考虑反弹高位做空
+   - ⚠️ 仍处于整体下跌趋势时，反弹做多需快进快出，及时止盈
+   - 密切关注市场结构是否从下跌(bearish)转为震荡(sideways)，这是企稳信号
+"""
 
         return cls._format_prompt(
             pos_side=pos_side if pos_side != "none" else "无持仓",
@@ -192,6 +216,13 @@ class PromptBuilder:
             is_deepseek_rebound=is_deepseek_rebound,
             is_kimi_high_volatility=is_kimi_high_volatility,
             provider=provider,
+            mkt_structure=mkt_structure,
+            mkt_direction=mkt_direction,
+            mkt_rr=mkt_rr,
+            mkt_support=mkt_support,
+            mkt_resistance=mkt_resistance,
+            mkt_pos_factor=mkt_pos_factor,
+            crash_bounce_guide=crash_bounce_guide,
         )
 
     @classmethod
@@ -223,6 +254,13 @@ class PromptBuilder:
         is_deepseek_rebound: bool = False,
         is_kimi_high_volatility: bool = False,
         provider: str = "default",
+        mkt_structure: str = "",
+        mkt_direction: str = "",
+        mkt_rr: float = 0.0,
+        mkt_support: float = 0.0,
+        mkt_resistance: float = 0.0,
+        mkt_pos_factor: float = 0.0,
+        crash_bounce_guide: str = "",
     ) -> str:
         """格式化Prompt - 差异化系统"""
         crash_warning = (
@@ -256,7 +294,21 @@ class PromptBuilder:
    - 建议观望或极小仓位操作
 """
 
-        # 根据 provider 添加差异化提示
+        # 构建市场结构信息字符串
+        mkt_structure_info = ""
+        if mkt_structure and mkt_direction:
+            mkt_structure_info = f"""
+【市场结构分析】（基于摆动高/低点自动分析）
+- 结构类型: {mkt_structure}（bullish=上涨, bearish=下跌, sideways=震荡）
+- 建议方向: {mkt_direction}（long=做多, short=做空, none=观望）
+- 支撑位: {mkt_support:.2f}
+- 阻力位: {mkt_resistance:.2f}
+- 风险收益比(R/R): {mkt_rr:.2f}（>2.0为良好，>3.0为优质）
+- 建议仓位系数: {mkt_pos_factor:.2f}
+"""
+
+        # 暴跌反弹行情提示（在 build() 中已预计算，直接使用传入的 crash_bounce_guide）
+        #
         provider_hint = ""
         if provider == "kimi":
             provider_hint = "【Kimi模式】在满足基本条件时应积极买入，长期持币收益更高"
@@ -292,6 +344,8 @@ class PromptBuilder:
 {rise_boost}
 {deepseek_rebound_warning}
 {kimi_volatility_warning}
+{mkt_structure_info}
+{crash_bounce_guide}
 
 {provider_hint}
 
@@ -310,7 +364,7 @@ class PromptBuilder:
    4. 最后看入场时机 → 等待确认信号，不追涨杀跌
 
 ⚠️ 资深交易员核心原则：
-   - 顺势而为：上涨结构只做多，下跌结构只做空
+   - 顺势而为：上涨结构只做多，下跌结构只做空；结构方向为"short"时优先考虑做空
    - 风险收益比门禁：R/R < 2:1 的交易不做
    - 耐心等待：不在信号出现的第一时间入场，等待回踩确认
    - 止损坚决：结构破位立即离场，不抱幻想
@@ -431,108 +485,26 @@ class PromptBuilder:
 
 最终输出格式（只输出这一行，不要有任何前缀或解释）：
 buy | confidence: 75%
-或
+
+或：
 hold | confidence: 70%
-BP|sell | confidence: 80%
-或
-short | confidence: 75%
-TH|
 
-【置信度计算规则】（用于内心推理，不要输出）
-
-买入置信度计算：
-- 基础置信度：65%
-- +10% 趋势明确向上（strength > 0.25）
-- +10% RSI < 60（低于中轴线）
-- +10% MACD Histogram > 0（多头动能）
-- +10% ADX > 15（有趋势）
-- +10% 布林带位置 < 50%（价格在中轨下方）
-- +10% 1小时涨幅 > 0.3%（短期上涨动量）
-- +10% 持仓浮盈 > 2%
-- +15% 短期上涨动量强劲（1小时涨幅 > 1%）
-- -15% 趋势为 "down"
-- -15% RSI > 72
-- -25% 1小时跌幅 < -2.5%
-- -10% ATR > 5%
-- 置信度范围：50%-90%
-
-超卖反弹置信度计算：
-- 基础置信度：65%
-- +15% RSI < 25（极度超卖，反弹概率高）
-- +10% 1h跌幅在 -1.5% ~ -2.5% 区间（接近支撑位）
-- +10% MACD Histogram > -0.001（空头动能减弱）
-- +10% 布林带位置 < 30%（接近下轨）
-- +10% ADX > 15（有趋势动能）
-- -10% 趋势方向为 "down"
-- -15% 1h跌幅 < -2.5%
-- -15% ATR > 5%
-- 置信度范围：50%-90%
-
-卖出置信度计算：
-- 基础置信度：55%
-- +10% 趋势明确向下（strength > 0.4）
-- +10% RSI > 75（超买区域）
-- +10% MACD Histogram < 0（空头动能）
-- +10% 布林带位置 > {cls._cfg().sell_bb_position:.0f}%
-- +10% 持仓浮亏 > -3%
-- -15% 趋势为 "up"
-
-做空置信度计算：
-
-【模式B：下跌趋势做空】置信度
-- 基础置信度：65%
-- +15% 趋势明确向下且强度 > 0.20
-- +15% 累积跌幅 > 5%
-- +10% RSI 在 40-70 区间
-- +10% MACD Histogram < 0
-- +10% ADX > 15
-- +10% 持续下跌时间 > 4小时
-- -10% 趋势为 "up"
-- -10% 价格位置 < 15%
-- -10% 1小时涨幅 > 1%
-- -10% ATR > 5%
-- 置信度范围：55%-90%
-
-【模式A：高位反转做空】置信度
-- 基础置信度：60%
-- +10% 趋势明确向下（strength > 0.15）
-- +10% RSI > 75（超买区域）
-- +10% MACD Histogram < -0.001（空头动能）
-- +10% ADX > 20（有趋势）
-- +10% 布林带位置 > 75%
-- +10% 价格位置 > 60%（不在低位）
-- +10% 1小时跌幅 > -0.5%（短期下跌动量）
-- -10% 趋势为 "up"
-- -10% 价格位置 < 30%（低位不做空）
-- -10% ATR > 5%（高波动惩罚）
-- 置信度范围：55%-90%
-
-【追加做空场景】置信度
-- 高位做空（价格位置 > 70% 且 RSI > 72）：基础 65%
-- 动量做空（1小时跌幅 > -0.5% 且趋势向下）：基础 65%
-- MACD做空（MACD < 0 且继续下行）：基础 60%
-- ADX强势做空（ADX > 25 且趋势向下）：基础 65%
-- 置信度范围：55%-90%
-
-
-持有置信度计算：
-
-- 基础置信度：30%
-- +10% 多指标信号冲突
-- +10% 趋势强度 < 0.15
-- +10% ADX < 20（震荡市场）
-- +10% ATR > 6%（极高波动市场）
-- +10% 持仓浮盈在 -1% ~ 2%之间
-- -15% 趋势明确向上且无持仓
-- -15% 趋势明确向下且无持仓
-- -10% 持仓浮盈 > 8%
-- -10% 暴跌期间（1小时跌幅 > -2%）
-- 置信度范围：25%-65%
-
-示例：
-hold | confidence: 75%
+或：
 sell | confidence: 80%
-buy | confidence: 65%"""
+
+或：
+short | confidence: 75%
+
+【置信度计算指引】（用于内心推理参考，不要输出）
+根据以下因素加权调整：
+- 趋势方向与市场结构一致 → +10%~+15%
+- RSI在有利区间（buy:<60, sell/short:>70） → +10%
+- MACD方向支持 → +10%
+- ADX > 15（有趋势） → +10%
+- ATR > 5%（高波动） → -10%~-15%
+- 1小时跌幅 > 2%（快速下跌） → -15%~-25%
+- 趋势与决策方向相反 → -15%
+- 置信度范围：BUY/SHORT 50%-90%, HOLD 25%-65%"""
 
 
 def build_prompt(market_data: Dict[str, Any], provider: str = "default") -> str:
@@ -540,7 +512,7 @@ def build_prompt(market_data: Dict[str, Any], provider: str = "default") -> str:
 
     Args:
         market_data: 市场数据
-        provider: AI 提供商（kimi/deepseek/default），影响 prompt 差异化
+        provider: AI 提供商(kimi/deepseek/default)
 
     Returns:
         格式化后的 prompt
