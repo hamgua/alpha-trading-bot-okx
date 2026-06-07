@@ -26,6 +26,7 @@ class StrategyType(Enum):
     BREAKOUT = "breakout"  # 突破
     SCALPING = "scalping"  # 剥头皮
     SAFE_MODE = "safe_mode"  # 安全模式
+    CRASH_BOUNCE = "crash_bounce"  # 暴跌反弹
     CUSTOM = "custom"  # 自定义
 
 
@@ -434,6 +435,109 @@ class SafeModeStrategy(BaseStrategy):
         )
 
 
+class CrashBounceStrategy(BaseStrategy):
+    """暴跌反弹策略
+
+    在经历大幅暴跌（20%+）后，首次企稳反弹时捕捉买入机会。
+    逻辑：
+    - 检测近期是否经历了20%+的跌幅（通过价格历史或7日价格位置）
+    - 确认当前为首次反弹（RSI从低位回升，但未到超买）
+    - 低波动环境（ATR%较低）更有利于反弹持续
+    - 结合价格位置信息判断是否在低位
+    """
+
+    def __init__(self):
+        super().__init__("暴跌反弹", StrategyType.CRASH_BOUNCE)
+
+    def analyze(self, market_data: Dict[str, Any]) -> StrategySignal:
+        technical = market_data.get("technical", {})
+        price_history = market_data.get("price_history", [])
+        current_price = market_data.get("price", 0)
+
+        rsi = technical.get("rsi", 50)
+        atr_percent = technical.get("atr_percent", 0.02)
+        price_position = technical.get("price_position", 0.5)
+        trend_direction = technical.get("trend_direction", "neutral")
+        trend_strength = technical.get("trend_strength", 0)
+
+        # 计算近期最大回撤（从价格历史中）
+        max_recent_drop_ratio = 0.0
+        if price_history and len(price_history) > 5:
+            recent_high = max(price_history[-30:]) if len(price_history) >= 30 else max(price_history)
+            if recent_high > 0:
+                max_recent_drop_ratio = (recent_high - current_price) / recent_high
+
+        reasons = []
+
+        # 条件1: 是否经历了显著跌幅（15%+）
+        has_drop = max_recent_drop_ratio >= 0.15 or price_position <= 0.35
+        if has_drop:
+            reasons.append(f"跌幅{max_recent_drop_ratio:.1%}")
+
+        # 条件2: RSI从低位回升（30-60区间，未到超买）
+        rsi_bounce = 30 <= rsi <= 60
+        if rsi_bounce:
+            reasons.append(f"RSI{rsi:.0f}回升中")
+
+        # 条件3: 低波动或正常波动
+        vol_ok = atr_percent < 0.03
+        if vol_ok:
+            reasons.append(f"波动{atr_percent:.2%}可控")
+
+        # 条件4: 趋势方向由跌转稳或转升
+        trend_ok = trend_direction in ("neutral", "up") and trend_strength >= -0.2
+        if trend_ok:
+            reasons.append("趋势企稳")
+
+        # 综合判断
+        conditions_met = sum([has_drop, rsi_bounce, vol_ok, trend_ok])
+        if has_drop and conditions_met >= 3:
+            confidence = 0.5 + (conditions_met - 2) * 0.15  # 3条件=0.65, 4条件=0.80
+            return StrategySignal(
+                strategy_type=self.strategy_type,
+                signal="buy",
+                confidence=min(confidence, 0.85),
+                weight=1.2,
+                reason=f"暴跌反弹: {', '.join(reasons)} ({conditions_met}/4条件通过)",
+                market_conditions={
+                    "rsi": rsi,
+                    "atr_percent": atr_percent,
+                    "price_position": price_position,
+                    "max_drop": max_recent_drop_ratio,
+                },
+                risk_level="medium",
+            )
+
+        return StrategySignal(
+            strategy_type=self.strategy_type,
+            signal="hold",
+            confidence=0.3,
+            weight=0.8,
+            reason=f"无暴跌反弹信号 ({conditions_met}/4, 需≥3)",
+            market_conditions={
+                "rsi": rsi,
+                "atr_percent": atr_percent,
+                "price_position": price_position,
+                "max_drop": max_recent_drop_ratio,
+            },
+            risk_level="low",
+        )
+
+    def get_default_config(self) -> StrategyConfig:
+        return StrategyConfig(
+            strategy_type=StrategyType.CRASH_BOUNCE,
+            enabled=True,
+            weight=1.2,
+            priority=6,
+            params={
+                "min_drop_ratio": 0.15,
+                "rsi_bounce_min": 30,
+                "rsi_bounce_max": 60,
+                "max_atr_percent": 0.03,
+            },
+        )
+
+
 class StrategyLibrary:
     """策略库管理"""
 
@@ -448,6 +552,7 @@ class StrategyLibrary:
             StrategyType.MEAN_REVERSION: MeanReversionStrategy(),
             StrategyType.BREAKOUT: BreakoutStrategy(),
             StrategyType.SAFE_MODE: SafeModeStrategy(),
+            StrategyType.CRASH_BOUNCE: CrashBounceStrategy(),
         }
         logger.info(f"[策略库] 已注册 {len(self.strategies)} 个策略")
 

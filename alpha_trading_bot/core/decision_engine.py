@@ -201,6 +201,23 @@ class DecisionEngine:
                         "reason": f"AI-HOLD+高波动停仓(ATR={atr_percent * 100:.1f}%)",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
             if selected.signal.upper() == "HOLD":
+                # 检查市场结构做空方向 - 结构方向为short且R/R优秀时，允许覆盖AI-HOLD做空
+                market_structure_direction = market_data.get("market_structure_direction", "none")
+                rr_ratio = market_data.get("risk_reward_ratio", 0)
+                if (
+                    market_structure_direction == "short"
+                    and rr_ratio >= GOOD_RR_RATIO
+                    and atr_percent < 0.55
+                    and rsi > 40
+                    and not has_position
+                    and self._config.trading.allow_short_selling
+                ):
+                    logger.info(
+                        f"[决策] 市场结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD"
+                    )
+                    return {"action": "sell", "reason": f"市场结构做空(R/R={rr_ratio:.2f})覆盖AI-HOLD",
+                            "confidence": 0.75, "strategy": "market_structure_short",
+                            "position_advice": f"R/R={rr_ratio:.2f}优秀，市场结构做空"}
                 return {"action": "skip", "reason": "AI和策略都是HOLD",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
             # 策略信号与AI-HOLD冲突：高置信度策略BUY可覆盖AI-HOLD
