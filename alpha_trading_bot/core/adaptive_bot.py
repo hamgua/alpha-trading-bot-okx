@@ -358,7 +358,7 @@ class AdaptiveTradingBot:
             if not has_position and self._position_close_time > 0:
                 import time
                 cool_down_elapsed = time.time() - self._position_close_time
-                COOL_DOWN_SECONDS = 600  # 10分钟冷却
+                COOL_DOWN_SECONDS = 1800  # 30分钟冷却（> 15分钟交易周期，确保至少跳过1个完整周期）
                 if cool_down_elapsed < COOL_DOWN_SECONDS:
                     logger.info(
                         f"[冷却] 方向冷却中 ({cool_down_elapsed:.0f}/{COOL_DOWN_SECONDS}s)，跳过交易"
