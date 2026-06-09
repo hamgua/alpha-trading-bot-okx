@@ -54,13 +54,6 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/alphatrading/alpha-trading-bot-okx"
-Documentation = "https://alpha-trading-bot-okx.readthedocs.io"
-Repository = "https://github.com/alphatrading/alpha-trading-bot-okx"
-"Bug Tracker" = "https://github.com/alphatrading/alpha-trading-bot-okx/issues"
-
-[project.scripts]
-alpha-bot = "alpha_trading_bot.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

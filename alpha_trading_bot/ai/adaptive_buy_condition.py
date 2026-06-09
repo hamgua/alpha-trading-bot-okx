@@ -433,9 +433,7 @@ class AdaptiveBuyCondition:
         if bb_position < 0.35:
             base_confidence += 0.08
 
-        # 死代码：函数在趋势向下时已提前返回，此检查不会执行
-        # if trend_direction == "down":
-        #     base_confidence -= 0.25
+        
 
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
 

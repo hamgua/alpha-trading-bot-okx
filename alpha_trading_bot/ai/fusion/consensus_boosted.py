@@ -792,18 +792,4 @@ class ConsensusBoostedFusion(FusionStrategy):
         return self
 
 
-def get_fusion_strategy(
-    name: str, config: Optional[FusionConfig] = None
-) -> ConsensusBoostedFusion:
-    """
-    获取融合策略实例
 
-    Args:
-        name: 策略名称
-        config: 配置
-
-    Returns:
-        ConsensusBoostedFusion: 融合策略实例
-    """
-    fusion = ConsensusBoostedFusion(config)
-    return fusion.get_strategy(name)
