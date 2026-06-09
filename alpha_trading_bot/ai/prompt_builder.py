@@ -5,6 +5,8 @@ Prompt构建器 - 专业的加密货币量化交易Prompt
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
+from alpha_trading_bot.config.thresholds import RSI_BUY_OVERSOLD_MAX
+
 
 @dataclass
 class PromptConfig:
@@ -26,7 +28,7 @@ class PromptConfig:
     short_term_buy_threshold: float = 0.01
     momentum_buy_boost: float = 0.15
     oversold_rebound_enabled: bool = True
-    oversold_rsi_threshold: float = 30
+    oversold_rsi_threshold: float = RSI_BUY_OVERSOLD_MAX
     oversold_max_drawdown: float = 0.015
     oversold_min_drawdown: float = 0.025
     oversold_position_factor: float = 0.3

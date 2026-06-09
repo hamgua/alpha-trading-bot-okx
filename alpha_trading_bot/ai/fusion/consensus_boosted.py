@@ -16,6 +16,12 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from enum import Enum
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_OVERSOLD_REBOUND,
+    RSI_OVERBOUGHT_REBOUND,
+    RSI_OVERBOUGHT,
+)
+
 from .base import FusionStrategy
 
 logger = logging.getLogger(__name__)
@@ -551,7 +557,7 @@ class ConsensusBoostedFusion(FusionStrategy):
                         weighted_scores[sig] /= total
 
         # 步骤4.1: 卖出偏好 - 当RSI超买时，倾向SELL
-        if self.config.sell_bias > 1.0 and rsi > 70:
+        if self.config.sell_bias > 1.0 and rsi > RSI_OVERBOUGHT:
             sell_score = weighted_scores.get("sell", 0)
             hold_score = weighted_scores.get("hold", 0)
             # 如果sell得分不为0，给予卖出偏好
@@ -676,7 +682,7 @@ class ConsensusBoostedFusion(FusionStrategy):
         )
 
         # RSI超卖区域（<35）：降低买入阈值，更容易抄底
-        if rsi < 35:
+        if rsi < RSI_OVERSOLD_REBOUND:
             dynamic_threshold = max(0.30, base_threshold - 0.10)
             logger.info(
                 f"[融合-动态阈值] RSI超卖({rsi:.1f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"
@@ -684,7 +690,7 @@ class ConsensusBoostedFusion(FusionStrategy):
             return dynamic_threshold
 
         # RSI超买区域（>65）：降低卖出阈值，更容易获利了结
-        elif rsi > 65:
+        elif rsi > RSI_OVERBOUGHT_REBOUND:
             dynamic_threshold = max(0.30, base_threshold - 0.08)
             logger.info(
                 f"[融合-动态阈值] RSI超买({rsi:.1f})，阈值调整: {base_threshold:.2f} -> {dynamic_threshold:.2f}"

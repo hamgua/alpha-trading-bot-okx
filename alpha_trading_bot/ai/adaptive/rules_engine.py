@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_OVERSOLD,
+    RSI_OVERBOUGHT,
+    RSI_NEUTRAL_LOW,
+)
+
 logger = logging.getLogger(__name__)
 
 from .market_regime import MarketRegimeState
@@ -281,7 +287,7 @@ class RSIRule(AdaptiveRule):
         """评估 RSI 规则"""
         rsi = market_state.rsi_level
 
-        if rsi < 30:  # 超卖
+        if rsi < RSI_OVERSOLD:  # 超卖
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -295,7 +301,7 @@ class RSIRule(AdaptiveRule):
                 confidence=0.85,
             )
 
-        elif rsi < 40:
+        elif rsi < RSI_NEUTRAL_LOW:
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -309,7 +315,7 @@ class RSIRule(AdaptiveRule):
                 confidence=0.7,
             )
 
-        elif rsi > 70:  # 超买
+        elif rsi > RSI_OVERBOUGHT:  # 超买
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,

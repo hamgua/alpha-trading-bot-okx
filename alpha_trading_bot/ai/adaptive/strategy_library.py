@@ -15,6 +15,13 @@ from dataclasses import dataclass
 from enum import Enum
 from abc import ABC, abstractmethod
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_OVERSOLD,
+    RSI_OVERBOUGHT,
+    RSI_TREND_BUY_MAX,
+    RSI_TREND_SELL_MIN,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -162,7 +169,7 @@ class TrendFollowingStrategy(BaseStrategy):
         # 强趋势 - 顺势交易
         if trend_direction == "up" and trend_strength > 0.3:
             # 回调时买入
-            if 35 < rsi < 60:
+            if RSI_OVERSOLD < rsi < RSI_TREND_BUY_MAX:
                 return StrategySignal(
                     strategy_type=self.strategy_type,
                     signal="buy",
@@ -179,7 +186,7 @@ class TrendFollowingStrategy(BaseStrategy):
 
         elif trend_direction == "down" and trend_strength > 0.3:
             # 反弹时卖出
-            if 40 < rsi < 70:
+            if RSI_TREND_SELL_MIN < rsi < RSI_OVERBOUGHT:
                 return StrategySignal(
                     strategy_type=self.strategy_type,
                     signal="sell",
@@ -235,7 +242,7 @@ class MeanReversionStrategy(BaseStrategy):
         atr_percent = technical.get("atr_percent", 0.02)
 
         # 超卖 - 买入
-        if rsi < 30:
+        if rsi < RSI_OVERSOLD:
             return StrategySignal(
                 strategy_type=self.strategy_type,
                 signal="buy",
@@ -251,7 +258,7 @@ class MeanReversionStrategy(BaseStrategy):
             )
 
         # 超买 - 卖出
-        elif rsi > 70:
+        elif rsi > RSI_OVERBOUGHT:
             return StrategySignal(
                 strategy_type=self.strategy_type,
                 signal="sell",
@@ -284,8 +291,8 @@ class MeanReversionStrategy(BaseStrategy):
             weight=1.0,
             priority=4,
             params={
-                "oversold_threshold": 30,
-                "overbought_threshold": 70,
+                "oversold_threshold": RSI_OVERSOLD,
+                "overbought_threshold": RSI_OVERBOUGHT,
                 "bb_buy_threshold": 0.2,
                 "bb_sell_threshold": 0.8,
             },

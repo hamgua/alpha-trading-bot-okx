@@ -12,6 +12,13 @@ from enum import Enum
 from typing import Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_OVERSOLD,
+    RSI_OVERBOUGHT,
+    RSI_NEUTRAL_LOW,
+    RSI_NEUTRAL_HIGH,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -54,10 +61,10 @@ class MarketRegimeConfig:
     trend_weak_down: float = -0.2
     volatility_high: float = 0.03
     volatility_low: float = 0.015
-    rsi_oversold: float = 30
-    rsi_overbought: float = 70
-    rsi_neutral_low: float = 40
-    rsi_neutral_high: float = 60
+    rsi_oversold: float = RSI_OVERSOLD
+    rsi_overbought: float = RSI_OVERBOUGHT
+    rsi_neutral_low: float = RSI_NEUTRAL_LOW
+    rsi_neutral_high: float = RSI_NEUTRAL_HIGH
 
 
 class MarketRegimeDetector:

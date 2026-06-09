@@ -18,6 +18,17 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_BUY_REGULAR_MAX,
+    RSI_BUY_OVERSOLD_MAX,
+    RSI_BUY_SUPPORT_MAX,
+    RSI_BUY_CONFIRM_MAX,
+    RSI_RISK_OVERBOUGHT,
+    RSI_RISK_HIGH,
+    RSI_TAKE_PROFIT,
+    RSI_OVERSOLD,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,14 +58,14 @@ class BuyConditionsConfig:
 
     # 常规模式
     regular_trend_strength_min: float = 0.2
-    regular_rsi_max: float = 65
+    regular_rsi_max: float = RSI_BUY_REGULAR_MAX
     regular_bb_position_max: float = 0.65
     regular_adx_min: float = 15
     regular_momentum_min: float = 0.005
 
     # 超卖反弹模式
     oversold_enabled: bool = True
-    oversold_rsi_max: float = 30
+    oversold_rsi_max: float = RSI_BUY_OVERSOLD_MAX
     oversold_momentum_min: float = 0.005
     oversold_trend_strength_min: float = 0.1
     oversold_bb_position_max: float = 0.45
@@ -63,14 +74,14 @@ class BuyConditionsConfig:
     # 强势支撑模式
     support_enabled: bool = True
     support_price_position_max: float = 0.20
-    support_rsi_max: float = 35
+    support_rsi_max: float = RSI_BUY_SUPPORT_MAX
     support_momentum_min: float = 0.003
     support_position_factor: float = 0.7
 
     # 趋势确认模式
     confirmation_enabled: bool = True
     confirmation_consecutive_up: int = 3
-    confirmation_rsi_max: float = 55
+    confirmation_rsi_max: float = RSI_BUY_CONFIRM_MAX
     confirmation_position_factor: float = 0.8
 
 
@@ -86,11 +97,11 @@ class SellConditionsConfig:
     # 止盈
     take_profit_percent: float = 0.06
     take_profit_partial_percent: float = 0.04
-    take_profit_rsi_threshold: float = 75
+    take_profit_rsi_threshold: float = RSI_TAKE_PROFIT
 
     # 风险规避
-    risk_rsi_overbought: float = 80
-    risk_rsi_high: float = 75
+    risk_rsi_overbought: float = RSI_RISK_OVERBOUGHT
+    risk_rsi_high: float = RSI_RISK_HIGH
     risk_bb_position_max: float = 0.90
     risk_bb_position_high: float = 0.85
     risk_trend_down_strength: float = 0.4
@@ -121,7 +132,7 @@ class TrendDetectionConfig:
     reversal_enabled: bool = True
     reversal_window: int = 3
     reversal_momentum_threshold: float = 0.008
-    rsi_oversold: float = 30
+    rsi_oversold: float = RSI_OVERSOLD
     rsi_rebound_threshold: float = 3
     price_position_low: float = 0.25
 

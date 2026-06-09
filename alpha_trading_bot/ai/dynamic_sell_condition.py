@@ -16,6 +16,13 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_RISK_OVERBOUGHT,
+    RSI_RISK_HIGH,
+    RSI_TAKE_PROFIT,
+    RSI_OVERBOUGHT,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,11 +50,11 @@ class SellConditions:
     # 止盈参数
     take_profit_percent: float = 0.06  # 6%
     take_profit_partial_percent: float = 0.04  # 4%，分批止盈
-    take_profit_rsi_threshold: float = 75  # RSI超买止盈
+    take_profit_rsi_threshold: float = RSI_TAKE_PROFIT  # RSI超买止盈
 
     # 风险规避参数
-    risk_rsi_overbought: float = 80
-    risk_rsi_high: float = 75
+    risk_rsi_overbought: float = RSI_RISK_OVERBOUGHT
+    risk_rsi_high: float = RSI_RISK_HIGH
     risk_bb_position_max: float = 0.90
     risk_bb_position_high: float = 0.85
     risk_trend_down_strength: float = 0.4  # 趋势转空强度阈值
@@ -358,7 +365,7 @@ class DynamicSellCondition:
         # 减仓条件
         partial_conditions = [
             pnl_percent >= c.take_profit_partial_percent * 100,
-            rsi >= 70,
+            rsi >= RSI_OVERBOUGHT,
             recent_change < -0.005,  # 短期下跌
         ]
 

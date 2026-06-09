@@ -13,6 +13,11 @@ from dataclasses import dataclass
 from enum import Enum
 from datetime import datetime
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_SELECTOR_OVERSOLD,
+    RSI_OVERBOUGHT,
+)
+
 from .strategy_library import StrategyType
 
 logger = logging.getLogger(__name__)
@@ -109,9 +114,9 @@ class StrategySelector:
             return "high_volatility"
         elif abs(trend) > 0.4:
             return "strong_trend" if trend > 0 else "strong_downtrend"
-        elif rsi < 35:
+        elif rsi < RSI_SELECTOR_OVERSOLD:
             return "oversold"
-        elif rsi > 70:
+        elif rsi > RSI_OVERBOUGHT:
             return "overbought"
         else:
             return "normal"

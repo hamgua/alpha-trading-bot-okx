@@ -13,8 +13,10 @@
 
 import logging
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+
+from alpha_trading_bot.config.thresholds import RSI_OVERSOLD
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,7 @@ class TrendReversalDetector:
         momentum_window: int = 3,
         rsi_window: int = 5,
         momentum_threshold: float = 0.008,
-        rsi_oversold: float = 30,
+        rsi_oversold: float = RSI_OVERSOLD,
         rsi_rebound_threshold: float = 3,
         price_position_low: float = 25,
     ):
