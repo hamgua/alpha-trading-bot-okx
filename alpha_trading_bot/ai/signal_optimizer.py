@@ -18,6 +18,16 @@ from datetime import datetime, timedelta
 from collections import deque
 from enum import Enum
 
+from alpha_trading_bot.config.thresholds import (
+    SIGNAL_CONFIDENCE_FLOOR,
+    SIGNAL_CONFIDENCE_CEILING,
+    SIGNAL_RAPID_CHANGE_THRESHOLD,
+    SIGNAL_SMOOTHING_WINDOW,
+    SIGNAL_HIGH_VOLATILITY_THRESHOLD,
+    SIGNAL_CONSECUTIVE_LIMIT,
+    SIGNAL_COOLDOWN_PERIOD,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -58,22 +68,21 @@ class OptimizerConfig:
     """优化器配置"""
 
     # 信号优化参数 - 适度放宽以增加信号多样性
-    # 异常信号过滤
-    confidence_floor: float = 0.30  # 0.35→0.30，放宽置信度下限
-    confidence_ceiling: float = 0.95  # 保持最高置信度
-    rapid_change_threshold: float = 0.25  # 0.20→0.25，更宽容信号变化
+    confidence_floor: float = SIGNAL_CONFIDENCE_FLOOR
+    confidence_ceiling: float = SIGNAL_CONFIDENCE_CEILING
+    rapid_change_threshold: float = SIGNAL_RAPID_CHANGE_THRESHOLD
 
     # 信号平滑
-    smoothing_window: int = 2  # 减小平滑窗口
+    smoothing_window: int = SIGNAL_SMOOTHING_WINDOW
     smoothing_enabled: bool = True
 
     # 市场环境适应
     volatility_adjustment: bool = True
-    high_volatility_threshold: float = 0.05  # 0.04→0.05，提高高波动判定阈值
+    high_volatility_threshold: float = SIGNAL_HIGH_VOLATILITY_THRESHOLD
 
     # 连续信号检查
-    consecutive_limit: int = 5  # 3→5，允许更多连续信号
-    cooldown_period: int = 2  # 增加冷却期
+    consecutive_limit: int = SIGNAL_CONSECUTIVE_LIMIT
+    cooldown_period: int = SIGNAL_COOLDOWN_PERIOD
 
 
 class SignalOptimizer:

@@ -1,4 +1,5 @@
-"""决策引擎模块
+"""
+决策引擎模块
 
 从 AdaptiveTradingBot 中提取的交易决策逻辑
 
@@ -7,23 +8,36 @@
 - 市场结构判断
 - 交易员级仓位管理建议
 - safe_mode减半开仓辅助条件
+
+R/R 门禁阈值定义在 alpha_trading_bot.config.thresholds:
+- RR_CONSERVATIVE_MIN (0.8)
+- RR_MODERATE_MIN (1.0)
+- RR_AGGRESSIVE_MIN (0.6)
+- RR_GOOD_RATIO (2.0)
 """
 
 import logging
 import os
 from typing import Any, Dict
 
+from alpha_trading_bot.config.thresholds import (
+    RR_CONSERVATIVE_MIN,
+    RR_MODERATE_MIN,
+    RR_AGGRESSIVE_MIN,
+    RR_GOOD_RATIO,
+)
+
 logger = logging.getLogger(__name__)
 
 # R/R比门禁阈值 - 按投资类型差异化
 # 加密货币市场R/R<1.5很常见，原1.5过于严格
 INVESTMENT_RR_THRESHOLDS = {
-    "conservative": 0.8,   # 保守型: 低频交易为主，R/R 0.8+即可（原1.0→0.8）
-    "moderate": 1.0,       # 中等型: 当前默认值（原1.2→1.0）
-    "aggressive": 0.6,     # 激进型: 高频参与，低R/R也可接受（原0.8→0.6）
+    "conservative": RR_CONSERVATIVE_MIN,
+    "moderate": RR_MODERATE_MIN,
+    "aggressive": RR_AGGRESSIVE_MIN,
 }
-DEFAULT_RR_THRESHOLD = 1.0  # 无投资类型配置时的默认值（原1.2→1.0）
-GOOD_RR_RATIO = 2.0  # 良好R/R比
+DEFAULT_RR_THRESHOLD = RR_MODERATE_MIN
+GOOD_RR_RATIO = RR_GOOD_RATIO
 
 
 class DecisionEngine:

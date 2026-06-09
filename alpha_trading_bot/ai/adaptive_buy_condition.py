@@ -31,37 +31,58 @@ class BuyConditionResult:
     timestamp: str
 
 
+from alpha_trading_bot.config.thresholds import (
+    RSI_BUY_REGULAR_MAX,
+    RSI_BUY_OVERSOLD_MAX,
+    RSI_BUY_SUPPORT_MAX,
+    RSI_BUY_CONFIRM_MAX,
+    BUY_REGULAR_TREND_STRENGTH_MIN,
+    BUY_REGULAR_BB_POSITION_MAX,
+    BUY_REGULAR_ADX_MIN,
+    BUY_REGULAR_MOMENTUM_MIN,
+    BUY_OVERSOLD_MOMENTUM_MIN,
+    BUY_OVERSOLD_TREND_STRENGTH_MIN,
+    BUY_OVERSOLD_BB_POSITION_MAX,
+    BUY_OVERSOLD_POSITION_FACTOR,
+    BUY_SUPPORT_PRICE_POSITION_MAX,
+    BUY_SUPPORT_MOMENTUM_MIN,
+    BUY_SUPPORT_POSITION_FACTOR,
+    BUY_CONFIRMATION_CONSECUTIVE_UP,
+    BUY_CONFIRMATION_POSITION_FACTOR,
+)
+
+
 @dataclass
 class BuyConditions:
     """买入条件配置"""
 
     # 常规模式参数
-    regular_trend_strength_min: float = 0.08  # 0.12→0.08，适度放宽
-    regular_rsi_max: float = 70
-    regular_bb_position_max: float = 0.70
-    regular_adx_min: float = 15
-    regular_momentum_min: float = 0.001  # 0.003→0.001，降低动量要求
+    regular_trend_strength_min: float = BUY_REGULAR_TREND_STRENGTH_MIN
+    regular_rsi_max: float = RSI_BUY_REGULAR_MAX
+    regular_bb_position_max: float = BUY_REGULAR_BB_POSITION_MAX
+    regular_adx_min: float = BUY_REGULAR_ADX_MIN
+    regular_momentum_min: float = BUY_REGULAR_MOMENTUM_MIN
 
-    # 超卖反弹模式参数 - 适度放宽以增加买入机会
+    # 超卖反弹模式参数
     oversold_enabled: bool = True
-    oversold_rsi_max: float = 42  # 38→42，适度放宽超卖阈值
-    oversold_momentum_min: float = 0.002  # 0.004→0.002，降低动量要求
-    oversold_trend_strength_min: float = 0.08  # 0.12→0.08，降低趋势要求
-    oversold_bb_position_max: float = 0.48  # 0.42→0.48，放宽布林带位置
-    oversold_position_factor: float = 0.55  # 0.5→0.55，轻微提高仓位
+    oversold_rsi_max: float = RSI_BUY_OVERSOLD_MAX
+    oversold_momentum_min: float = BUY_OVERSOLD_MOMENTUM_MIN
+    oversold_trend_strength_min: float = BUY_OVERSOLD_TREND_STRENGTH_MIN
+    oversold_bb_position_max: float = BUY_OVERSOLD_BB_POSITION_MAX
+    oversold_position_factor: float = BUY_OVERSOLD_POSITION_FACTOR
 
     # 强势支撑模式参数
     support_enabled: bool = True
-    support_price_position_max: float = 0.40
-    support_rsi_max: float = 45
-    support_momentum_min: float = 0.002
-    support_position_factor: float = 0.85
+    support_price_position_max: float = BUY_SUPPORT_PRICE_POSITION_MAX
+    support_rsi_max: float = RSI_BUY_SUPPORT_MAX
+    support_momentum_min: float = BUY_SUPPORT_MOMENTUM_MIN
+    support_position_factor: float = BUY_SUPPORT_POSITION_FACTOR
 
     # 趋势确认模式参数
     confirmation_enabled: bool = True
-    confirmation_consecutive_up: int = 2
-    confirmation_rsi_max: float = 60
-    confirmation_position_factor: float = 0.9
+    confirmation_consecutive_up: int = BUY_CONFIRMATION_CONSECUTIVE_UP
+    confirmation_rsi_max: float = RSI_BUY_CONFIRM_MAX
+    confirmation_position_factor: float = BUY_CONFIRMATION_POSITION_FACTOR
 
     # 突破确认买入模式参数（新增）
     breakout_enabled: bool = True

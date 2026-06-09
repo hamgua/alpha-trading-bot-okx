@@ -21,6 +21,17 @@ from alpha_trading_bot.config.thresholds import (
     RSI_RISK_HIGH,
     RSI_TAKE_PROFIT,
     RSI_OVERBOUGHT,
+    SELL_STOP_LOSS_PERCENT,
+    SELL_STOP_LOSS_PROFIT_PERCENT,
+    SELL_STOP_LOSS_TOLERANCE_PERCENT,
+    SELL_TAKE_PROFIT_PERCENT,
+    SELL_TAKE_PROFIT_PARTIAL_PERCENT,
+    SELL_RISK_BB_POSITION_MAX,
+    SELL_RISK_BB_POSITION_HIGH,
+    SELL_RISK_TREND_DOWN_STRENGTH,
+    SELL_RISK_MACD_NEGATIVE,
+    SELL_RISK_DRAWDOWN_PERCENT,
+    SELL_PARTIAL_FACTOR,
 )
 
 logger = logging.getLogger(__name__)
@@ -43,27 +54,27 @@ class SellConditions:
     """卖出条件配置"""
 
     # 止损参数
-    stop_loss_percent: float = 0.02  # 2%
-    stop_loss_profit_percent: float = 0.01  # 1%，盈利后回撤止损
-    stop_loss_tolerance_percent: float = 0.001  # 止损价容错
+    stop_loss_percent: float = SELL_STOP_LOSS_PERCENT
+    stop_loss_profit_percent: float = SELL_STOP_LOSS_PROFIT_PERCENT
+    stop_loss_tolerance_percent: float = SELL_STOP_LOSS_TOLERANCE_PERCENT
 
     # 止盈参数
-    take_profit_percent: float = 0.06  # 6%
-    take_profit_partial_percent: float = 0.04  # 4%，分批止盈
-    take_profit_rsi_threshold: float = RSI_TAKE_PROFIT  # RSI超买止盈
+    take_profit_percent: float = SELL_TAKE_PROFIT_PERCENT
+    take_profit_partial_percent: float = SELL_TAKE_PROFIT_PARTIAL_PERCENT
+    take_profit_rsi_threshold: float = RSI_TAKE_PROFIT
 
     # 风险规避参数
     risk_rsi_overbought: float = RSI_RISK_OVERBOUGHT
     risk_rsi_high: float = RSI_RISK_HIGH
-    risk_bb_position_max: float = 0.90
-    risk_bb_position_high: float = 0.85
-    risk_trend_down_strength: float = 0.4  # 趋势转空强度阈值
-    risk_macd_negative: float = -0.002  # MACD转空阈值
-    risk_drawdown_percent: float = 0.01  # 浮盈回撤阈值
+    risk_bb_position_max: float = SELL_RISK_BB_POSITION_MAX
+    risk_bb_position_high: float = SELL_RISK_BB_POSITION_HIGH
+    risk_trend_down_strength: float = SELL_RISK_TREND_DOWN_STRENGTH
+    risk_macd_negative: float = SELL_RISK_MACD_NEGATIVE
+    risk_drawdown_percent: float = SELL_RISK_DRAWDOWN_PERCENT
 
     # 减仓参数
     partial_sell_enabled: bool = True
-    partial_sell_factor: float = 0.5  # 减仓比例
+    partial_sell_factor: float = SELL_PARTIAL_FACTOR
 
 
 class DynamicSellCondition:

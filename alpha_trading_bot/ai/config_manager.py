@@ -27,6 +27,42 @@ from alpha_trading_bot.config.thresholds import (
     RSI_RISK_HIGH,
     RSI_TAKE_PROFIT,
     RSI_OVERSOLD,
+    SELL_STOP_LOSS_PERCENT,
+    SELL_STOP_LOSS_PROFIT_PERCENT,
+    SELL_STOP_LOSS_TOLERANCE_PERCENT,
+    SELL_TAKE_PROFIT_PERCENT,
+    SELL_TAKE_PROFIT_PARTIAL_PERCENT,
+    SELL_RISK_BB_POSITION_MAX,
+    SELL_RISK_BB_POSITION_HIGH,
+    SELL_RISK_TREND_DOWN_STRENGTH,
+    SELL_RISK_MACD_NEGATIVE,
+    SELL_RISK_DRAWDOWN_PERCENT,
+    BUY_REGULAR_TREND_STRENGTH_MIN,
+    BUY_REGULAR_BB_POSITION_MAX,
+    BUY_REGULAR_ADX_MIN,
+    BUY_REGULAR_MOMENTUM_MIN,
+    BUY_OVERSOLD_MOMENTUM_MIN,
+    BUY_OVERSOLD_TREND_STRENGTH_MIN,
+    BUY_OVERSOLD_BB_POSITION_MAX,
+    BUY_OVERSOLD_POSITION_FACTOR,
+    BUY_SUPPORT_PRICE_POSITION_MAX,
+    BUY_SUPPORT_MOMENTUM_MIN,
+    BUY_SUPPORT_POSITION_FACTOR,
+    BUY_CONFIRMATION_CONSECUTIVE_UP,
+    BUY_CONFIRMATION_POSITION_FACTOR,
+    SIGNAL_CONFIDENCE_FLOOR,
+    SIGNAL_CONFIDENCE_CEILING,
+    SIGNAL_RAPID_CHANGE_THRESHOLD,
+    SIGNAL_HIGH_VOLATILITY_THRESHOLD,
+    SIGNAL_COOLDOWN_PERIOD,
+    FUSION_CONSENSUS_BOOST_FULL,
+    FUSION_CONSENSUS_BOOST_PARTIAL,
+    FUSION_DEFAULT_CONFIDENCE,
+    TREND_DETECTION_PERIODS,
+    TREND_REVERSAL_WINDOW,
+    TREND_REVERSAL_MOMENTUM_THRESHOLD,
+    TREND_RSI_REBOUND_THRESHOLD,
+    TREND_PRICE_POSITION_LOW,
 )
 
 logger = logging.getLogger(__name__)
@@ -57,32 +93,32 @@ class BuyConditionsConfig:
     """买入条件配置"""
 
     # 常规模式
-    regular_trend_strength_min: float = 0.2
+    regular_trend_strength_min: float = BUY_REGULAR_TREND_STRENGTH_MIN
     regular_rsi_max: float = RSI_BUY_REGULAR_MAX
-    regular_bb_position_max: float = 0.65
-    regular_adx_min: float = 15
-    regular_momentum_min: float = 0.005
+    regular_bb_position_max: float = BUY_REGULAR_BB_POSITION_MAX
+    regular_adx_min: float = BUY_REGULAR_ADX_MIN
+    regular_momentum_min: float = BUY_REGULAR_MOMENTUM_MIN
 
     # 超卖反弹模式
     oversold_enabled: bool = True
     oversold_rsi_max: float = RSI_BUY_OVERSOLD_MAX
-    oversold_momentum_min: float = 0.005
-    oversold_trend_strength_min: float = 0.1
-    oversold_bb_position_max: float = 0.45
-    oversold_position_factor: float = 0.5
+    oversold_momentum_min: float = BUY_OVERSOLD_MOMENTUM_MIN
+    oversold_trend_strength_min: float = BUY_OVERSOLD_TREND_STRENGTH_MIN
+    oversold_bb_position_max: float = BUY_OVERSOLD_BB_POSITION_MAX
+    oversold_position_factor: float = BUY_OVERSOLD_POSITION_FACTOR
 
     # 强势支撑模式
     support_enabled: bool = True
-    support_price_position_max: float = 0.20
+    support_price_position_max: float = BUY_SUPPORT_PRICE_POSITION_MAX
     support_rsi_max: float = RSI_BUY_SUPPORT_MAX
-    support_momentum_min: float = 0.003
-    support_position_factor: float = 0.7
+    support_momentum_min: float = BUY_SUPPORT_MOMENTUM_MIN
+    support_position_factor: float = BUY_SUPPORT_POSITION_FACTOR
 
     # 趋势确认模式
     confirmation_enabled: bool = True
-    confirmation_consecutive_up: int = 3
+    confirmation_consecutive_up: int = BUY_CONFIRMATION_CONSECUTIVE_UP
     confirmation_rsi_max: float = RSI_BUY_CONFIRM_MAX
-    confirmation_position_factor: float = 0.8
+    confirmation_position_factor: float = BUY_CONFIRMATION_POSITION_FACTOR
 
 
 @dataclass
@@ -90,23 +126,23 @@ class SellConditionsConfig:
     """卖出条件配置"""
 
     # 止损
-    stop_loss_percent: float = 0.02
-    stop_loss_profit_percent: float = 0.01
-    stop_loss_tolerance_percent: float = 0.001
+    stop_loss_percent: float = SELL_STOP_LOSS_PERCENT
+    stop_loss_profit_percent: float = SELL_STOP_LOSS_PROFIT_PERCENT
+    stop_loss_tolerance_percent: float = SELL_STOP_LOSS_TOLERANCE_PERCENT
 
     # 止盈
-    take_profit_percent: float = 0.06
-    take_profit_partial_percent: float = 0.04
+    take_profit_percent: float = SELL_TAKE_PROFIT_PERCENT
+    take_profit_partial_percent: float = SELL_TAKE_PROFIT_PARTIAL_PERCENT
     take_profit_rsi_threshold: float = RSI_TAKE_PROFIT
 
     # 风险规避
     risk_rsi_overbought: float = RSI_RISK_OVERBOUGHT
     risk_rsi_high: float = RSI_RISK_HIGH
-    risk_bb_position_max: float = 0.90
-    risk_bb_position_high: float = 0.85
-    risk_trend_down_strength: float = 0.4
-    risk_macd_negative: float = -0.002
-    risk_drawdown_percent: float = 0.01
+    risk_bb_position_max: float = SELL_RISK_BB_POSITION_MAX
+    risk_bb_position_high: float = SELL_RISK_BB_POSITION_HIGH
+    risk_trend_down_strength: float = SELL_RISK_TREND_DOWN_STRENGTH
+    risk_macd_negative: float = SELL_RISK_MACD_NEGATIVE
+    risk_drawdown_percent: float = SELL_RISK_DRAWDOWN_PERCENT
 
     # 减仓
     partial_sell_enabled: bool = True
@@ -119,37 +155,37 @@ class FusionConfig:
 
     strategy: str = "consensus_boosted"
     threshold: float = 0.5
-    consensus_boost_full: float = 1.3
-    consensus_boost_partial: float = 1.15
-    default_confidence: int = 70
+    consensus_boost_full: float = FUSION_CONSENSUS_BOOST_FULL
+    consensus_boost_partial: float = FUSION_CONSENSUS_BOOST_PARTIAL
+    default_confidence: int = int(FUSION_DEFAULT_CONFIDENCE * 100)  # 转为百分比整数
 
 
 @dataclass
 class TrendDetectionConfig:
     """趋势检测配置"""
 
-    periods: list = field(default_factory=lambda: [10, 20, 50])
+    periods: list = field(default_factory=lambda: list(TREND_DETECTION_PERIODS))
     reversal_enabled: bool = True
-    reversal_window: int = 3
-    reversal_momentum_threshold: float = 0.008
+    reversal_window: int = TREND_REVERSAL_WINDOW
+    reversal_momentum_threshold: float = TREND_REVERSAL_MOMENTUM_THRESHOLD
     rsi_oversold: float = RSI_OVERSOLD
-    rsi_rebound_threshold: float = 3
-    price_position_low: float = 0.25
+    rsi_rebound_threshold: float = TREND_RSI_REBOUND_THRESHOLD
+    price_position_low: float = TREND_PRICE_POSITION_LOW
 
 
 @dataclass
 class SignalOptimizerConfig:
     """信号优化器配置"""
 
-    confidence_floor: float = 0.40
-    confidence_ceiling: float = 0.95
-    rapid_change_threshold: float = 0.3
+    confidence_floor: float = SIGNAL_CONFIDENCE_FLOOR
+    confidence_ceiling: float = SIGNAL_CONFIDENCE_CEILING
+    rapid_change_threshold: float = SIGNAL_RAPID_CHANGE_THRESHOLD
     smoothing_window: int = 3
     smoothing_enabled: bool = True
     volatility_adjustment: bool = True
-    high_volatility_threshold: float = 0.03
+    high_volatility_threshold: float = SIGNAL_HIGH_VOLATILITY_THRESHOLD
     consecutive_limit: int = 3
-    cooldown_period: int = 2
+    cooldown_period: int = SIGNAL_COOLDOWN_PERIOD
 
 
 @dataclass

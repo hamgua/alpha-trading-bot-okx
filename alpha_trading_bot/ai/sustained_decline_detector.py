@@ -71,7 +71,7 @@ class SustainedDeclineConfig:
     # 是否启用检测
     enabled: bool = True
 
-    # 累积跌幅阈值
+    # 累积跌幅阈值（参见 alpha_trading_bot.config.thresholds: DECLINE_*）
     mild_decline_threshold: float = 3.0  # 轻度下跌阈值 (%)
     moderate_decline_threshold: float = 5.0  # 中度下跌阈值 (%)
     severe_decline_threshold: float = 8.0  # 严重下跌阈值 (%)

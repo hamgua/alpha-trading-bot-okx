@@ -5,7 +5,7 @@ Prompt构建器 - 专业的加密货币量化交易Prompt
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
-from alpha_trading_bot.config.thresholds import RSI_BUY_OVERSOLD_MAX
+from alpha_trading_bot.config.thresholds import RSI_BUY_OVERSOLD_MAX, PROMPT_BUY_RSI_THRESHOLD, PROMPT_BUY_ADX_THRESHOLD, PROMPT_SELL_RSI_THRESHOLD, PROMPT_WATCH_TREND_STRENGTH, PROMPT_WATCH_ADX_THRESHOLD, PROMPT_WATCH_ATR_THRESHOLD, PROMPT_CRASH_DROP_THRESHOLD, PROMPT_SHORT_TERM_BUY_THRESHOLD, PROMPT_DEEPSEEK_LOW_POSITION_THRESHOLD, PROMPT_DEEPSEEK_REBOUND_RSI_MAX
 
 
 @dataclass
@@ -13,19 +13,19 @@ class PromptConfig:
     """Prompt构建器配置（供未来迁移使用）"""
 
     buy_trend_strength: float = 0.12
-    buy_rsi_threshold: float = 72
+    buy_rsi_threshold: float = PROMPT_BUY_RSI_THRESHOLD
     buy_bb_position: float = 70
-    buy_adx_threshold: float = 8
-    sell_rsi_threshold: float = 75
+    buy_adx_threshold: float = PROMPT_BUY_ADX_THRESHOLD
+    sell_rsi_threshold: float = PROMPT_SELL_RSI_THRESHOLD
     sell_bb_position: float = 80
     sell_stop_loss_percent: float = 2.5
-    watch_trend_strength: float = 0.15
-    watch_adx_threshold: float = 30
+    watch_trend_strength: float = PROMPT_WATCH_TREND_STRENGTH
+    watch_adx_threshold: float = PROMPT_WATCH_ADX_THRESHOLD
     watch_bb_low: float = 30
     watch_bb_high: float = 70
-    watch_atr_threshold: float = 6.0
-    crash_drop_threshold: float = -0.02
-    short_term_buy_threshold: float = 0.01
+    watch_atr_threshold: float = PROMPT_WATCH_ATR_THRESHOLD
+    crash_drop_threshold: float = PROMPT_CRASH_DROP_THRESHOLD
+    short_term_buy_threshold: float = PROMPT_SHORT_TERM_BUY_THRESHOLD
     momentum_buy_boost: float = 0.15
     oversold_rebound_enabled: bool = True
     oversold_rsi_threshold: float = RSI_BUY_OVERSOLD_MAX
@@ -34,9 +34,9 @@ class PromptConfig:
     oversold_position_factor: float = 0.3
     kimi_atr_risk_multiplier: float = 1.5
     kimi_conservative_buy: bool = True
-    deepseek_low_position_threshold: float = 0.35
+    deepseek_low_position_threshold: float = PROMPT_DEEPSEEK_LOW_POSITION_THRESHOLD
     deepseek_rebound_mode_enabled: bool = True
-    deepseek_rebound_rsi_max: float = 65
+    deepseek_rebound_rsi_max: float = PROMPT_DEEPSEEK_REBOUND_RSI_MAX
 
 
 class PromptBuilder:
@@ -58,44 +58,44 @@ class PromptBuilder:
 
     # ============== 基础阈值 ==============
     BUY_TREND_STRENGTH = 0.12
-    BUY_RSI_THRESHOLD = 72
+    BUY_RSI_THRESHOLD = PROMPT_BUY_RSI_THRESHOLD
     BUY_BB_POSITION = 70
-    BUY_ADX_THRESHOLD = 8
+    BUY_ADX_THRESHOLD = PROMPT_BUY_ADX_THRESHOLD
 
-    SELL_RSI_THRESHOLD = 75  # 降低RSI阈值，更容易卖出
-    SELL_BB_POSITION = 80  # 降低布林带位置，更容易卖出
-    SELL_STOP_LOSS_PERCENT = 2.5  # 收紧止损
+    SELL_RSI_THRESHOLD = PROMPT_SELL_RSI_THRESHOLD
+    SELL_BB_POSITION = 80
+    SELL_STOP_LOSS_PERCENT = 2.5
 
     # 观望条件阈值 - 收紧以减少观望
-    WATCH_TREND_STRENGTH = 0.15  # 降低趋势强度阈值（原0.2）
-    WATCH_ADX_THRESHOLD = 30  # 提高ADX阈值（原25）
-    WATCH_BB_LOW = 30  # 放宽布林带低位（原35）
-    WATCH_BB_HIGH = 70  # 放宽布林带高位（原65）
-    WATCH_ATR_THRESHOLD = 6.0  # 提高波动率阈值（原5.0）
+    WATCH_TREND_STRENGTH = PROMPT_WATCH_TREND_STRENGTH
+    WATCH_ADX_THRESHOLD = PROMPT_WATCH_ADX_THRESHOLD
+    WATCH_BB_LOW = 30
+    WATCH_BB_HIGH = 70
+    WATCH_ATR_THRESHOLD = PROMPT_WATCH_ATR_THRESHOLD
 
     # 暴跌保护阈值
-    CRASH_DROP_THRESHOLD = -0.02  # 1小时跌幅 > -2% 视为暴跌
+    CRASH_DROP_THRESHOLD = PROMPT_CRASH_DROP_THRESHOLD
 
     # 短期波动捕捉阈值
-    SHORT_TERM_BUY_THRESHOLD = 0.01
+    SHORT_TERM_BUY_THRESHOLD = PROMPT_SHORT_TERM_BUY_THRESHOLD
     MOMENTUM_BUY_BOOST = 0.15
 
     # 超卖反弹模式配置
     OVERSOLD_REBOUND_ENABLED = True
-    OVERSOLD_RSI_THRESHOLD = 30
+    OVERSOLD_RSI_THRESHOLD = RSI_BUY_OVERSOLD_MAX
     OVERSOLD_MAX_DRAWDOWN = 0.015
     OVERSOLD_MIN_DRAWDOWN = 0.025
     OVERSOLD_POSITION_FACTOR = 0.3
 
     # ============== 差异化配置 ==============
     # Kimi：更保守，追加风险提示
-    KIMI_ATR_RISK_MULTIPLIER = 1.5  # ATR 风险乘数
-    KIMI_CONSERVATIVE_BUY = True  # Kimi 买入更保守
+    KIMI_ATR_RISK_MULTIPLIER = 1.5
+    KIMI_CONSERVATIVE_BUY = True
 
     # Deepseek：更容易出 buy，追加低位反弹模式
-    DEEPSEEK_LOW_POSITION_THRESHOLD = 0.35  # 35% 以下为低位
-    DEEPSEEK_REBOUND_MODE_ENABLED = True  # 启用低位反弹模式
-    DEEPSEEK_REBOUND_RSI_MAX = 65  # 反弹模式 RSI 上限（原58，放宽以覆盖更多反弹场景）
+    DEEPSEEK_LOW_POSITION_THRESHOLD = PROMPT_DEEPSEEK_LOW_POSITION_THRESHOLD
+    DEEPSEEK_REBOUND_MODE_ENABLED = True
+    DEEPSEEK_REBOUND_RSI_MAX = PROMPT_DEEPSEEK_REBOUND_RSI_MAX
 
     @classmethod
     def build(cls, market_data: Dict[str, Any], provider: str = "default") -> str:
