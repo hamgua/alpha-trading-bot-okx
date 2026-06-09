@@ -162,39 +162,39 @@ RSI_BUY_CONFIRM_MAX = 55
 # 卖出/止损相关阈值
 # ============================================================
 
-# 止损百分比（默认 2%）
+# 止损百分比（默认 0.5%）
 # 用途: 新开仓浮亏超过此百分比触发止损
 # 引用方:
 #   - ai/dynamic_sell_condition.py: SellConditions.stop_loss_percent (第46行)
 #   - ai/config_manager.py: SellConditionsConfig.stop_loss_percent (第93行)
-SELL_STOP_LOSS_PERCENT = 0.02
+SELL_STOP_LOSS_PERCENT = 0.005
 
-# 盈利后止损百分比（默认 1%）
+# 盈利后止损百分比（默认 0.2%）
 # 用途: 有盈利后浮亏超过此百分比触发止损
 # 引用方:
 #   - ai/dynamic_sell_condition.py: SellConditions.stop_loss_profit_percent (第47行)
 #   - ai/config_manager.py: SellConditionsConfig.stop_loss_profit_percent (第94行)
-SELL_STOP_LOSS_PROFIT_PERCENT = 0.01
+SELL_STOP_LOSS_PROFIT_PERCENT = 0.002
 
 # 止损价容错（默认 0.1%）
 # 用途: 止损价与当前价的容差范围
 # 引用方:
 #   - ai/dynamic_sell_condition.py: SellConditions.stop_loss_tolerance_percent (第48行)
-SELL_STOP_LOSS_TOLERANCE_PERCENT = 0.001
+SELL_STOP_LOSS_TOLERANCE_PERCENT = 0.0001
 
-# 止盈百分比（默认 6%）
+# 止盈百分比（默认 0.6%）
 # 用途: 浮盈达到此百分比触发止盈
 # 引用方:
 #   - ai/dynamic_sell_condition.py: SellConditions.take_profit_percent (第51行)
 #   - ai/config_manager.py: SellConditionsConfig.take_profit_percent (第98行)
-SELL_TAKE_PROFIT_PERCENT = 0.06
+SELL_TAKE_PROFIT_PERCENT = 0.006
 
-# 分批止盈百分比（默认 4%）
+# 分批止盈百分比（默认 0.4%）
 # 用途: 部分止盈的浮盈目标
 # 引用方:
 #   - ai/dynamic_sell_condition.py: SellConditions.take_profit_partial_percent (第52行)
 #   - ai/config_manager.py: SellConditionsConfig.take_profit_partial_percent (第99行)
-SELL_TAKE_PROFIT_PARTIAL_PERCENT = 0.04
+SELL_TAKE_PROFIT_PARTIAL_PERCENT = 0.004
 
 # 风险规避布林带位置上限（默认 90%）
 # 用途: 布林带位置 > 90% 视为严重超买
