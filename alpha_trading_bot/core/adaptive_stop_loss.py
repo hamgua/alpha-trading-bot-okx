@@ -1,6 +1,11 @@
 """自适应止损管理模块
 
 从 AdaptiveTradingBot 中提取的止损单创建逻辑（支持多空方向）
+
+注意：OKX 止损单价格限制规则：
+  - 做多(LONG)止损 = sell 单：触发价必须 ≤ 当前价 (code 51280)
+  - 做空(SHORT)止损 = buy 单：触发价必须 ≥ 当前价 (code 51278)
+  重试时必须根据方向调整止损价方向
 """
 
 import logging
@@ -23,7 +28,15 @@ class AdaptiveStopLossManager:
         max_retries: int = 3,
         position_side: str = "long",
     ) -> Optional[str]:
-        """创建止损单（带重试机制）"""
+        """创建止损单（带重试机制）
+
+        Args:
+            amount: 数量
+            stop_price: 止损触发价
+            current_price: 当前市价（用于重试时参考）
+            max_retries: 最大重试次数
+            position_side: 持仓方向 (long/short)
+        """
         for attempt in range(max_retries + 1):
             try:
                 stop_side = "sell" if position_side == "long" else "buy"
@@ -36,14 +49,29 @@ class AdaptiveStopLossManager:
                 if stop_order_id:
                     return stop_order_id
                 if attempt < max_retries:
-                    stop_price = stop_price * 0.995
-                    logger.warning(
-                        f"[止损重试] 第{attempt + 1}次失败，降低止损价至 {stop_price:.1f}"
-                    )
+                    # 根据方向调整止损价：
+                    # - LONG止损=sell单：OKX要求触发价≤当前价，需要降低
+                    # - SHORT止损=buy单：OKX要求触发价≥当前价，需要提高
+                    if position_side == "short":
+                        stop_price = stop_price * 1.005
+                        logger.warning(
+                            f"[止损重试] 第{attempt + 1}次失败，提高止损价至 {stop_price:.1f}"
+                        )
+                    else:
+                        stop_price = stop_price * 0.995
+                        logger.warning(
+                            f"[止损重试] 第{attempt + 1}次失败，降低止损价至 {stop_price:.1f}"
+                        )
             except Exception as e:
                 if "SL trigger price" in str(e) and attempt < max_retries:
-                    stop_price = stop_price * 0.995
-                    logger.warning(f"[止损重试] 止损价过高，降低至 {stop_price:.1f}")
+                    if position_side == "short":
+                        stop_price = stop_price * 1.005
+                        logger.warning(
+                            f"[止损重试] 止损价过低，提高至 {stop_price:.1f}"
+                        )
+                    else:
+                        stop_price = stop_price * 0.995
+                        logger.warning(f"[止损重试] 止损价过高，降低至 {stop_price:.1f}")
                     continue
                 logger.error(f"[止损重试] 创建止损单失败: {e}")
                 break

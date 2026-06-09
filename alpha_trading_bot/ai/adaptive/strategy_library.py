@@ -392,7 +392,7 @@ class SafeModeStrategy(BaseStrategy):
             reasons.append(f"1小时跌幅({recent_drop:.2%})")
 
         # 趋势混乱
-        if abs(trend_strength) < 0.1:
+        if abs(trend_strength) < 0.05:
             is_extreme = True
             reasons.append("趋势混乱")
 

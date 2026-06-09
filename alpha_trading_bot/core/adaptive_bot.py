@@ -51,6 +51,10 @@ class AdaptiveTradingBot:
         self._decision_engine: Optional[Any] = None
         self._param_applier: Optional[Any] = None
 
+        # === 方向冷却机制 ===
+        self._last_position_side: str = ""  # 上一次的持仓方向
+        self._position_close_time: float = 0  # 持仓被平仓的时间戳
+
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
 
@@ -305,11 +309,21 @@ class AdaptiveTradingBot:
             if has_position:
                 self.position_manager.update_from_exchange(position_data)
                 entry_price = position_data.get("entry_price", 0)
+                self._last_position_side = position_side
                 if is_short_to_close:
                     logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
                 else:
                     logger.info(f"[持仓] 有持仓: {entry_price}")
             else:
+                # 检测持仓消失（被止损触发了）
+                if self._last_position_side:
+                    import time
+                    self._position_close_time = time.time()
+                    logger.info(
+                        f"[持仓] 无持仓 (上次方向={self._last_position_side}), "
+                        f"方向冷却已启动"
+                    )
+                    self._last_position_side = ""
                 logger.info("[持仓] 无持仓")
 
             # 8. 风险状态评估
@@ -339,7 +353,25 @@ class AdaptiveTradingBot:
             # 将 has_position 传入 market_data 供决策使用
             market_data["has_position"] = has_position
 
-            # 10. 信号决策
+            # 10. 方向冷却检查：止损后避免立即反向开仓
+            # 当持仓突然消失（被止损）后，在冷却期内避免反向开仓
+            if not has_position and self._position_close_time > 0:
+                import time
+                cool_down_elapsed = time.time() - self._position_close_time
+                COOL_DOWN_SECONDS = 600  # 10分钟冷却
+                if cool_down_elapsed < COOL_DOWN_SECONDS:
+                    logger.info(
+                        f"[冷却] 方向冷却中 ({cool_down_elapsed:.0f}/{COOL_DOWN_SECONDS}s)，跳过交易"
+                    )
+                    if has_position:
+                        await self._update_stop_loss(
+                            current_price, position_data, market_data
+                        )
+                    logger.info("[决策] 跳过交易，方向冷却中")
+                    logger.info("=" * 60)
+                    return
+
+            # 11. 信号决策
             final_signal = self._make_decision(ai_signal, selected, market_data)
 
             # 强制平空仓
