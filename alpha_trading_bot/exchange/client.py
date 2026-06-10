@@ -80,17 +80,68 @@ class ExchangeClient:
 
     async def set_leverage(self, leverage: int, symbol: Optional[str] = None) -> None:
         if leverage is None or not isinstance(leverage, int) or leverage < 1:
-            raise ValueError(f"Invalid leverage: {leverage}. Must be a positive integer.")
+            raise ValueError(
+                f"Invalid leverage: {leverage}. Must be a positive integer."
+            )
 
         target_symbol = symbol or self.symbol
         if not target_symbol or not isinstance(target_symbol, str):
-            raise ValueError(f"Invalid symbol: {target_symbol}. Must be a non-empty string.")
+            raise ValueError(
+                f"Invalid symbol: {target_symbol}. Must be a non-empty string."
+            )
 
-        await asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: self.exchange.set_leverage(leverage, target_symbol),
-        )
+        try:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.exchange.set_leverage(leverage, target_symbol),
+            )
+        except TypeError as e:
+            if not self._is_ccxt_markets_keysort_error(e):
+                raise
+            logger.warning(
+                "[杠杆设置] ccxt加载市场时遇到None键排序错误，" f"改用OKX原始接口: {e}"
+            )
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._set_okx_leverage_direct(leverage, target_symbol),
+            )
         logger.info(f"设置杠杆: {leverage}x for {target_symbol}")
+
+    @staticmethod
+    def _is_ccxt_markets_keysort_error(error: TypeError) -> bool:
+        """判断是否为 ccxt markets_by_id 中混入 None 键导致的排序错误。"""
+        message = str(error)
+        return "NoneType" in message and "str" in message and "<" in message
+
+    @staticmethod
+    def _okx_inst_id_from_symbol(symbol: str) -> str:
+        """将 ccxt symbol 转换为 OKX instId。"""
+        normalized = symbol.strip()
+        if "/" not in normalized:
+            return normalized.replace("/", "-").replace(":", "-")
+
+        pair, _, contract_suffix = normalized.partition(":")
+        base, quote = pair.split("/", 1)
+        if contract_suffix:
+            return f"{base}-{quote}-SWAP"
+        return f"{base}-{quote}"
+
+    def _set_okx_leverage_direct(self, leverage: int, symbol: str) -> None:
+        """绕过 ccxt load_markets，直接调用 OKX 设置杠杆接口。"""
+        method = getattr(self.exchange, "private_post_account_set_leverage", None)
+        if method is None:
+            method = getattr(self.exchange, "privatePostAccountSetLeverage", None)
+        if not callable(method):
+            raise RuntimeError("OKX raw set-leverage endpoint is unavailable")
+
+        params = {
+            "instId": self._okx_inst_id_from_symbol(symbol),
+            "lever": str(leverage),
+            "mgnMode": "cross",
+        }
+        response = method(params)
+        if isinstance(response, dict) and str(response.get("code", "0")) != "0":
+            raise RuntimeError(f"OKX set leverage failed: {response}")
 
     # === 代理方法 - 委托给子服务 ===
 

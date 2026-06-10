@@ -16,8 +16,8 @@
     "hash": "c51a89a1580a067e802ea602246eb4ed"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/client.py": {
-    "mtime": 1781092101.9555137,
-    "hash": "8ea464baf090e3cd14b36237bfb3e96e"
+    "mtime": 1781096689.1620743,
+    "hash": "5e11e03e7770865c60dfe37e4293e9f8"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/account_service.py": {
     "mtime": 1774321626.5573633,
@@ -458,6 +458,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_strategy_execution_manager.py": {
     "mtime": 1779253136.479561,
     "hash": "c293a407a2970931e70025a8c99231a8"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_exchange_leverage.py": {
+    "mtime": 1781096598.260544,
+    "hash": "48809665d465512147bdcece07af8765"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_deepseek_response_parse.py": {
     "mtime": 1779698729.7878838,
