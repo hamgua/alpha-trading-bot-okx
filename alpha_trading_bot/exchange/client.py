@@ -78,13 +78,19 @@ class ExchangeClient:
         )
         logger.info("交易所客户端初始化完成")
 
-    async def set_leverage(self, leverage: int) -> None:
-        """设置杠杆"""
+    async def set_leverage(self, leverage: int, symbol: Optional[str] = None) -> None:
+        if leverage is None or not isinstance(leverage, int) or leverage < 1:
+            raise ValueError(f"Invalid leverage: {leverage}. Must be a positive integer.")
+
+        target_symbol = symbol or self.symbol
+        if not target_symbol or not isinstance(target_symbol, str):
+            raise ValueError(f"Invalid symbol: {target_symbol}. Must be a non-empty string.")
+
         await asyncio.get_event_loop().run_in_executor(
             None,
-            lambda: self.exchange.set_leverage(leverage, self.symbol),
+            lambda: self.exchange.set_leverage(leverage, target_symbol),
         )
-        logger.info(f"设置杠杆: {leverage}x")
+        logger.info(f"设置杠杆: {leverage}x for {target_symbol}")
 
     # === 代理方法 - 委托给子服务 ===
 
