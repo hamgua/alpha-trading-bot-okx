@@ -235,22 +235,25 @@ class DecisionEngine:
                 return {"action": "skip", "reason": "AI和策略都是HOLD",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
             # 策略信号与AI-HOLD冲突：高置信度策略BUY可覆盖AI-HOLD
+            # 增加R/R门禁：策略覆盖AI-HOLD时必须满足R/R≥最低阈值
             market_structure = market_data.get("market_structure", "sideways")
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
             if (
                 selected.signal.upper() == "BUY"
                 and selected.confidence >= 0.80
                 and market_structure != "bearish"
+                and rr_ratio >= self._get_min_rr()
             ):
                 logger.info(
-                    f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD"
+                    f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                    f"R/R={rr_ratio:.2f}"
                 )
                 result = {
                     "action": "open",
-                    "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%})",
+                    "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, R/R={rr_ratio:.2f})",
                     "confidence": selected.confidence * 0.8,  # 降权20%作为保守处理
                     "strategy": selected.strategy_type,
                 }
-                rr_ratio = market_data.get("risk_reward_ratio", 0)
                 if rr_ratio >= GOOD_RR_RATIO:
                     result["position_advice"] = f"R/R={rr_ratio:.2f}良好，正常仓位"
                 elif rr_ratio >= self._get_min_rr():

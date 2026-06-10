@@ -306,7 +306,9 @@ class PositionManager:
 
         业务逻辑:
         - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 0.05%) = 建仓价 × 99.95%
-        - 盈利且价差 >= 容错: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
+        - 盈利且价差 >= 容错: 
+            - 若最高价 > 建仓价: 止损 = max(建仓价×99.98%, 最高价×99.98%) 实现追踪止损
+            - 否则: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
         - 盈利但价差 < 容错: 止损 = 建仓价 × 99.95% (视为未明显盈利)
         """
         entry_price = self._entry_price
@@ -321,32 +323,22 @@ class PositionManager:
             # 亏损/首次建仓: 止损 = 建仓价 × 99.95%
             stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = entry_price * (1 - stop_percent)
-            logger.debug(
-                f"[止损计算-做多-智能] 亏损/建仓: 当前价({current_price}) <= "
-                f"建仓价({entry_price}), 止损比例:{stop_percent * 100}%, "
-                f"止损价:{stop_price}"
-            )
             return stop_price
         elif price_vs_entry_percent >= tolerance:
-            # 盈利且价差 >= 容错: 止损 = 建仓价 × 99.98%
+            # 盈利且价差 >= 容错: 使用最高价追踪止损
             stop_percent = self.config.stop_loss.stop_loss_profit_percent
-            stop_price = entry_price * (1 - stop_percent)
-            logger.debug(
-                f"[止损计算-做多-智能] 盈利(价差{price_vs_entry_percent * 100:.4f}% "
-                f">= 容错{tolerance * 100}%): 建仓价({entry_price}), "
-                f"止损比例:{stop_percent * 100}%, 止损价:{stop_price}"
-            )
+            base_stop = entry_price * (1 - stop_percent)
+            # 若最高价高于建仓价，基于最高价计算追踪止损
+            if self._highest_price_since_entry > entry_price:
+                trail_stop = self._highest_price_since_entry * (1 - stop_percent)
+                stop_price = max(base_stop, trail_stop)
+            else:
+                stop_price = base_stop
             return stop_price
         else:
             # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损
             stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = entry_price * (1 - stop_percent)
-            logger.debug(
-                f"[止损计算-做多-智能] 盈利但价差不足(价差"
-                f"{price_vs_entry_percent * 100:.4f}% < 容错{tolerance * 100}%): "
-                f"建仓价({entry_price}), 止损比例:{stop_percent * 100}%, "
-                f"止损价:{stop_price}"
-            )
             return stop_price
 
     def _calculate_current_price_based_stop_loss(self, current_price: float) -> float:

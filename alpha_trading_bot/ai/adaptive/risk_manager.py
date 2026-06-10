@@ -474,7 +474,11 @@ class RiskControlManager:
                 side = signal.get("side", "")
                 # 做多/开仓: 止损价 = 入场价 * (1 - 止损百分比)
                 # 做空: 止损价 = 入场价 * (1 + 止损百分比)
-                if side.lower() == "buy":
+                # 做多=开仓: 止损价 = 入场价 * (1 - 止损百分比)
+                # OKX要求: LONG做多止损=sell单, 触发价需 ≤ 当前价
+                # 因此必须确保止损价 < 入场价
+                is_long = side.lower() in ("buy", "open", "long")
+                if is_long:
                     signal["stop_loss_price"] = signal.get("price", 0) * (
                         1 - stop_loss_pct
                     )
