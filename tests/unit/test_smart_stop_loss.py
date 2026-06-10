@@ -240,8 +240,8 @@ class TestStopLossConfigValidation:
     def test_default_values(self):
         """默认值正确"""
         config = StopLossConfig()
-        assert config.stop_loss_percent == 0.02
-        assert config.stop_loss_profit_percent == 0.01
+        assert config.stop_loss_percent == 0.0005
+        assert config.stop_loss_profit_percent == 0.0002
         assert config.stop_loss_tolerance_percent == 0.001
         assert config.stop_loss_entry_based is True
         assert config.price_vs_entry_tolerance_percent == 0.001
