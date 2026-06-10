@@ -799,3 +799,11 @@ RR_AGGRESSIVE_MIN = 0.6
 #   - core/decision_engine.py: GOOD_RR_RATIO (第26行)
 #   - ai/market_structure.py: StructureAnalyzerConfig.good_rr (第82行)
 RR_GOOD_RATIO = 2.0
+
+# 做空专用 R/R 最低阈值（比做多更宽松）
+# 加密货币市场做空的 R/R 天然偏低（上涨趋势长期存在）
+# 引用方:
+#   - core/decision_engine.py: SHORT_RR_THRESHOLDS
+RR_SHORT_CONSERVATIVE_MIN = 0.5
+RR_SHORT_MODERATE_MIN = 0.6
+RR_SHORT_AGGRESSIVE_MIN = 0.4

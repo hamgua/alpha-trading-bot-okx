@@ -54,6 +54,7 @@ class AdaptiveTradingBot:
         # === 方向冷却机制 ===
         self._last_position_side: str = ""  # 上一次的持仓方向
         self._position_close_time: float = 0  # 持仓被平仓的时间戳
+        self._last_closed_side: str = ""  # 上次被平仓的方向（long/short），用于区分方向冷却
 
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
@@ -319,6 +320,7 @@ class AdaptiveTradingBot:
                 if self._last_position_side:
                     import time
                     self._position_close_time = time.time()
+                    self._last_closed_side = self._last_position_side  # 记录被平仓的方向
                     logger.info(
                         f"[持仓] 无持仓 (上次方向={self._last_position_side}), "
                         f"方向冷却已启动"
@@ -353,23 +355,20 @@ class AdaptiveTradingBot:
             # 将 has_position 传入 market_data 供决策使用
             market_data["has_position"] = has_position
 
-            # 10. 方向冷却检查：止损后避免立即反向开仓
-            # 当持仓突然消失（被止损）后，在冷却期内避免反向开仓
+            # 10. 方向冷却检查：止损后避免立即同向开仓
+            # 如果冷却期仍在，先检查最终信号方向后再决定是否跳过
+            # 冷却计时在决策后检查，避免阻挡反方向开仓
+            _in_cooldown = False
             if not has_position and self._position_close_time > 0:
                 import time
                 cool_down_elapsed = time.time() - self._position_close_time
-                COOL_DOWN_SECONDS = 1800  # 30分钟冷却（> 15分钟交易周期，确保至少跳过1个完整周期）
-                if cool_down_elapsed < COOL_DOWN_SECONDS:
+                COOL_DOWN_SECONDS = 1800  # 30分钟冷却
+                _in_cooldown = cool_down_elapsed < COOL_DOWN_SECONDS
+                if _in_cooldown:
                     logger.info(
-                        f"[冷却] 方向冷却中 ({cool_down_elapsed:.0f}/{COOL_DOWN_SECONDS}s)，跳过交易"
+                        f"[冷却] 方向冷却进行中 ({cool_down_elapsed:.0f}/{COOL_DOWN_SECONDS}s)"
+                        f"，上次平仓方向={self._last_closed_side}"
                     )
-                    if has_position:
-                        await self._update_stop_loss(
-                            current_price, position_data, market_data
-                        )
-                    logger.info("[决策] 跳过交易，方向冷却中")
-                    logger.info("=" * 60)
-                    return
 
             # 11. 信号决策
             final_signal = self._make_decision(ai_signal, selected, market_data)
@@ -389,6 +388,28 @@ class AdaptiveTradingBot:
                 if final_signal["action"] == "open":
                     logger.info("[决策] 已有持仓，跳过开仓，更新止损")
                     final_signal = {"action": "skip", "reason": "已有持仓"}
+
+            # 方向冷却二次检查：区分long/short
+            # long止损后只冷却long，不影响short开仓；反之亦然
+            if _in_cooldown and self._last_closed_side:
+                action = final_signal.get("action", "")
+                # 确定本次交易的开仓方向
+                this_side = None
+                if action == "open":
+                    this_side = "long"
+                elif action == "sell" and self.config.trading.allow_short_selling:
+                    this_side = "short"
+                if this_side and this_side == self._last_closed_side:
+                    logger.info(
+                        f"[冷却] 方向冷却中({this_side})，跳过{this_side}开仓"
+                    )
+                    final_signal = {"action": "skip",
+                                    "reason": f"方向冷却({this_side})"}
+                elif this_side and this_side != self._last_closed_side:
+                    logger.info(
+                        f"[冷却] 冷却方向={self._last_closed_side}，本次方向={this_side}，"
+                        f"允许反方向开仓"
+                    )
 
             if final_signal["action"] == "skip":
                 if has_position and not is_short_to_close:

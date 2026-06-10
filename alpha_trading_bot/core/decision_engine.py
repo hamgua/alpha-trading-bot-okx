@@ -25,6 +25,9 @@ from alpha_trading_bot.config.thresholds import (
     RR_MODERATE_MIN,
     RR_AGGRESSIVE_MIN,
     RR_GOOD_RATIO,
+    RR_SHORT_CONSERVATIVE_MIN,
+    RR_SHORT_MODERATE_MIN,
+    RR_SHORT_AGGRESSIVE_MIN,
 )
 
 logger = logging.getLogger(__name__)
@@ -38,6 +41,14 @@ INVESTMENT_RR_THRESHOLDS = {
 }
 DEFAULT_RR_THRESHOLD = RR_MODERATE_MIN
 GOOD_RR_RATIO = RR_GOOD_RATIO
+
+# 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
+SHORT_RR_THRESHOLDS = {
+    "conservative": RR_SHORT_CONSERVATIVE_MIN,
+    "moderate": RR_SHORT_MODERATE_MIN,
+    "aggressive": RR_SHORT_AGGRESSIVE_MIN,
+}
+DEFAULT_SHORT_RR_THRESHOLD = RR_SHORT_MODERATE_MIN
 
 
 class DecisionEngine:
@@ -62,6 +73,12 @@ class DecisionEngine:
     def _get_min_rr(self) -> float:
         """获取当前投资类型的最低R/R阈值"""
         return self._min_rr
+
+    def _get_short_min_rr(self) -> float:
+        """获取当前投资类型的最低做空R/R阈值（比做多更宽松）"""
+        return SHORT_RR_THRESHOLDS.get(
+            self._investment_type, DEFAULT_SHORT_RR_THRESHOLD
+        )
 
     def make_decision(
         self,
@@ -193,6 +210,16 @@ class DecisionEngine:
                 logger.warning(f"[RSI超卖] RSI={rsi:.1f} < 40，RSI超卖禁止做空")
                 return {"action": "skip", "reason": "RSI超卖禁止做空",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
+            # 做空使用专用的宽松R/R阈值
+            short_min_rr = self._get_short_min_rr()
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
+            if rr_ratio > 0 and rr_ratio < short_min_rr:
+                logger.warning(
+                    f"[短R/R门禁] 做空R/R={rr_ratio:.2f} < {short_min_rr}，风险收益比不足"
+                )
+                return {"action": "skip",
+                        "reason": f"做空R/R={rr_ratio:.2f}不足(短R/R阈值{short_min_rr})",
+                        "confidence": selected.confidence, "strategy": selected.strategy_type}
             if not has_position and self._config.trading.allow_short_selling:
                 return {"action": "sell", "reason": "AI信号做空",
                         "confidence": selected.confidence, "strategy": selected.strategy_type}
@@ -267,6 +294,27 @@ class DecisionEngine:
                 elif rr_ratio >= self._get_min_rr():
                     result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
                 return result
+            # 策略信号与AI-HOLD冲突：高置信度策略SHORT可覆盖AI-HOLD（做空）
+            if (
+                selected.signal.upper() == "SHORT"
+                and selected.confidence >= 0.75
+                and not has_position
+                and self._config.trading.allow_short_selling
+                and rr_ratio >= self._get_short_min_rr()
+                and atr_percent < 0.55
+                and rsi > 40
+            ):
+                logger.info(
+                    f"[决策] 策略SHORT(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                    f"短R/R={rr_ratio:.2f}"
+                )
+                return {
+                    "action": "sell",
+                    "reason": f"策略SHORT覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
+                    "confidence": selected.confidence * 0.8,
+                    "strategy": selected.strategy_type,
+                    "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
+                }
             logger.warning(
                 f"[决策] AI-HOLD但策略={selected.signal}，保守处理"
             )
