@@ -1,5 +1,8 @@
 """实盘安全闸门测试。"""
 
+import sys
+import types
+
 import pytest
 
 from alpha_trading_bot.config.models import Config, TradingConfig, ExchangeConfig
@@ -127,3 +130,32 @@ async def test_adaptive_bot_execute_trade_blocked_by_live_guard(
     )
 
     assert called["create_order"] is False
+
+
+@pytest.mark.asyncio
+async def test_adaptive_bot_initialize_logs_full_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    config = _build_live_config(test_mode=True, confirmed=True, runtime_env="prod")
+    bot = AdaptiveTradingBot(config)
+
+    class _BoomExchange:
+        async def initialize(self) -> None:
+            raise TypeError("boom from exchange init")
+
+    exchange_package = types.ModuleType("alpha_trading_bot.exchange")
+    exchange_package.__path__ = []
+    exchange_client = types.ModuleType("alpha_trading_bot.exchange.client")
+    exchange_client.ExchangeClient = lambda **kwargs: _BoomExchange()
+    monkeypatch.setitem(sys.modules, "alpha_trading_bot.exchange", exchange_package)
+    monkeypatch.setitem(
+        sys.modules, "alpha_trading_bot.exchange.client", exchange_client
+    )
+
+    with caplog.at_level("ERROR"):
+        ok = await bot.initialize()
+
+    assert ok is False
+    assert any("boom from exchange init" in record.message for record in caplog.records)
+    assert any(record.exc_info is not None for record in caplog.records)

@@ -1,11 +1,16 @@
 """ML 动态权重去硬编码回归测试。"""
 
 import os
+from typing import Dict
+
+import pytest
 
 from alpha_trading_bot.ai.ml.adaptive_fusion import AdaptiveFusionStrategy
 from alpha_trading_bot.ai.ml.adaptive_weight_optimizer import AdaptiveWeightOptimizer
 from alpha_trading_bot.ai.ml.learning_integrator import MLLearningIntegrator
 from alpha_trading_bot.ai.ml.ml_data_manager import MLDataManager
+from alpha_trading_bot.ai.ml import performance_tracker as performance_tracker_module
+from alpha_trading_bot.ai.ml.performance_tracker import SignalRecord
 from alpha_trading_bot.ai.ml.performance_tracker import get_performance_summary
 from alpha_trading_bot.ai.ml.signal_backtest import SignalBacktestLearner
 from alpha_trading_bot.ai.ml.weight_optimizer import WeightOptimizer
@@ -57,6 +62,58 @@ def test_signal_backtest_default_weights_include_gemini() -> None:
 def test_performance_summary_default_providers_include_gemini() -> None:
     summary = get_performance_summary()
     assert "gemini" in summary["provider_stats"]
+
+
+def test_performance_summary_ignores_missing_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePerformanceTracker:
+        def __init__(self) -> None:
+            self.records = [
+                SignalRecord("t1", "deepseek", "buy", 80, "normal", 100.0),
+                SignalRecord("t2", None, "hold", 50, "normal", 101.0),
+            ]
+
+        def get_provider_stats(self, provider: str) -> Dict[str, str]:
+            return {"provider": provider}
+
+    monkeypatch.setattr(
+        performance_tracker_module,
+        "PerformanceTracker",
+        FakePerformanceTracker,
+    )
+
+    summary = performance_tracker_module.get_performance_summary()
+
+    assert list(summary["provider_stats"].keys()) == ["deepseek"]
+
+
+def test_performance_summary_falls_back_when_providers_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakePerformanceTracker:
+        def __init__(self) -> None:
+            self.records = [
+                SignalRecord("t1", None, "buy", 80, "normal", 100.0),
+                SignalRecord("t2", " ", "hold", 50, "normal", 101.0),
+            ]
+
+        def get_provider_stats(self, provider: str) -> Dict[str, str]:
+            return {"provider": provider}
+
+    monkeypatch.setattr(
+        performance_tracker_module,
+        "PerformanceTracker",
+        FakePerformanceTracker,
+    )
+
+    summary = performance_tracker_module.get_performance_summary()
+
+    assert list(summary["provider_stats"].keys()) == [
+        "deepseek",
+        "kimi",
+        "gemini",
+    ]
 
 
 def test_runtime_fusion_providers_respects_env_order() -> None:

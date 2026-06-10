@@ -173,7 +173,7 @@ class AdaptiveTradingBot:
             return True
 
         except Exception as e:
-            logger.error(f"初始化失败: {e}")
+            logger.exception(f"初始化失败: {e}")
             return False
 
     async def run(self) -> None:
