@@ -87,6 +87,14 @@ class DecisionEngine:
             rr_ratio = market_data.get("risk_reward_ratio", 0)
 
             if is_downtrend and signal == "SHORT":
+                if has_position:
+                    logger.warning("[安全] 下跌趋势SHORT+有持仓，降低仓位")
+                    return {
+                        "action": "reduce",
+                        "reason": "安全模式+下跌趋势+SHORT: 降低仓位",
+                        "confidence": selected.confidence * 0.5,
+                        "strategy": "safe_mode",
+                    }
                 logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
             elif not has_position:
                 # safe_mode + 上升趋势 + AI=BUY + 辅助条件: 允许减半仓位开仓
