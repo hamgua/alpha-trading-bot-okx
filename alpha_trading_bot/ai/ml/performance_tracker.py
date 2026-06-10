@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SignalRecord:
     timestamp: str
-    provider: str
+    provider: Optional[str]
     signal: str
     confidence: int
     regime: str
@@ -122,7 +122,7 @@ class PerformanceTracker:
 
         return {"signals": len(regime_records), "signal_breakdown": dict(signal_stats)}
 
-    def get_confidence_accuracy(self) -> Dict[int, Dict]:
+    def get_confidence_accuracy(self) -> Dict[str, Dict]:
         buckets = defaultdict(lambda: {"total": 0, "correct": 0})
 
         for r in self.records:
@@ -171,7 +171,14 @@ class PerformanceTracker:
 
 def get_performance_summary() -> Dict[str, Any]:
     tracker = PerformanceTracker()
-    providers = sorted({record.provider for record in tracker.records})
+    # 历史数据可能缺失 provider，排序前过滤空值，避免 None 与字符串比较导致启动失败。
+    providers = sorted(
+        {
+            record.provider.strip().lower()
+            for record in tracker.records
+            if isinstance(record.provider, str) and record.provider.strip()
+        }
+    )
     if not providers:
         providers = get_runtime_fusion_providers()
     return {
