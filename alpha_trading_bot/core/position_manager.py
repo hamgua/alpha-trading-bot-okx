@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..config.models import Config
 from .state_persistence import StatePersistence, create_state_persistence
+from .trading_state_machine import derive_lifecycle_state
 
 logger = logging.getLogger(__name__)
 
@@ -209,6 +210,11 @@ class PositionManager:
             ),
             "duration_hours": round(self.get_position_duration_hours(), 2),
             "health": self.get_position_health(current_price),
+            "lifecycle_state": derive_lifecycle_state(
+                self.has_position(),
+                self._stop_order_id,
+                self._take_profit_order_id,
+            ).value,
             "highest_price": self._highest_price_since_entry,
             "lowest_price": self._lowest_price_since_entry,
         }
@@ -306,7 +312,7 @@ class PositionManager:
 
         业务逻辑:
         - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 0.05%) = 建仓价 × 99.95%
-        - 盈利且价差 >= 容错: 
+        - 盈利且价差 >= 容错:
             - 若最高价 > 建仓价: 止损 = max(建仓价×99.98%, 最高价×99.98%) 实现追踪止损
             - 否则: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
         - 盈利但价差 < 容错: 止损 = 建仓价 × 99.95% (视为未明显盈利)

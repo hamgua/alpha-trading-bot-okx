@@ -80,6 +80,8 @@ class StatePersistence:
 
         # 内存中的状态
         self._state: Optional[TradingState] = None
+        self._history_cache: Optional[List[Dict[str, Any]]] = None
+        self._history_cache_mtime: Optional[float] = None
 
         logger.info(f"[持久化] 数据目录: {self.data_dir}")
 
@@ -388,9 +390,17 @@ class StatePersistence:
         """加载交易历史"""
         try:
             if self.history_file.exists():
+                mtime = self.history_file.stat().st_mtime
+                if (
+                    self._history_cache is not None
+                    and self._history_cache_mtime == mtime
+                ):
+                    return list(self._history_cache)
                 with open(self.history_file, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, list):
+                        self._history_cache = data
+                        self._history_cache_mtime = mtime
                         return data
         except Exception as e:
             logger.warning(f"[持久化] 加载交易历史失败: {e}")
@@ -405,6 +415,8 @@ class StatePersistence:
             json.dump(history, f, ensure_ascii=False, indent=2)
 
         temp_file.replace(self.history_file)
+        self._history_cache = list(history)
+        self._history_cache_mtime = self.history_file.stat().st_mtime
 
     def get_recent_trades(self, limit: int = 50) -> List[Dict[str, Any]]:
         """

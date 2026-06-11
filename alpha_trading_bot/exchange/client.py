@@ -19,6 +19,7 @@ from .okx_raw import (
     parse_okx_orders,
 )
 from .order_service import OrderService, create_order_service
+from .raw_executor import OkxRawExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class ExchangeClient:
         self._account_service: Optional[AccountService] = None
         self._market_data_service: Optional[MarketDataService] = None
         self._order_service: Optional[OrderService] = None
+        self._raw_executor: Optional[OkxRawExecutor] = None
 
     async def initialize(self) -> None:
         """初始化"""
@@ -79,6 +81,7 @@ class ExchangeClient:
             self.exchange, self.symbol
         )
         self._order_service = create_order_service(self.exchange, self.symbol)
+        self._raw_executor = OkxRawExecutor(self.exchange)
 
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: self.exchange.fetch_time()
@@ -127,6 +130,15 @@ class ExchangeClient:
         response = method(params)
         if isinstance(response, dict):
             ensure_okx_success(response, "set leverage")
+
+    def _get_raw_executor(self) -> OkxRawExecutor:
+        """获取 raw executor，兼容测试中直接注入 exchange 的旧用法。"""
+        if (
+            self._raw_executor is None
+            or self._raw_executor.exchange is not self.exchange
+        ):
+            self._raw_executor = OkxRawExecutor(self.exchange)
+        return self._raw_executor
 
     # === 代理方法 - 委托给子服务 ===
 
@@ -255,8 +267,11 @@ class ExchangeClient:
             )
             if method is not None:
                 params = {"instId": okx_inst_id_from_symbol(symbol)}
-                orders = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: parse_okx_orders(method(params), symbol)
+                orders = await self._get_raw_executor().call(
+                    "private_get_trade_orders_pending",
+                    "privateGetTradeOrdersPending",
+                    params,
+                    parser=lambda response: parse_okx_orders(response, symbol),
                 )
             else:
                 raise RuntimeError("OKX raw open-orders endpoint is unavailable")
@@ -278,8 +293,11 @@ class ExchangeClient:
                     "instId": okx_inst_id_from_symbol(symbol),
                     "ordType": "conditional",
                 }
-                algo_orders = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: parse_okx_algo_orders(method(params), symbol)
+                algo_orders = await self._get_raw_executor().call(
+                    "private_get_trade_orders_algo_pending",
+                    "privateGetTradeOrdersAlgoPending",
+                    params,
+                    parser=lambda response: parse_okx_algo_orders(response, symbol),
                 )
             else:
                 raise RuntimeError("OKX raw algo-orders endpoint is unavailable")
@@ -306,8 +324,11 @@ class ExchangeClient:
                 }
                 if algo_id:
                     params["algoId"] = algo_id
-                algo_orders = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: parse_okx_algo_orders(method(params), symbol)
+                algo_orders = await self._get_raw_executor().call(
+                    "private_get_trade_orders_algo_history",
+                    "privateGetTradeOrdersAlgoHistory",
+                    params,
+                    parser=lambda response: parse_okx_algo_orders(response, symbol),
                 )
             else:
                 raise RuntimeError("OKX raw algo-order-history endpoint is unavailable")

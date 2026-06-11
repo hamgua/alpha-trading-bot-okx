@@ -18,6 +18,11 @@ from datetime import datetime, timezone
 from .trading_scheduler import TradingScheduler
 from .signal_processor import SignalProcessor
 from .position_manager import PositionManager
+from .position_close_audit import (
+    PositionCloseAuditContext,
+    PositionCloseAuditor,
+    extract_float,
+)
 from ..config.models import Config
 from ..utils.observability import record_live_guard_block
 
@@ -59,10 +64,10 @@ class AdaptiveTradingBot:
         )
         self._last_position_unrealized_pnl: float = 0.0
         self._last_close_was_profitable: bool = False
-        self._last_position_entry_price: float = 0.0
-        self._last_position_amount: float = 0.0
-        self._last_stop_order_id: str = ""
-        self._last_stop_price: float = 0.0
+        self._position_close_audit_context = PositionCloseAuditContext()
+        self._position_close_auditor = PositionCloseAuditor(
+            self._position_close_audit_context
+        )
 
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
@@ -142,6 +147,38 @@ class AdaptiveTradingBot:
     def ai_client(self):
         """获取AI客户端"""
         return getattr(self, "_ai_client", None)
+
+    @property
+    def _last_position_entry_price(self) -> float:
+        return self._position_close_audit_context.entry_price
+
+    @_last_position_entry_price.setter
+    def _last_position_entry_price(self, value: Any) -> None:
+        self._position_close_audit_context.entry_price = extract_float(value)
+
+    @property
+    def _last_position_amount(self) -> float:
+        return self._position_close_audit_context.amount
+
+    @_last_position_amount.setter
+    def _last_position_amount(self, value: Any) -> None:
+        self._position_close_audit_context.amount = extract_float(value)
+
+    @property
+    def _last_stop_order_id(self) -> str:
+        return self._position_close_audit_context.stop_order_id
+
+    @_last_stop_order_id.setter
+    def _last_stop_order_id(self, value: Any) -> None:
+        self._position_close_audit_context.stop_order_id = str(value or "")
+
+    @property
+    def _last_stop_price(self) -> float:
+        return self._position_close_audit_context.stop_price
+
+    @_last_stop_price.setter
+    def _last_stop_price(self, value: Any) -> None:
+        self._position_close_audit_context.stop_price = extract_float(value)
 
     async def initialize(self) -> bool:
         """初始化"""
@@ -492,103 +529,42 @@ class AdaptiveTradingBot:
     ) -> None:
         """保存最近持仓上下文，供下一轮持仓消失审计使用。"""
         self._last_position_side = side
-        self._last_position_entry_price = self._extract_float(entry_price)
-        self._last_position_amount = self._extract_float(amount)
-        self._last_position_unrealized_pnl = self._extract_float(unrealized_pnl)
-        self._last_stop_order_id = stop_order_id or ""
-        self._last_stop_price = self._extract_float(stop_price)
+        self._last_position_unrealized_pnl = extract_float(unrealized_pnl)
+        self._position_close_audit_context.remember(
+            side=side,
+            entry_price=entry_price,
+            amount=amount,
+            unrealized_pnl=unrealized_pnl,
+            stop_order_id=stop_order_id,
+            stop_price=stop_price,
+        )
 
     async def _log_disappeared_position_close_event(self) -> None:
         """查询算法单历史并记录止损/止盈触发导致的平仓事件。"""
-        if self._exchange is None:
-            self._log_inferred_position_close_event("exchange_not_initialized")
-            return
-
-        symbol = getattr(self._exchange, "symbol", self.config.exchange.symbol)
-        history = []
-        if self._last_stop_order_id and hasattr(
-            self._exchange, "get_algo_order_history"
-        ):
-            try:
-                history = await self._exchange.get_algo_order_history(
-                    symbol, algo_id=self._last_stop_order_id, limit=20
-                )
-            except Exception as e:
-                logger.warning(f"[平仓审计] 查询算法单历史失败: {e}")
-
-        matched = self._find_close_algo_history(history)
-        if not matched:
-            self._log_inferred_position_close_event("algo_history_not_found")
-            return
-
-        info = matched.get("info", {})
-        close_type = "止盈" if info.get("tpTriggerPx") else "止损"
-        trigger_price = self._extract_float(
-            info.get("slTriggerPx") or info.get("tpTriggerPx") or self._last_stop_price
+        symbol = (
+            getattr(self._exchange, "symbol", self.config.exchange.symbol)
+            if self._exchange is not None
+            else self.config.exchange.symbol
         )
-        exit_price = self._extract_float(
-            info.get("actualPx")
-            or info.get("avgPx")
-            or info.get("triggerPx")
-            or trigger_price
-        )
-        amount = self._extract_float(info.get("sz"), self._last_position_amount)
-        pnl_percent = self._calculate_close_pnl_percent(exit_price)
-        trigger_time = info.get("triggerTime") or info.get("uTime") or info.get("cTime")
-
-        logger.info(
-            f"[平仓确认] {close_type}单触发平仓: "
-            f"side={self._last_position_side}, "
-            f"algoId={matched.get('id') or self._last_stop_order_id}, "
-            f"entry={self._last_position_entry_price}, "
-            f"{close_type}价={trigger_price}, exit={exit_price}, "
-            f"amount={amount}, pnl={pnl_percent:.2f}%, "
-            f"trigger_time={trigger_time or 'unknown'}"
+        await self._position_close_auditor.log_disappeared_position_close_event(
+            self._exchange, symbol
         )
 
     def _find_close_algo_history(self, history: Any) -> Optional[Dict[str, Any]]:
         """从算法单历史中找到最近一次止损/止盈触发记录。"""
-        if not isinstance(history, list):
-            return None
-        for order in history:
-            if not isinstance(order, dict):
-                continue
-            info = order.get("info", {})
-            algo_id = str(order.get("id") or info.get("algoId") or "")
-            if self._last_stop_order_id and algo_id != self._last_stop_order_id:
-                continue
-            if info.get("slTriggerPx") or info.get("tpTriggerPx"):
-                return order
-        return None
+        return self._position_close_auditor.find_close_algo_history(history)
 
     def _log_inferred_position_close_event(self, reason: str) -> None:
         """算法单历史暂不可用时，至少记录一条可追踪的推断平仓日志。"""
-        logger.info(
-            f"[平仓推断] 持仓消失，疑似止损/止盈触发: "
-            f"side={self._last_position_side}, "
-            f"last_stop_algoId={self._last_stop_order_id or 'unknown'}, "
-            f"entry={self._last_position_entry_price}, "
-            f"last_stop={self._last_stop_price}, "
-            f"amount={self._last_position_amount}, "
-            f"last_unrealized_pnl={self._last_position_unrealized_pnl}, "
-            f"reason={reason}"
-        )
+        self._position_close_auditor.log_inferred_position_close_event(reason)
 
     def _calculate_close_pnl_percent(self, exit_price: float) -> float:
         """根据最后持仓上下文估算平仓收益率。"""
-        entry = self._last_position_entry_price
-        if entry <= 0 or exit_price <= 0:
-            return 0.0
-        if self._last_position_side == "short":
-            return (entry - exit_price) / entry * 100
-        return (exit_price - entry) / entry * 100
+        return self._position_close_auditor.calculate_close_pnl_percent(exit_price)
 
     @staticmethod
     def _extract_float(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
+        return extract_float(value, default)
 
     def _get_direction_cooldown_seconds(
         self,

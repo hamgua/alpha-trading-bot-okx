@@ -42,6 +42,14 @@ INVESTMENT_RR_THRESHOLDS = {
 }
 DEFAULT_RR_THRESHOLD = RR_MODERATE_MIN
 GOOD_RR_RATIO = RR_GOOD_RATIO
+MAX_TRADE_ATR_PERCENT = 0.55
+SHORT_RSI_OVERSOLD_BLOCK = 40
+SAFE_MODE_REDUCED_MIN_RR = 1.0
+SAFE_MODE_REDUCED_MAX_ATR = 0.40
+HOLD_STRATEGY_BUY_MIN_CONFIDENCE = 0.80
+HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
+MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
+MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 
 # 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
 SHORT_RR_THRESHOLDS = {
@@ -121,6 +129,299 @@ class DecisionEngine:
 
         return {}
 
+    def _make_safe_mode_decision(
+        self,
+        signal: str,
+        selected: Any,
+        technical: Dict[str, Any],
+        has_position: bool,
+        atr_percent: float,
+    ) -> Dict[str, Any]:
+        """处理 safe_mode 策略，保持原有分支顺序。"""
+        trend_direction = technical.get("trend_direction", "neutral")
+        is_downtrend = trend_direction == "down"
+        rr_ratio = technical.get("risk_reward_ratio", 0)
+
+        if is_downtrend and signal == "SHORT":
+            if has_position:
+                logger.warning("[安全] 下跌趋势SHORT+有持仓，降低仓位")
+                return {
+                    "action": "reduce",
+                    "reason": "安全模式+下跌趋势+SHORT: 降低仓位",
+                    "confidence": selected.confidence * 0.5,
+                    "strategy": "safe_mode",
+                }
+            logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
+            return {}
+        if not has_position:
+            if (
+                trend_direction == "up"
+                and signal == "BUY"
+                and rr_ratio >= SAFE_MODE_REDUCED_MIN_RR
+                and atr_percent < SAFE_MODE_REDUCED_MAX_ATR
+            ):
+                logger.info(
+                    "[安全] 安全模式+上升趋势+AI=BUY+R/R≥1.0+ATR<40%，"
+                    "允许减半仓位开仓"
+                )
+                return {
+                    "action": "open",
+                    "reason": "安全模式减半开仓: 上升趋势+AI=BUY+R/R≥1.0+ATR<40%",
+                    "confidence": selected.confidence * 0.5,
+                    "strategy": "safe_mode_reduced",
+                    "position_advice": "安全模式，建议半仓",
+                }
+            elif trend_direction == "up" and signal == "BUY":
+                logger.info(
+                    f"[安全] 安全模式+上升趋势+AI=BUY，但辅助条件不满足 "
+                    f"(R/R={rr_ratio:.2f}, ATR={atr_percent * 100:.1f}%)，跳过"
+                )
+            logger.info("[安全] 安全模式触发，但无持仓，跳过降低仓位")
+            return {
+                "action": "skip",
+                "reason": "安全模式: 无持仓无需降低",
+                "confidence": selected.confidence,
+                "strategy": "safe_mode",
+            }
+
+        logger.warning(f"[安全] 安全模式触发，降低仓位: {selected.reasons}")
+        return {
+            "action": "reduce",
+            "reason": f"安全模式降低仓位: {selected.reasons}",
+            "confidence": selected.confidence * 0.5,
+            "strategy": "safe_mode",
+        }
+
+    def _make_buy_decision(
+        self,
+        selected: Any,
+        market_data: Dict[str, Any],
+        atr_percent: float,
+    ) -> Dict[str, Any]:
+        """处理 BUY 信号分支。"""
+        confidence_block = self._confidence_gate("long", selected, market_data)
+        if confidence_block:
+            return confidence_block
+
+        if atr_percent > MAX_TRADE_ATR_PERCENT:
+            logger.warning(
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止开仓"
+            )
+            return {
+                "action": "skip",
+                "reason": "高波动市场禁止开仓",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        rr_ratio = market_data.get("risk_reward_ratio", 0)
+        market_structure = market_data.get("market_structure", "sideways")
+
+        if rr_ratio > 0 and rr_ratio < self._get_min_rr():
+            logger.warning(
+                f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
+            )
+            return {
+                "action": "skip",
+                "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        if market_structure == "bearish":
+            logger.warning(f"[市场结构] 下跌结构中禁止做多")
+            return {
+                "action": "skip",
+                "reason": "市场结构为下跌，禁止做多",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        position_advice = ""
+        if rr_ratio >= GOOD_RR_RATIO:
+            position_advice = f"R/R={rr_ratio:.2f}良好，正常仓位"
+        elif rr_ratio >= self._get_min_rr():
+            position_advice = f"R/R={rr_ratio:.2f}勉强，建议减仓"
+
+        result = {
+            "action": "open",
+            "reason": "AI信号买入",
+            "confidence": selected.confidence,
+            "strategy": selected.strategy_type,
+        }
+        if position_advice:
+            result["position_advice"] = position_advice
+        return result
+
+    def _make_short_decision(
+        self,
+        selected: Any,
+        market_data: Dict[str, Any],
+        atr_percent: float,
+        rsi: float,
+        has_position: bool,
+    ) -> Dict[str, Any]:
+        """处理 SHORT 信号分支。"""
+        confidence_block = self._confidence_gate("short", selected, market_data)
+        if confidence_block:
+            return confidence_block
+
+        if atr_percent > MAX_TRADE_ATR_PERCENT:
+            logger.warning(
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止做空"
+            )
+            return {
+                "action": "skip",
+                "reason": "高波动市场禁止做空",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+        if rsi < SHORT_RSI_OVERSOLD_BLOCK:
+            logger.warning(f"[RSI超卖] RSI={rsi:.1f} < 40，RSI超卖禁止做空")
+            return {
+                "action": "skip",
+                "reason": "RSI超卖禁止做空",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        short_min_rr = self._get_short_min_rr()
+        rr_ratio = market_data.get("risk_reward_ratio", 0)
+        if rr_ratio > 0 and rr_ratio < short_min_rr:
+            logger.warning(
+                f"[短R/R门禁] 做空R/R={rr_ratio:.2f} < {short_min_rr}，风险收益比不足"
+            )
+            return {
+                "action": "skip",
+                "reason": f"做空R/R={rr_ratio:.2f}不足(短R/R阈值{short_min_rr})",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+        if not has_position and self._config.trading.allow_short_selling:
+            return {
+                "action": "sell",
+                "reason": "AI信号做空",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+        if has_position:
+            return {
+                "action": "close",
+                "reason": "AI信号SHORT+有持仓，平仓",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+        return {
+            "action": "skip",
+            "reason": "禁止做空（未开启做空功能）",
+            "confidence": selected.confidence,
+            "strategy": selected.strategy_type,
+        }
+
+    def _make_hold_decision(
+        self,
+        selected: Any,
+        market_data: Dict[str, Any],
+        technical: Dict[str, Any],
+        atr_percent: float,
+        rsi: float,
+        has_position: bool,
+    ) -> Dict[str, Any]:
+        """处理 HOLD 信号分支。"""
+        if atr_percent > MAX_TRADE_ATR_PERCENT:
+            logger.warning(
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，HOLD信号下完全停仓"
+            )
+            return {
+                "action": "skip",
+                "reason": f"AI-HOLD+高波动停仓(ATR={atr_percent * 100:.1f}%)",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+        if selected.signal.upper() == "HOLD":
+            market_structure_direction = market_data.get(
+                "market_structure_direction", "none"
+            )
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
+            trend_strength = technical.get("trend_strength", 0)
+            if (
+                market_structure_direction == "short"
+                and rr_ratio >= MARKET_STRUCTURE_SHORT_MIN_RR
+                and trend_strength >= MARKET_STRUCTURE_SHORT_MIN_TREND
+                and atr_percent < MAX_TRADE_ATR_PERCENT
+                and rsi > SHORT_RSI_OVERSOLD_BLOCK
+                and not has_position
+                and self._config.trading.allow_short_selling
+            ):
+                confidence_block = self._confidence_gate("short", selected, market_data)
+                if confidence_block:
+                    return confidence_block
+                logger.info(f"[决策] 市场结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD")
+                return {
+                    "action": "sell",
+                    "reason": f"市场结构做空(R/R={rr_ratio:.2f})覆盖AI-HOLD",
+                    "confidence": 0.75,
+                    "strategy": "market_structure_short",
+                    "position_advice": f"R/R={rr_ratio:.2f}优秀，市场结构做空",
+                }
+            return {
+                "action": "skip",
+                "reason": "AI和策略都是HOLD",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        market_structure = market_data.get("market_structure", "sideways")
+        rr_ratio = market_data.get("risk_reward_ratio", 0)
+        if (
+            selected.signal.upper() == "BUY"
+            and selected.confidence >= HOLD_STRATEGY_BUY_MIN_CONFIDENCE
+            and market_structure != "bearish"
+            and rr_ratio >= self._get_min_rr()
+        ):
+            logger.info(
+                f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                f"R/R={rr_ratio:.2f}"
+            )
+            result = {
+                "action": "open",
+                "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, R/R={rr_ratio:.2f})",
+                "confidence": selected.confidence * 0.8,
+                "strategy": selected.strategy_type,
+            }
+            if rr_ratio >= GOOD_RR_RATIO:
+                result["position_advice"] = f"R/R={rr_ratio:.2f}良好，正常仓位"
+            elif rr_ratio >= self._get_min_rr():
+                result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
+            return result
+        if (
+            selected.signal.upper() == "SHORT"
+            and selected.confidence >= HOLD_STRATEGY_SHORT_MIN_CONFIDENCE
+            and not has_position
+            and self._config.trading.allow_short_selling
+            and rr_ratio >= self._get_short_min_rr()
+            and atr_percent < MAX_TRADE_ATR_PERCENT
+            and rsi > SHORT_RSI_OVERSOLD_BLOCK
+        ):
+            logger.info(
+                f"[决策] 策略SHORT(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                f"短R/R={rr_ratio:.2f}"
+            )
+            return {
+                "action": "sell",
+                "reason": f"策略SHORT覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
+                "confidence": selected.confidence * 0.8,
+                "strategy": selected.strategy_type,
+                "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
+            }
+        logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
+        return {
+            "action": "skip",
+            "reason": f"AI-HOLD覆盖策略({selected.signal})",
+            "confidence": selected.confidence,
+            "strategy": selected.strategy_type,
+        }
+
     def make_decision(
         self,
         ai_signal: str,
@@ -140,179 +441,25 @@ class DecisionEngine:
             or "safe_mode" in selected.strategy_type
         )
         if is_safe_mode:
-            trend_direction = technical.get("trend_direction", "neutral")
-            is_downtrend = trend_direction == "down"
-            rr_ratio = market_data.get("risk_reward_ratio", 0)
-
-            if is_downtrend and signal == "SHORT":
-                if has_position:
-                    logger.warning("[安全] 下跌趋势SHORT+有持仓，降低仓位")
-                    return {
-                        "action": "reduce",
-                        "reason": "安全模式+下跌趋势+SHORT: 降低仓位",
-                        "confidence": selected.confidence * 0.5,
-                        "strategy": "safe_mode",
-                    }
-                logger.info("[安全] 下跌趋势中，安全模式允许 SHORT 信号")
-            elif not has_position:
-                # safe_mode + 上升趋势 + AI=BUY + 辅助条件: 允许减半仓位开仓
-                # 辅助条件: R/R>=1.0 且 ATR<40%，确保收益覆盖风险且波动可控
-                if (
-                    trend_direction == "up"
-                    and signal == "BUY"
-                    and rr_ratio >= 1.0
-                    and atr_percent < 0.40
-                ):
-                    logger.info(
-                        "[安全] 安全模式+上升趋势+AI=BUY+R/R≥1.0+ATR<40%，"
-                        "允许减半仓位开仓"
-                    )
-                    return {
-                        "action": "open",
-                        "reason": "安全模式减半开仓: 上升趋势+AI=BUY+R/R≥1.0+ATR<40%",
-                        "confidence": selected.confidence * 0.5,
-                        "strategy": "safe_mode_reduced",
-                        "position_advice": "安全模式，建议半仓",
-                    }
-                elif trend_direction == "up" and signal == "BUY":
-                    logger.info(
-                        f"[安全] 安全模式+上升趋势+AI=BUY，但辅助条件不满足 "
-                        f"(R/R={rr_ratio:.2f}, ATR={atr_percent * 100:.1f}%)，跳过"
-                    )
-                logger.info("[安全] 安全模式触发，但无持仓，跳过降低仓位")
-                return {
-                    "action": "skip",
-                    "reason": "安全模式: 无持仓无需降低",
-                    "confidence": selected.confidence,
-                    "strategy": "safe_mode",
-                }
-            else:
-                logger.warning(f"[安全] 安全模式触发，降低仓位: {selected.reasons}")
-                return {
-                    "action": "reduce",
-                    "reason": f"安全模式降低仓位: {selected.reasons}",
-                    "confidence": selected.confidence * 0.5,
-                    "strategy": "safe_mode",
-                }
+            safe_mode_technical = dict(technical)
+            safe_mode_technical["risk_reward_ratio"] = market_data.get(
+                "risk_reward_ratio", 0
+            )
+            safe_mode_decision = self._make_safe_mode_decision(
+                signal, selected, safe_mode_technical, has_position, atr_percent
+            )
+            if safe_mode_decision:
+                return safe_mode_decision
 
         # BUY 信号处理
         if signal == "BUY":
-            confidence_block = self._confidence_gate("long", selected, market_data)
-            if confidence_block:
-                return confidence_block
-
-            # BTC波动率40%在加密货币市场属于常见水平，不应做绝对禁止条件
-            # 原0.40→0.55，避免在常见波动环境下过度保守
-            if atr_percent > 0.55:
-                logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止开仓"
-                )
-                return {
-                    "action": "skip",
-                    "reason": "高波动市场禁止开仓",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-
-            # R/R比门禁：从integrator结果中获取
-            rr_ratio = market_data.get("risk_reward_ratio", 0)
-            market_structure = market_data.get("market_structure", "sideways")
-
-            if rr_ratio > 0 and rr_ratio < self._get_min_rr():
-                logger.warning(
-                    f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
-                )
-                return {
-                    "action": "skip",
-                    "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-
-            # 市场结构判断：下跌结构中禁止做多
-            if market_structure == "bearish":
-                logger.warning(f"[市场结构] 下跌结构中禁止做多")
-                return {
-                    "action": "skip",
-                    "reason": "市场结构为下跌，禁止做多",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-
-            # 仓位建议：基于R/R比
-            position_advice = ""
-            if rr_ratio >= GOOD_RR_RATIO:
-                position_advice = f"R/R={rr_ratio:.2f}良好，正常仓位"
-            elif rr_ratio >= self._get_min_rr():
-                position_advice = f"R/R={rr_ratio:.2f}勉强，建议减仓"
-
-            result = {
-                "action": "open",
-                "reason": "AI信号买入",
-                "confidence": selected.confidence,
-                "strategy": selected.strategy_type,
-            }
-            if position_advice:
-                result["position_advice"] = position_advice
-            return result
+            return self._make_buy_decision(selected, market_data, atr_percent)
 
         # SHORT 信号处理
         if signal == "SHORT":
-            confidence_block = self._confidence_gate("short", selected, market_data)
-            if confidence_block:
-                return confidence_block
-
-            if atr_percent > 0.55:
-                logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止做空"
-                )
-                return {
-                    "action": "skip",
-                    "reason": "高波动市场禁止做空",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            if rsi < 40:
-                logger.warning(f"[RSI超卖] RSI={rsi:.1f} < 40，RSI超卖禁止做空")
-                return {
-                    "action": "skip",
-                    "reason": "RSI超卖禁止做空",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            # 做空使用专用的宽松R/R阈值
-            short_min_rr = self._get_short_min_rr()
-            rr_ratio = market_data.get("risk_reward_ratio", 0)
-            if rr_ratio > 0 and rr_ratio < short_min_rr:
-                logger.warning(
-                    f"[短R/R门禁] 做空R/R={rr_ratio:.2f} < {short_min_rr}，风险收益比不足"
-                )
-                return {
-                    "action": "skip",
-                    "reason": f"做空R/R={rr_ratio:.2f}不足(短R/R阈值{short_min_rr})",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            if not has_position and self._config.trading.allow_short_selling:
-                return {
-                    "action": "sell",
-                    "reason": "AI信号做空",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            if has_position:
-                return {
-                    "action": "close",
-                    "reason": "AI信号SHORT+有持仓，平仓",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            return {
-                "action": "skip",
-                "reason": "禁止做空（未开启做空功能）",
-                "confidence": selected.confidence,
-                "strategy": selected.strategy_type,
-            }
+            return self._make_short_decision(
+                selected, market_data, atr_percent, rsi, has_position
+            )
 
         # SELL 信号处理
         if signal == "SELL":
@@ -339,104 +486,9 @@ class DecisionEngine:
 
         # HOLD 信号处理
         if signal == "HOLD":
-            if atr_percent > 0.55:
-                logger.warning(
-                    f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，HOLD信号下完全停仓"
-                )
-                return {
-                    "action": "skip",
-                    "reason": f"AI-HOLD+高波动停仓(ATR={atr_percent * 100:.1f}%)",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            if selected.signal.upper() == "HOLD":
-                # 检查市场结构做空方向 - 结构方向为short且R/R优秀时，允许覆盖AI-HOLD做空
-                market_structure_direction = market_data.get(
-                    "market_structure_direction", "none"
-                )
-                rr_ratio = market_data.get("risk_reward_ratio", 0)
-                trend_strength = technical.get("trend_strength", 0)
-                if (
-                    market_structure_direction == "short"
-                    and rr_ratio >= 3.0
-                    and trend_strength >= 0.25
-                    and atr_percent < 0.55
-                    and rsi > 40
-                    and not has_position
-                    and self._config.trading.allow_short_selling
-                ):
-                    confidence_block = self._confidence_gate(
-                        "short", selected, market_data
-                    )
-                    if confidence_block:
-                        return confidence_block
-                    logger.info(f"[决策] 市场结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD")
-                    return {
-                        "action": "sell",
-                        "reason": f"市场结构做空(R/R={rr_ratio:.2f})覆盖AI-HOLD",
-                        "confidence": 0.75,
-                        "strategy": "market_structure_short",
-                        "position_advice": f"R/R={rr_ratio:.2f}优秀，市场结构做空",
-                    }
-                return {
-                    "action": "skip",
-                    "reason": "AI和策略都是HOLD",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
-            # 策略信号与AI-HOLD冲突：高置信度策略BUY可覆盖AI-HOLD
-            # 增加R/R门禁：策略覆盖AI-HOLD时必须满足R/R≥最低阈值
-            market_structure = market_data.get("market_structure", "sideways")
-            rr_ratio = market_data.get("risk_reward_ratio", 0)
-            if (
-                selected.signal.upper() == "BUY"
-                and selected.confidence >= 0.80
-                and market_structure != "bearish"
-                and rr_ratio >= self._get_min_rr()
-            ):
-                logger.info(
-                    f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                    f"R/R={rr_ratio:.2f}"
-                )
-                result = {
-                    "action": "open",
-                    "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, R/R={rr_ratio:.2f})",
-                    "confidence": selected.confidence * 0.8,  # 降权20%作为保守处理
-                    "strategy": selected.strategy_type,
-                }
-                if rr_ratio >= GOOD_RR_RATIO:
-                    result["position_advice"] = f"R/R={rr_ratio:.2f}良好，正常仓位"
-                elif rr_ratio >= self._get_min_rr():
-                    result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
-                return result
-            # 策略信号与AI-HOLD冲突：高置信度策略SHORT可覆盖AI-HOLD（做空）
-            if (
-                selected.signal.upper() == "SHORT"
-                and selected.confidence >= 0.75
-                and not has_position
-                and self._config.trading.allow_short_selling
-                and rr_ratio >= self._get_short_min_rr()
-                and atr_percent < 0.55
-                and rsi > 40
-            ):
-                logger.info(
-                    f"[决策] 策略SHORT(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                    f"短R/R={rr_ratio:.2f}"
-                )
-                return {
-                    "action": "sell",
-                    "reason": f"策略SHORT覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
-                    "confidence": selected.confidence * 0.8,
-                    "strategy": selected.strategy_type,
-                    "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
-                }
-            logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
-            return {
-                "action": "skip",
-                "reason": f"AI-HOLD覆盖策略({selected.signal})",
-                "confidence": selected.confidence,
-                "strategy": selected.strategy_type,
-            }
+            return self._make_hold_decision(
+                selected, market_data, technical, atr_percent, rsi, has_position
+            )
 
         # 未知信号 - 使用策略信号
         if selected.signal.upper() != "HOLD":
