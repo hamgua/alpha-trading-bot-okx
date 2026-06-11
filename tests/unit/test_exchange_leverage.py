@@ -39,22 +39,19 @@ async def test_set_leverage_uses_okx_raw_endpoint_without_loading_markets(
 
 
 @pytest.mark.asyncio
-async def test_set_leverage_falls_back_when_raw_endpoint_is_unavailable(
+async def test_set_leverage_does_not_fall_back_when_raw_endpoint_is_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_ccxt(monkeypatch)
 
     from alpha_trading_bot.exchange.client import ExchangeClient
 
-    calls = []
-
     class _Exchange:
         def set_leverage(self, leverage: int, symbol: str) -> None:
-            calls.append((leverage, symbol))
+            raise AssertionError("ccxt set_leverage should not be called")
 
     client = ExchangeClient(symbol="BTC/USDT:USDT")
     client.exchange = _Exchange()
 
-    await client.set_leverage(5)
-
-    assert calls == [(5, "BTC/USDT:USDT")]
+    with pytest.raises(RuntimeError, match="raw set-leverage"):
+        await client.set_leverage(5)

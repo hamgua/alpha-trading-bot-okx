@@ -51,23 +51,19 @@ async def test_get_ticker_uses_okx_raw_endpoint_without_loading_markets() -> Non
 
 
 @pytest.mark.asyncio
-async def test_get_ticker_falls_back_to_ccxt_when_raw_endpoint_is_unavailable() -> None:
+async def test_get_ticker_skips_ccxt_when_raw_endpoint_is_unavailable() -> None:
     _install_fake_ccxt()
     from alpha_trading_bot.exchange.market_data import MarketDataService
 
-    calls = []
-
     class _Exchange:
         def fetch_ticker(self, symbol: str):
-            calls.append(symbol)
-            return {"last": 108000.5, "high": 109000.0, "low": 106000.0}
+            raise AssertionError("ccxt fetch_ticker should not be called")
 
     service = MarketDataService(_Exchange(), "BTC/USDT:USDT")
 
     ticker = await service.get_ticker()
 
-    assert calls == ["BTC/USDT:USDT"]
-    assert ticker["last"] == 108000.5
+    assert ticker == {}
 
 
 @pytest.mark.asyncio
@@ -106,20 +102,16 @@ async def test_get_ohlcv_uses_okx_raw_endpoint_without_loading_markets() -> None
 
 
 @pytest.mark.asyncio
-async def test_get_ohlcv_falls_back_to_ccxt_when_raw_endpoint_is_unavailable() -> None:
+async def test_get_ohlcv_skips_ccxt_when_raw_endpoint_is_unavailable() -> None:
     _install_fake_ccxt()
     from alpha_trading_bot.exchange.market_data import MarketDataService
 
-    calls = []
-
     class _Exchange:
         def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int):
-            calls.append((symbol, timeframe, limit))
-            return [[1718064000000, 107000.0, 108500.0, 106800.0, 108000.5, 123.45]]
+            raise AssertionError("ccxt fetch_ohlcv should not be called")
 
     service = MarketDataService(_Exchange(), "BTC/USDT:USDT")
 
     ohlcv = await service.get_ohlcv(timeframe="1h", limit=1)
 
-    assert calls == [("BTC/USDT:USDT", "1h", 1)]
-    assert ohlcv == [[1718064000000, 107000.0, 108500.0, 106800.0, 108000.5, 123.45]]
+    assert ohlcv == []

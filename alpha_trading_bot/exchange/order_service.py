@@ -5,9 +5,17 @@
 
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from .models.orders import OrderResult, OrderStatus, StopOrderResult
+from .okx_raw import (
+    ensure_okx_success,
+    first_data,
+    format_okx_number,
+    get_callable,
+    okx_inst_id_from_symbol,
+    parse_okx_order,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -55,28 +63,24 @@ class OrderService:
         Returns:
             OrderResult: 订单执行结果
         """
-        params = {
-            "tdMode": "cross",
-            "posMode": "one_way",
-        }
-
         logger.info(
             f"[订单创建] 提交订单: symbol={symbol}, side={side}, "
             f"type={order_type}, amount={amount}, price={price}"
         )
 
         try:
-            order = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.create_order(
-                    symbol=symbol,
-                    type=order_type,
-                    side=side,
-                    amount=amount,
-                    price=price,
-                    params=params,
-                ),
+            method = get_callable(
+                self.exchange, "private_post_trade_order", "privatePostTradeOrder"
             )
+            if method is not None:
+                order = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._create_order_direct(
+                        method, symbol, side, amount, price, order_type
+                    ),
+                )
+            else:
+                raise RuntimeError("OKX raw order endpoint is unavailable")
 
             result = self._parse_order_response(order, amount)
 
@@ -112,6 +116,46 @@ class OrderService:
                 average_price=0,
                 error_message=str(e),
             )
+
+    def _create_order_direct(
+        self,
+        method,
+        symbol: str,
+        side: str,
+        amount: float,
+        price: Optional[float],
+        order_type: str,
+    ) -> Dict[str, Any]:
+        """绕过 ccxt load_markets，直接调用 OKX 普通下单接口。"""
+        params = {
+            "instId": okx_inst_id_from_symbol(symbol),
+            "tdMode": "cross",
+            "side": side,
+            "ordType": order_type,
+            "sz": format_okx_number(amount),
+        }
+        if order_type != "market" and price is not None:
+            params["px"] = format_okx_number(price)
+
+        response = method(params)
+        self._ensure_okx_order_item_success(response, "place order")
+        raw = first_data(response)
+        raw.setdefault("state", "live")
+        raw.setdefault("side", side)
+        raw.setdefault("ordType", order_type)
+        raw.setdefault("sz", params["sz"])
+        if price is not None:
+            raw.setdefault("avgPx", format_okx_number(price))
+        return parse_okx_order(raw, symbol, amount)
+
+    @staticmethod
+    def _ensure_okx_order_item_success(
+        response: Dict[str, Any], operation: str
+    ) -> None:
+        ensure_okx_success(response, operation)
+        raw = first_data(response)
+        if raw and str(raw.get("sCode", "0")) != "0":
+            raise RuntimeError(f"OKX {operation} failed: {response}")
 
     def _parse_order_response(
         self, order: Dict, requested_amount: float
@@ -206,30 +250,30 @@ class OrderService:
         Returns:
             StopOrderResult: 止损单执行结果
         """
-        params = {
-            "tdMode": "cross",
-            "posMode": "one_way",
-            "stopLossPrice": stop_price,
-            "closePosition": True,
-        }
-
         logger.info(
             f"[止损单创建] 提交止损单: symbol={symbol}, side={side}, "
             f"amount={amount}, stop_price={stop_price}"
         )
 
         try:
-            order = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.create_order(
-                    symbol=symbol,
-                    type="limit",
-                    side=side,
-                    amount=amount,
-                    price=stop_price * 0.999,
-                    params=params,
-                ),
+            method = get_callable(
+                self.exchange,
+                "private_post_trade_order_algo",
+                "privatePostTradeOrderAlgo",
             )
+            if method is not None:
+                order = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._create_algo_order_direct(
+                        method,
+                        symbol,
+                        side,
+                        amount,
+                        {"slTriggerPx": stop_price, "slOrdPx": -1},
+                    ),
+                )
+            else:
+                raise RuntimeError("OKX raw algo order endpoint is unavailable")
 
             algo_id = order.get("info", {}).get("algoId", order.get("id", ""))
             self._stop_orders[str(stop_price)] = str(algo_id)
@@ -254,6 +298,31 @@ class OrderService:
                 status=OrderStatus.REJECTED,
             )
 
+    def _create_algo_order_direct(
+        self,
+        method,
+        symbol: str,
+        side: str,
+        amount: float,
+        trigger_params: Dict[str, float],
+    ) -> Dict[str, Any]:
+        """绕过 ccxt load_markets，直接调用 OKX 算法单接口。"""
+        params = {
+            "instId": okx_inst_id_from_symbol(symbol),
+            "tdMode": "cross",
+            "side": side,
+            "ordType": "conditional",
+            "sz": format_okx_number(amount),
+        }
+        for key, value in trigger_params.items():
+            params[key] = "-1" if value == -1 else format_okx_number(value)
+
+        response = method(params)
+        self._ensure_okx_order_item_success(response, "place algo order")
+        raw = first_data(response)
+        algo_id = raw.get("algoId") or raw.get("id") or ""
+        return {"id": str(algo_id), "info": raw}
+
     async def create_take_profit(
         self,
         symbol: str,
@@ -273,30 +342,30 @@ class OrderService:
         Returns:
             StopOrderResult: 止盈单执行结果
         """
-        params = {
-            "tdMode": "cross",
-            "posMode": "one_way",
-            "takeProfitPrice": take_profit_price,
-            "closePosition": True,
-        }
-
         logger.info(
             f"[止盈单创建] 提交止盈单: symbol={symbol}, side={side}, "
             f"amount={amount}, take_profit_price={take_profit_price}"
         )
 
         try:
-            order = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.create_order(
-                    symbol=symbol,
-                    type="market",
-                    side=side,
-                    amount=amount,
-                    price=None,
-                    params=params,
-                ),
+            method = get_callable(
+                self.exchange,
+                "private_post_trade_order_algo",
+                "privatePostTradeOrderAlgo",
             )
+            if method is not None:
+                order = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._create_algo_order_direct(
+                        method,
+                        symbol,
+                        side,
+                        amount,
+                        {"tpTriggerPx": take_profit_price, "tpOrdPx": -1},
+                    ),
+                )
+            else:
+                raise RuntimeError("OKX raw algo order endpoint is unavailable")
 
             algo_id = order.get("info", {}).get("algoId", order.get("id", ""))
             self._stop_orders[str(take_profit_price)] = str(algo_id)
@@ -333,9 +402,21 @@ class OrderService:
         """
         try:
             logger.info(f"[订单取消] 取消订单: ID={order_id}, symbol={symbol}")
-            await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.cancel_order(order_id, symbol)
+            method = get_callable(
+                self.exchange,
+                "private_post_trade_cancel_order",
+                "privatePostTradeCancelOrder",
             )
+            if method is not None:
+                params = {
+                    "instId": okx_inst_id_from_symbol(symbol),
+                    "ordId": order_id,
+                }
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self._cancel_order_direct(method, params)
+                )
+            else:
+                raise RuntimeError("OKX raw cancel-order endpoint is unavailable")
             logger.info(f"[订单取消] 订单取消成功: {order_id}")
             return (True, "success")
         except Exception as e:
@@ -352,6 +433,11 @@ class OrderService:
                 logger.error(f"[订单取消] 取消订单失败: {order_id}, 错误={error_msg}")
                 return (False, "failed")
 
+    def _cancel_order_direct(self, method, params: Dict[str, str]) -> None:
+        """绕过 ccxt load_markets，直接调用 OKX 普通撤单接口。"""
+        response = method(params)
+        self._ensure_okx_order_item_success(response, "cancel order")
+
     async def cancel_algo_order(self, algo_id: str, symbol: str) -> tuple[bool, str]:
         """取消算法单（止损单、止盈单等）
 
@@ -367,17 +453,19 @@ class OrderService:
         """
         try:
             # 转换交易对格式: BTC/USDT:USDT -> BTC-USDT-SWAP (期货合约格式)
-            parts = symbol.split("/")
-            base = parts[0]
-            quote = parts[1].split(":")[0] if ":" in parts[1] else parts[1]
-            inst_id = f"{base}-{quote}-SWAP"
+            inst_id = okx_inst_id_from_symbol(symbol)
 
             logger.info(f"[算法单取消] 取消算法单: ID={algo_id}, instId={inst_id}")
+            method = get_callable(
+                self.exchange,
+                "private_post_trade_cancel_algos",
+                "privatePostTradeCancelAlgos",
+            )
+            if method is None:
+                raise RuntimeError("OKX raw cancel-algos endpoint is unavailable")
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.private_post_trade_cancel_algos(
-                    [{"instId": inst_id, "algoId": algo_id}]
-                ),
+                lambda: method([{"instId": inst_id, "algoId": algo_id}]),
             )
             logger.info(f"[算法单取消] 算法单取消成功: {algo_id}")
             return (True, "success")
@@ -411,9 +499,19 @@ class OrderService:
             OrderResult: 订单状态
         """
         try:
-            order = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.fetch_order(order_id, symbol)
+            method = get_callable(
+                self.exchange, "private_get_trade_order", "privateGetTradeOrder"
             )
+            if method is not None:
+                params = {
+                    "instId": okx_inst_id_from_symbol(symbol),
+                    "ordId": order_id,
+                }
+                order = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self._get_order_status_direct(method, params, symbol)
+                )
+            else:
+                raise RuntimeError("OKX raw order-status endpoint is unavailable")
             return self._parse_order_response(order, order.get("amount", 0))
         except Exception as e:
             logger.error(f"[订单查询] 查询订单状态失败: {order_id}, 错误={e}")
@@ -429,6 +527,15 @@ class OrderService:
                 average_price=0,
                 error_message=str(e),
             )
+
+    def _get_order_status_direct(
+        self, method, params: Dict[str, str], symbol: str
+    ) -> Dict[str, Any]:
+        """绕过 ccxt load_markets，直接调用 OKX 订单详情接口。"""
+        response = method(params)
+        ensure_okx_success(response, "fetch order")
+        raw = first_data(response)
+        return parse_okx_order(raw, symbol)
 
     def get_stop_order_id(self, stop_price: float) -> Optional[str]:
         """获取止损单ID"""

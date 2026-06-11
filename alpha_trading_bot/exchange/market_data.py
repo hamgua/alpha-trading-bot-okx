@@ -6,6 +6,13 @@ import asyncio
 import logging
 from typing import Dict, Any, List
 
+from .okx_raw import (
+    ensure_okx_success,
+    get_callable,
+    okx_inst_id_from_symbol,
+    to_float,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,30 +33,15 @@ class MarketDataService:
             return False
         return True
 
-    @staticmethod
-    def _okx_inst_id_from_symbol(symbol: str) -> str:
-        """将 ccxt symbol 转换为 OKX instId。"""
-        normalized = symbol.strip()
-        if "/" not in normalized:
-            return normalized.replace("/", "-").replace(":", "-")
-
-        pair, _, contract_suffix = normalized.partition(":")
-        base, quote = pair.split("/", 1)
-        if contract_suffix:
-            return f"{base}-{quote}-SWAP"
-        return f"{base}-{quote}"
-
     def _get_okx_ticker_method(self):
-        method = getattr(self.exchange, "public_get_market_ticker", None)
-        if method is None:
-            method = getattr(self.exchange, "publicGetMarketTicker", None)
-        return method if callable(method) else None
+        return get_callable(
+            self.exchange, "public_get_market_ticker", "publicGetMarketTicker"
+        )
 
     def _get_okx_candles_method(self):
-        method = getattr(self.exchange, "public_get_market_candles", None)
-        if method is None:
-            method = getattr(self.exchange, "publicGetMarketCandles", None)
-        return method if callable(method) else None
+        return get_callable(
+            self.exchange, "public_get_market_candles", "publicGetMarketCandles"
+        )
 
     @staticmethod
     def _okx_bar_from_timeframe(timeframe: str) -> str:
@@ -66,16 +58,8 @@ class MarketDataService:
         }
         return timeframe_map.get(timeframe, timeframe)
 
-    @staticmethod
-    def _to_float(value: Any, default: float = 0.0) -> float:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
     def _parse_okx_ohlcv(self, response: Dict[str, Any]) -> List[List[float]]:
-        if str(response.get("code", "0")) != "0":
-            raise RuntimeError(f"OKX candles failed: {response}")
+        ensure_okx_success(response, "candles")
 
         candles = []
         for raw in response.get("data") or []:
@@ -83,36 +67,35 @@ class MarketDataService:
                 continue
             candles.append(
                 [
-                    int(self._to_float(raw[0])),
-                    self._to_float(raw[1]),
-                    self._to_float(raw[2]),
-                    self._to_float(raw[3]),
-                    self._to_float(raw[4]),
-                    self._to_float(raw[5]),
+                    int(to_float(raw[0])),
+                    to_float(raw[1]),
+                    to_float(raw[2]),
+                    to_float(raw[3]),
+                    to_float(raw[4]),
+                    to_float(raw[5]),
                 ]
             )
         candles.sort(key=lambda candle: candle[0])
         return candles
 
     def _parse_okx_ticker(self, response: Dict[str, Any]) -> Dict[str, Any]:
-        if str(response.get("code", "0")) != "0":
-            raise RuntimeError(f"OKX ticker failed: {response}")
+        ensure_okx_success(response, "ticker")
 
         data = response.get("data") or []
         if not data:
             return {}
 
         raw = data[0]
-        last = self._to_float(raw.get("last"))
-        open_24h = self._to_float(raw.get("open24h"))
+        last = to_float(raw.get("last"))
+        open_24h = to_float(raw.get("open24h"))
         percentage = ((last - open_24h) / open_24h * 100) if open_24h > 0 else 0.0
 
         return {
             "symbol": self.symbol,
             "last": last,
-            "high": self._to_float(raw.get("high24h")),
-            "low": self._to_float(raw.get("low24h")),
-            "baseVolume": self._to_float(raw.get("volCcy24h")),
+            "high": to_float(raw.get("high24h")),
+            "low": to_float(raw.get("low24h")),
+            "baseVolume": to_float(raw.get("volCcy24h")),
             "percentage": percentage,
             "info": raw,
         }
@@ -125,7 +108,7 @@ class MarketDataService:
             method = self._get_okx_candles_method()
             if method is not None:
                 params = {
-                    "instId": self._okx_inst_id_from_symbol(self.symbol),
+                    "instId": okx_inst_id_from_symbol(self.symbol),
                     "bar": self._okx_bar_from_timeframe(timeframe),
                     "limit": str(limit),
                 }
@@ -133,12 +116,7 @@ class MarketDataService:
                     None, lambda: self._parse_okx_ohlcv(method(params))
                 )
             else:
-                ohlcv = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self.exchange.fetch_ohlcv(
-                        self.symbol, timeframe, limit=limit
-                    ),
-                )
+                raise RuntimeError("OKX raw candles endpoint is unavailable")
             return ohlcv
         except Exception as e:
             logger.error(f"获取K线数据失败: {e}")
@@ -152,13 +130,11 @@ class MarketDataService:
                 ticker = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: self._parse_okx_ticker(
-                        method({"instId": self._okx_inst_id_from_symbol(self.symbol)})
+                        method({"instId": okx_inst_id_from_symbol(self.symbol)})
                     ),
                 )
             else:
-                ticker = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.exchange.fetch_ticker(self.symbol)
-                )
+                raise RuntimeError("OKX raw ticker endpoint is unavailable")
             if ticker and ticker.get("last", 0) > 0:
                 self._last_valid_ticker = ticker
             return ticker

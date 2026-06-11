@@ -11,6 +11,13 @@ from typing import Dict, Any, Optional, List
 
 from .account_service import AccountService, create_account_service
 from .market_data import MarketDataService, create_market_data_service
+from .okx_raw import (
+    ensure_okx_success,
+    get_callable,
+    okx_inst_id_from_symbol,
+    parse_okx_algo_orders,
+    parse_okx_orders,
+)
 from .order_service import OrderService, create_order_service
 
 logger = logging.getLogger(__name__)
@@ -96,48 +103,15 @@ class ExchangeClient:
                 lambda: self._set_okx_leverage_direct(leverage, target_symbol),
             )
         else:
-            await self._set_leverage_via_ccxt(leverage, target_symbol)
+            raise RuntimeError("OKX raw set-leverage endpoint is unavailable")
         logger.info(f"设置杠杆: {leverage}x for {target_symbol}")
 
     def _get_okx_set_leverage_method(self):
-        method = getattr(self.exchange, "private_post_account_set_leverage", None)
-        if method is None:
-            method = getattr(self.exchange, "privatePostAccountSetLeverage", None)
-        return method if callable(method) else None
-
-    async def _set_leverage_via_ccxt(self, leverage: int, symbol: str) -> None:
-        try:
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.set_leverage(leverage, symbol),
-            )
-        except TypeError as e:
-            if not self._is_ccxt_markets_keysort_error(e):
-                raise
-            logger.warning(
-                "[杠杆设置] ccxt加载市场时遇到None键排序错误，"
-                f"但OKX原始接口不可用: {e}"
-            )
-            raise RuntimeError("OKX raw set-leverage endpoint is unavailable") from e
-
-    @staticmethod
-    def _is_ccxt_markets_keysort_error(error: TypeError) -> bool:
-        """判断是否为 ccxt markets_by_id 中混入 None 键导致的排序错误。"""
-        message = str(error)
-        return "NoneType" in message and "str" in message and "<" in message
-
-    @staticmethod
-    def _okx_inst_id_from_symbol(symbol: str) -> str:
-        """将 ccxt symbol 转换为 OKX instId。"""
-        normalized = symbol.strip()
-        if "/" not in normalized:
-            return normalized.replace("/", "-").replace(":", "-")
-
-        pair, _, contract_suffix = normalized.partition(":")
-        base, quote = pair.split("/", 1)
-        if contract_suffix:
-            return f"{base}-{quote}-SWAP"
-        return f"{base}-{quote}"
+        return get_callable(
+            self.exchange,
+            "private_post_account_set_leverage",
+            "privatePostAccountSetLeverage",
+        )
 
     def _set_okx_leverage_direct(self, leverage: int, symbol: str) -> None:
         """绕过 ccxt load_markets，直接调用 OKX 设置杠杆接口。"""
@@ -146,13 +120,13 @@ class ExchangeClient:
             raise RuntimeError("OKX raw set-leverage endpoint is unavailable")
 
         params = {
-            "instId": self._okx_inst_id_from_symbol(symbol),
+            "instId": okx_inst_id_from_symbol(symbol),
             "lever": str(leverage),
             "mgnMode": "cross",
         }
         response = method(params)
-        if isinstance(response, dict) and str(response.get("code", "0")) != "0":
-            raise RuntimeError(f"OKX set leverage failed: {response}")
+        if isinstance(response, dict):
+            ensure_okx_success(response, "set leverage")
 
     # === 代理方法 - 委托给子服务 ===
 
@@ -274,9 +248,18 @@ class ExchangeClient:
     async def get_open_orders(self, symbol: str) -> list:
         """获取当前未成交订单（普通订单）"""
         try:
-            orders = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.fetch_open_orders(symbol)
+            method = get_callable(
+                self.exchange,
+                "private_get_trade_orders_pending",
+                "privateGetTradeOrdersPending",
             )
+            if method is not None:
+                params = {"instId": okx_inst_id_from_symbol(symbol)}
+                orders = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: parse_okx_orders(method(params), symbol)
+                )
+            else:
+                raise RuntimeError("OKX raw open-orders endpoint is unavailable")
             return orders
         except Exception as e:
             logger.error(f"[订单查询] 获取开放订单失败: {e}")
@@ -285,13 +268,21 @@ class ExchangeClient:
     async def get_algo_orders(self, symbol: str) -> list:
         """获取当前未成交算法订单（止损单、止盈单等）"""
         try:
-            # OKX: 使用 fetch_open_orders 并传入 ordType 参数来查询算法订单
-            algo_orders = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.fetch_open_orders(
-                    symbol, params={"ordType": "conditional", "trigger": True}
-                ),
+            method = get_callable(
+                self.exchange,
+                "private_get_trade_orders_algo_pending",
+                "privateGetTradeOrdersAlgoPending",
             )
+            if method is not None:
+                params = {
+                    "instId": okx_inst_id_from_symbol(symbol),
+                    "ordType": "conditional",
+                }
+                algo_orders = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: parse_okx_algo_orders(method(params), symbol)
+                )
+            else:
+                raise RuntimeError("OKX raw algo-orders endpoint is unavailable")
             return algo_orders
         except Exception as e:
             logger.error(f"[算法订单查询] 获取算法订单失败: {e}")

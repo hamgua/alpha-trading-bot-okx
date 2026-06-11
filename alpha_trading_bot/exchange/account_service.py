@@ -6,6 +6,13 @@ import asyncio
 import logging
 from typing import Dict, Any, Optional
 
+from .okx_raw import (
+    ensure_okx_success,
+    get_callable,
+    okx_inst_id_from_symbol,
+    to_float,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -21,15 +28,36 @@ class AccountService:
     async def get_balance(self) -> float:
         """获取可用USDT余额"""
         try:
-            balance = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.fetch_balance()
+            method = get_callable(
+                self.exchange,
+                "private_get_account_balance",
+                "privateGetAccountBalance",
             )
-            usdt_available = balance.get("free", {}).get("USDT", 0)
+            if method is not None:
+                usdt_available = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self._get_okx_usdt_balance(method({"ccy": "USDT"}))
+                )
+            else:
+                raise RuntimeError("OKX raw account balance endpoint is unavailable")
             logger.info(f"可用USDT余额: {usdt_available}")
             return float(usdt_available)
         except Exception as e:
             logger.error(f"获取余额失败: {e}")
             return 0.0
+
+    @staticmethod
+    def _get_okx_usdt_balance(response: Dict[str, Any]) -> float:
+        ensure_okx_success(response, "account balance")
+        for account in response.get("data") or []:
+            for detail in account.get("details") or []:
+                if detail.get("ccy") == "USDT":
+                    return to_float(
+                        detail.get("availEq"),
+                        to_float(
+                            detail.get("availBal"), to_float(detail.get("cashBal"))
+                        ),
+                    )
+        return 0.0
 
     async def get_position_with_retry(
         self, max_retries: int = 3, retry_delay: float = 1.0
@@ -91,9 +119,20 @@ class AccountService:
         """获取当前持仓（只支持做多，空单自动标记平仓）"""
         try:
             logger.debug(f"[账户查询] 正在获取 {self.symbol} 的持仓信息...")
-            positions = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.fetch_positions([self.symbol])
+            method = get_callable(
+                self.exchange,
+                "private_get_account_positions",
+                "privateGetAccountPositions",
             )
+            if method is not None:
+                positions = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._parse_okx_positions(
+                        method({"instId": okx_inst_id_from_symbol(self.symbol)})
+                    ),
+                )
+            else:
+                raise RuntimeError("OKX raw positions endpoint is unavailable")
 
             for pos in positions:
                 if pos["contracts"] and pos["contracts"] != 0:
@@ -133,7 +172,8 @@ class AccountService:
                         }
                     logger.info(
                         f"[账户查询] 找到持仓: 方向={position_info['side']}, "
-                        f"数量={position_info['amount']}, 入场价={position_info['entry_price']}, "
+                        f"数量={position_info['amount']}, "
+                        f"入场价={position_info['entry_price']}, "
                         f"未实现盈亏={position_info['unrealized_pnl']}"
                     )
                     return position_info
@@ -144,6 +184,29 @@ class AccountService:
         except Exception as e:
             logger.error(f"[账户查询] 获取持仓失败: {e}")
             return None
+
+    def _parse_okx_positions(self, response: Dict[str, Any]) -> list:
+        ensure_okx_success(response, "positions")
+        positions = []
+        for raw in response.get("data") or []:
+            contracts = to_float(raw.get("pos"))
+            if contracts == 0:
+                continue
+            raw_side = raw.get("posSide")
+            side = raw_side if raw_side and raw_side != "net" else None
+            if side is None:
+                side = "short" if contracts < 0 else "long"
+            positions.append(
+                {
+                    "symbol": self.symbol,
+                    "side": side,
+                    "contracts": contracts,
+                    "entryPrice": to_float(raw.get("avgPx")),
+                    "unrealizedPnl": to_float(raw.get("upl")),
+                    "info": raw,
+                }
+            )
+        return positions
 
 
 def create_account_service(
