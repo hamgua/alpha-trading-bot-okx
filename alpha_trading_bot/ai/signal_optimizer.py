@@ -112,7 +112,7 @@ class SignalOptimizer:
         self.signal_history: deque = deque(maxlen=20)
         self.price_history = price_history or []
 
-        logger.debug(
+        logger.info(
             f"[信号优化器] 初始化完成: "
             f"置信度范围=[{self.config.confidence_floor:.0%}, {self.config.confidence_ceiling:.0%}], "
             f"平滑窗口={self.config.smoothing_window}, "
@@ -181,7 +181,7 @@ class SignalOptimizer:
             },
         )
 
-        logger.debug(
+        logger.info(
             f"[信号优化] 结果: signal={result.signal}, confidence={result.confidence:.2%}, "
             f"original={original_confidence:.2%}, filtered={is_filtered}, "
             f"adjustments={len(adjustments)}"

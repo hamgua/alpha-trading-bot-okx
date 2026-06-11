@@ -67,22 +67,6 @@ class IntegratedSignalResult:
     is_sustained_decline: bool = False
     adjustments_made: list = None
 
-    def log_confidence_trace(self, confidence_history: list) -> None:
-        """记录信号集成摘要，详细置信度轨迹仅用于调试。"""
-        logger.debug("[信号诊断] 置信度变化流程:")
-        for stage, name, conf in confidence_history:
-            logger.debug(f"  [{stage}] {name}: {conf:.1%}")
-
-        logger.info(
-            f"[AI信号集成] "
-            f"原始={self.original_signal}({self.original_confidence:.0%}) → "
-            f"最终={self.final_signal}({self.final_confidence:.0%})"
-        )
-
-        if self.adjustments_made:
-            for adj in self.adjustments_made:
-                logger.debug(f"  - {adj}")
-
 
 class AISignalIntegrator:
     """
@@ -114,13 +98,13 @@ class AISignalIntegrator:
             self._thresholds = thresholds
         self._init_modules()
 
-        logger.debug(
-            "[AI信号集成器] 初始化完成: "
-            f"自适应买入={self.config.enable_adaptive_buy}, "
-            f"信号优化={self.config.enable_signal_optimizer}, "
-            f"高位过滤={self.config.enable_high_price_filter}, "
-            f"BTC检测={self.config.enable_btc_detector}, "
-            f"持续下跌检测={self.config.enable_sustained_decline_detector}"
+        logger.info("[AI信号集成器] 初始化完成")
+        logger.info(f"  - 自适应买入: {self.config.enable_adaptive_buy}")
+        logger.info(f"  - 信号优化: {self.config.enable_signal_optimizer}")
+        logger.info(f"  - 高位过滤: {self.config.enable_high_price_filter}")
+        logger.info(f"  - BTC检测: {self.config.enable_btc_detector}")
+        logger.info(
+            f"  - 持续下跌检测: {self.config.enable_sustained_decline_detector}"
         )
 
     def _init_modules(self):
@@ -813,7 +797,21 @@ class AISignalIntegrator:
         # 记录置信度变化历史
         conf_history.append((5, "最终", result.final_confidence))
 
-        result.log_confidence_trace(conf_history)
+        # 打印诊断日志
+        logger.info("[信号诊断] 置信度变化流程:")
+        for stage, name, conf in conf_history:
+            logger.info(f"  [{stage}] {name}: {conf:.1%}")
+
+        # 记录最终结果
+        logger.info(
+            f"[AI信号集成] "
+            f"原始={result.original_signal}({result.original_confidence:.0%}) → "
+            f"最终={result.final_signal}({result.final_confidence:.0%})"
+        )
+
+        if result.adjustments_made:
+            for adj in result.adjustments_made:
+                logger.info(f"  - {adj}")
 
         return result
 

@@ -124,7 +124,7 @@ class AdaptiveBuyCondition:
         self.conditions = conditions or BuyConditions()
         self._validate_conditions()
 
-        logger.debug(
+        logger.info(
             f"[自适应买入条件] 初始化完成: "
             f"超卖反弹={self.conditions.oversold_enabled}, "
             f"强势支撑={self.conditions.support_enabled}, "
@@ -269,7 +269,7 @@ class AdaptiveBuyCondition:
             timestamp=datetime.now().isoformat(),
         )
 
-        logger.debug(
+        logger.info(
             f"[自适应买入条件] 结果: can_buy={can_buy}, mode={best_mode}, "
             f"confidence={final_confidence:.2%}, reason={best_result['reason']}"
         )

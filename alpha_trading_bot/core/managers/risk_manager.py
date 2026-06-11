@@ -61,7 +61,7 @@ class RiskControlManager:
             circuit_breaker_threshold=circuit_breaker_threshold,
         )
         self._risk_manager = AIRiskManager(risk_config)
-        logger.debug("[RiskControlManager] 初始化完成")
+        logger.info("[RiskControlManager] 初始化完成")
 
     def evaluate_risk(
         self,

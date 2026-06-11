@@ -153,13 +153,3 @@ class TestStrategyExecutionManagerInit:
     def test_init_creates_strategy_library(self, manager: StrategyExecutionManager):
         """验证初始化时创建了 _strategy_library"""
         assert hasattr(manager, "_strategy_library"), "应该有 _strategy_library 属性"
-
-    def test_init_reuses_injected_strategy_library(self):
-        """允许复用策略库，避免启动时重复注册策略。"""
-        from alpha_trading_bot.ai.adaptive.strategy_library import StrategyLibrary
-
-        strategy_library = StrategyLibrary()
-        manager = StrategyExecutionManager(strategy_library=strategy_library)
-
-        assert manager._strategy_library is strategy_library
-        assert manager._strategy_selector.strategy_library is strategy_library

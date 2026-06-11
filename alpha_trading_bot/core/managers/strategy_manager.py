@@ -20,23 +20,16 @@ class StrategyExecutionManager:
     提供策略选择和执行接口。
     """
 
-    def __init__(
-        self,
-        strategy_library: Optional[Any] = None,
-        performance_tracker: Optional[Any] = None,
-    ) -> None:
+    def __init__(self) -> None:
         from alpha_trading_bot.ai.adaptive.strategy_library import StrategyLibrary
         from alpha_trading_bot.ai.adaptive.strategy_selector import (
             AdaptiveStrategyManager,
         )
 
-        self._strategy_library = strategy_library or StrategyLibrary()
-        self._strategy_selector = AdaptiveStrategyManager(
-            strategy_library=self._strategy_library,
-            performance_tracker=performance_tracker,
-        )
+        self._strategy_library = StrategyLibrary()
+        self._strategy_selector = AdaptiveStrategyManager()
         self._current_strategy: Optional[str] = None
-        logger.debug("[StrategyExecutionManager] 初始化完成")
+        logger.info("[StrategyExecutionManager] 初始化完成")
 
     def select_strategy(self, market_state: Dict[str, Any]) -> str:
         """根据市场状态选择策略

@@ -183,7 +183,6 @@ class AdaptiveParameterManager:
         self,
         base_config: Optional[AdaptiveConfig] = None,
         enable_logging: bool = True,
-        performance_tracker: Optional[Any] = None,
     ):
         """
         初始化管理器
@@ -191,7 +190,6 @@ class AdaptiveParameterManager:
         Args:
             base_config: 基础配置
             enable_logging: 是否启用日志
-            performance_tracker: 可复用的绩效追踪器
         """
         from .market_regime import MarketRegimeDetector
         from .performance_tracker import PerformanceTracker
@@ -202,7 +200,7 @@ class AdaptiveParameterManager:
 
         # 组件
         self.regime_detector = MarketRegimeDetector()
-        self.performance_tracker = performance_tracker or PerformanceTracker()
+        self.performance_tracker = PerformanceTracker()
         self.rules_engine = AdaptiveRulesEngine()
 
         # 日志

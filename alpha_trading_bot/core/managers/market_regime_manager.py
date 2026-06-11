@@ -36,16 +36,16 @@ class MarketRegimeManager:
     提供统一的市场状态查询接口。
     """
 
-    def __init__(self, performance_tracker: Optional[Any] = None) -> None:
+    def __init__(self) -> None:
         from alpha_trading_bot.ai.adaptive import (
             MarketRegimeDetector,
             PerformanceTracker,
         )
 
         self._regime_detector = MarketRegimeDetector()
-        self._performance_tracker = performance_tracker or PerformanceTracker()
+        self._performance_tracker = PerformanceTracker()
         self._current_state = MarketState()
-        logger.debug("[MarketRegimeManager] 初始化完成")
+        logger.info("[MarketRegimeManager] 初始化完成")
 
     def detect_market_regime(self, market_data: Dict[str, Any]) -> str:
         """检测市场状态

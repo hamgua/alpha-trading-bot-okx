@@ -92,7 +92,7 @@ class HighPriceBuyOptimizer:
         self.config = config or HighPriceBuyConfig()
         self.price_history: list = []
 
-        logger.debug(
+        logger.info(
             f"[高位买入优化器] 初始化完成: "
             f"价格位置阈值={self.config.price_position_threshold_low}/"
             f"{self.config.price_position_threshold_mid}/"
@@ -300,7 +300,7 @@ class HighPriceBuyOptimizer:
             },
         )
 
-        logger.debug(
+        logger.info(
             f"[高位买入优化] 结果: can_buy={should_buy}, "
             f"confidence={adjusted_confidence:.2%}, "
             f"level={price_level}, "

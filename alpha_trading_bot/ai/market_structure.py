@@ -96,7 +96,7 @@ class MarketStructureAnalyzer:
         self.good_rr = good_rr
         self.excellent_rr = excellent_rr
 
-        logger.debug(
+        logger.info(
             f"[市场结构分析器] 初始化完成: "
             f"swing_window={swing_window}, "
             f"R/R阈值: 最低={min_rr}, 良好={good_rr}, 优质={excellent_rr}"
@@ -169,7 +169,7 @@ class MarketStructureAnalyzer:
             swing_lows=swing_lows,
         )
 
-        logger.debug(
+        logger.info(
             f"[市场结构] 结构={structure}, "
             f"支撑={nearest_support:.2f}, 阻力={nearest_resistance:.2f}, "
             f"R/R={rr_ratio:.2f}({rr_quality}), "
