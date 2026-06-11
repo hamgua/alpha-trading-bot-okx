@@ -1,5 +1,5 @@
 # 修复依赖问题的Dockerfile
-FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.5
+FROM hamgua/alpha-trading-bot-okx:base_alpine-v1.5.6
 
 # 设置时区
 ENV TZ=Asia/Shanghai
