@@ -90,22 +90,35 @@ class ExchangeClient:
                 f"Invalid symbol: {target_symbol}. Must be a non-empty string."
             )
 
+        if self._get_okx_set_leverage_method() is not None:
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self._set_okx_leverage_direct(leverage, target_symbol),
+            )
+        else:
+            await self._set_leverage_via_ccxt(leverage, target_symbol)
+        logger.info(f"设置杠杆: {leverage}x for {target_symbol}")
+
+    def _get_okx_set_leverage_method(self):
+        method = getattr(self.exchange, "private_post_account_set_leverage", None)
+        if method is None:
+            method = getattr(self.exchange, "privatePostAccountSetLeverage", None)
+        return method if callable(method) else None
+
+    async def _set_leverage_via_ccxt(self, leverage: int, symbol: str) -> None:
         try:
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self.exchange.set_leverage(leverage, target_symbol),
+                lambda: self.exchange.set_leverage(leverage, symbol),
             )
         except TypeError as e:
             if not self._is_ccxt_markets_keysort_error(e):
                 raise
             logger.warning(
-                "[杠杆设置] ccxt加载市场时遇到None键排序错误，" f"改用OKX原始接口: {e}"
+                "[杠杆设置] ccxt加载市场时遇到None键排序错误，"
+                f"但OKX原始接口不可用: {e}"
             )
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self._set_okx_leverage_direct(leverage, target_symbol),
-            )
-        logger.info(f"设置杠杆: {leverage}x for {target_symbol}")
+            raise RuntimeError("OKX raw set-leverage endpoint is unavailable") from e
 
     @staticmethod
     def _is_ccxt_markets_keysort_error(error: TypeError) -> bool:
@@ -128,10 +141,8 @@ class ExchangeClient:
 
     def _set_okx_leverage_direct(self, leverage: int, symbol: str) -> None:
         """绕过 ccxt load_markets，直接调用 OKX 设置杠杆接口。"""
-        method = getattr(self.exchange, "private_post_account_set_leverage", None)
+        method = self._get_okx_set_leverage_method()
         if method is None:
-            method = getattr(self.exchange, "privatePostAccountSetLeverage", None)
-        if not callable(method):
             raise RuntimeError("OKX raw set-leverage endpoint is unavailable")
 
         params = {

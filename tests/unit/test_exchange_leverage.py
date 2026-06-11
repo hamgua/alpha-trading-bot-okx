@@ -13,7 +13,7 @@ def _install_fake_ccxt(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_leverage_falls_back_when_ccxt_market_sorting_fails(
+async def test_set_leverage_uses_okx_raw_endpoint_without_loading_markets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _install_fake_ccxt(monkeypatch)
@@ -24,9 +24,7 @@ async def test_set_leverage_falls_back_when_ccxt_market_sorting_fails(
 
     class _Exchange:
         def set_leverage(self, leverage: int, symbol: str) -> None:
-            raise TypeError(
-                "'<' not supported between instances of 'NoneType' and 'str'"
-            )
+            raise AssertionError("ccxt set_leverage should not be called")
 
         def private_post_account_set_leverage(self, params):
             calls.append(params)
@@ -38,3 +36,25 @@ async def test_set_leverage_falls_back_when_ccxt_market_sorting_fails(
     await client.set_leverage(5)
 
     assert calls == [{"instId": "BTC-USDT-SWAP", "lever": "5", "mgnMode": "cross"}]
+
+
+@pytest.mark.asyncio
+async def test_set_leverage_falls_back_when_raw_endpoint_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+
+    from alpha_trading_bot.exchange.client import ExchangeClient
+
+    calls = []
+
+    class _Exchange:
+        def set_leverage(self, leverage: int, symbol: str) -> None:
+            calls.append((leverage, symbol))
+
+    client = ExchangeClient(symbol="BTC/USDT:USDT")
+    client.exchange = _Exchange()
+
+    await client.set_leverage(5)
+
+    assert calls == [(5, "BTC/USDT:USDT")]
