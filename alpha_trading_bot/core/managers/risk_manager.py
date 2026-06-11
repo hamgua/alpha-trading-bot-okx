@@ -61,7 +61,7 @@ class RiskControlManager:
             circuit_breaker_threshold=circuit_breaker_threshold,
         )
         self._risk_manager = AIRiskManager(risk_config)
-        logger.info("[RiskControlManager] 初始化完成")
+        logger.debug("[RiskControlManager] 初始化完成")
 
     def evaluate_risk(
         self,
@@ -184,9 +184,7 @@ class RiskControlManager:
         """
         self._risk_manager.record_trade_result(trade_result)
 
-    def can_open_position(
-        self, market_data: Dict, position_data: Dict
-    ) -> tuple:
+    def can_open_position(self, market_data: Dict, position_data: Dict) -> tuple:
         """检查是否可以开仓
 
         委托给 AI 底层 RiskControlManager.can_open_position。

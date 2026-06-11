@@ -67,6 +67,22 @@ class IntegratedSignalResult:
     is_sustained_decline: bool = False
     adjustments_made: list = None
 
+    def log_confidence_trace(self, confidence_history: list) -> None:
+        """记录信号集成摘要，详细置信度轨迹仅用于调试。"""
+        logger.debug("[信号诊断] 置信度变化流程:")
+        for stage, name, conf in confidence_history:
+            logger.debug(f"  [{stage}] {name}: {conf:.1%}")
+
+        logger.info(
+            f"[AI信号集成] "
+            f"原始={self.original_signal}({self.original_confidence:.0%}) → "
+            f"最终={self.final_signal}({self.final_confidence:.0%})"
+        )
+
+        if self.adjustments_made:
+            for adj in self.adjustments_made:
+                logger.debug(f"  - {adj}")
+
 
 class AISignalIntegrator:
     """
@@ -98,13 +114,13 @@ class AISignalIntegrator:
             self._thresholds = thresholds
         self._init_modules()
 
-        logger.info("[AI信号集成器] 初始化完成")
-        logger.info(f"  - 自适应买入: {self.config.enable_adaptive_buy}")
-        logger.info(f"  - 信号优化: {self.config.enable_signal_optimizer}")
-        logger.info(f"  - 高位过滤: {self.config.enable_high_price_filter}")
-        logger.info(f"  - BTC检测: {self.config.enable_btc_detector}")
-        logger.info(
-            f"  - 持续下跌检测: {self.config.enable_sustained_decline_detector}"
+        logger.debug(
+            "[AI信号集成器] 初始化完成: "
+            f"自适应买入={self.config.enable_adaptive_buy}, "
+            f"信号优化={self.config.enable_signal_optimizer}, "
+            f"高位过滤={self.config.enable_high_price_filter}, "
+            f"BTC检测={self.config.enable_btc_detector}, "
+            f"持续下跌检测={self.config.enable_sustained_decline_detector}"
         )
 
     def _init_modules(self):
@@ -518,11 +534,15 @@ class AISignalIntegrator:
                 # 将市场结构信息附加到 market_data 供决策引擎使用
                 # （注意：必须操作原始 market_data 引用，确保外部可见）
                 market_data["market_structure"] = structure_result.structure
-                market_data["market_structure_direction"] = structure_result.suggested_direction
+                market_data["market_structure_direction"] = (
+                    structure_result.suggested_direction
+                )
                 market_data["risk_reward_ratio"] = structure_result.risk_reward_ratio
                 market_data["nearest_support"] = structure_result.nearest_support
                 market_data["nearest_resistance"] = structure_result.nearest_resistance
-                market_data["position_size_factor"] = structure_result.position_size_factor
+                market_data["position_size_factor"] = (
+                    structure_result.position_size_factor
+                )
 
                 # 风险收益比过滤 - 只对BUY信号生效
                 if original_signal == "BUY" and structure_result.risk_reward_ratio > 0:
@@ -582,7 +602,9 @@ class AISignalIntegrator:
                     elif rr_result.quality == "excellent":
                         # R/R优质，小幅提升置信度
                         old_conf = original_confidence
-                        original_confidence = min(original_confidence * 1.05, self._t().confidence_ceiling)
+                        original_confidence = min(
+                            original_confidence * 1.05, self._t().confidence_ceiling
+                        )
                         result.adjustments_made.append(
                             f"R/R过滤: R/R={rr_result.rr_ratio:.2f}优质, "
                             f"置信度提升5%({old_conf:.0%}→{original_confidence:.0%})"
@@ -590,7 +612,10 @@ class AISignalIntegrator:
                         conf_history.append((2, "R/R优质", original_confidence))
 
                 # SHORT信号的R/R过滤
-                elif original_signal == "SHORT" and structure_result.risk_reward_ratio > 0:
+                elif (
+                    original_signal == "SHORT"
+                    and structure_result.risk_reward_ratio > 0
+                ):
                     rr_result = self.risk_reward_calculator.calculate_for_short(
                         current_price=current_price,
                         support=structure_result.nearest_support,
@@ -623,7 +648,9 @@ class AISignalIntegrator:
                             )
 
                 # HOLD信号时，市场结构确认（诊断增强，不修改逻辑）
-                elif original_signal == "HOLD" and structure_result.risk_reward_ratio > 0:
+                elif (
+                    original_signal == "HOLD" and structure_result.risk_reward_ratio > 0
+                ):
                     if structure_result.risk_reward_ratio < 1.5:
                         result.adjustments_made.append(
                             f"市场结构确认: R/R={structure_result.risk_reward_ratio:.2f}不足，"
@@ -786,21 +813,7 @@ class AISignalIntegrator:
         # 记录置信度变化历史
         conf_history.append((5, "最终", result.final_confidence))
 
-        # 打印诊断日志
-        logger.info("[信号诊断] 置信度变化流程:")
-        for stage, name, conf in conf_history:
-            logger.info(f"  [{stage}] {name}: {conf:.1%}")
-
-        # 记录最终结果
-        logger.info(
-            f"[AI信号集成] "
-            f"原始={result.original_signal}({result.original_confidence:.0%}) → "
-            f"最终={result.final_signal}({result.final_confidence:.0%})"
-        )
-
-        if result.adjustments_made:
-            for adj in result.adjustments_made:
-                logger.info(f"  - {adj}")
+        result.log_confidence_trace(conf_history)
 
         return result
 

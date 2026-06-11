@@ -92,7 +92,7 @@ class HighPriceBuyOptimizer:
         self.config = config or HighPriceBuyConfig()
         self.price_history: list = []
 
-        logger.info(
+        logger.debug(
             f"[高位买入优化器] 初始化完成: "
             f"价格位置阈值={self.config.price_position_threshold_low}/"
             f"{self.config.price_position_threshold_mid}/"
@@ -181,7 +181,10 @@ class HighPriceBuyOptimizer:
                 adjustment_reason += f"高位警告: 置信度降低{10 * penalty_factor:.0f}%; "
 
         # 6.2 价格位置检查 (HOLD信号跳过惩罚)
-        if not is_hold_signal and price_position >= thresholds["price_position_threshold"]:
+        if (
+            not is_hold_signal
+            and price_position >= thresholds["price_position_threshold"]
+        ):
             adjusted_confidence = max(
                 adjusted_confidence - (0.15 * penalty_factor), 0.35
             )
@@ -192,14 +195,15 @@ class HighPriceBuyOptimizer:
         if not is_hold_signal and rsi >= thresholds["rsi_threshold"]:
             overshoot = (rsi - thresholds["rsi_threshold"]) / 10
             rsi_penalty = min(overshoot * 0.12, 0.12) * penalty_factor
-            adjusted_confidence = max(
-                adjusted_confidence - rsi_penalty, 0.35
-            )
+            adjusted_confidence = max(adjusted_confidence - rsi_penalty, 0.35)
             adjustment_reason += f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低{rsi_penalty * 100:.1f}%; "
             penalty_applied = True
 
         # 6.4 趋势强度检查 (HOLD信号跳过惩罚)
-        if not is_hold_signal and trend_strength < thresholds["trend_strength_threshold"]:
+        if (
+            not is_hold_signal
+            and trend_strength < thresholds["trend_strength_threshold"]
+        ):
             adjusted_confidence = max(
                 adjusted_confidence - (0.05 * penalty_factor), 0.35
             )
@@ -222,7 +226,9 @@ class HighPriceBuyOptimizer:
                 adjusted_confidence = max(
                     adjusted_confidence - (0.08 * penalty_factor), 0.35
                 )
-                adjustment_reason += f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
+                adjustment_reason += (
+                    f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "
+                )
                 penalty_applied = True
 
         # 6.7 低位/超卖奖励机制
@@ -294,7 +300,7 @@ class HighPriceBuyOptimizer:
             },
         )
 
-        logger.info(
+        logger.debug(
             f"[高位买入优化] 结果: can_buy={should_buy}, "
             f"confidence={adjusted_confidence:.2%}, "
             f"level={price_level}, "

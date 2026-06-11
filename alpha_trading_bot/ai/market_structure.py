@@ -96,7 +96,7 @@ class MarketStructureAnalyzer:
         self.good_rr = good_rr
         self.excellent_rr = excellent_rr
 
-        logger.info(
+        logger.debug(
             f"[市场结构分析器] 初始化完成: "
             f"swing_window={swing_window}, "
             f"R/R阈值: 最低={min_rr}, 良好={good_rr}, 优质={excellent_rr}"
@@ -131,15 +131,11 @@ class MarketStructureAnalyzer:
             return self._create_neutral_result(current_price)
 
         # 2. 判断市场结构
-        structure, structure_detail = self._determine_structure(
-            swing_highs, swing_lows
-        )
+        structure, structure_detail = self._determine_structure(swing_highs, swing_lows)
 
         # 3. 计算支撑阻力位
         nearest_support = self._find_nearest_support(swing_lows, current_price)
-        nearest_resistance = self._find_nearest_resistance(
-            swing_highs, current_price
-        )
+        nearest_resistance = self._find_nearest_resistance(swing_highs, current_price)
 
         # 4. 计算风险收益比
         rr_ratio, rr_quality = self._calculate_risk_reward(
@@ -173,7 +169,7 @@ class MarketStructureAnalyzer:
             swing_lows=swing_lows,
         )
 
-        logger.info(
+        logger.debug(
             f"[市场结构] 结构={structure}, "
             f"支撑={nearest_support:.2f}, 阻力={nearest_resistance:.2f}, "
             f"R/R={rr_ratio:.2f}({rr_quality}), "

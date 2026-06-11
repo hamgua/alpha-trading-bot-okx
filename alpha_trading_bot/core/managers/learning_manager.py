@@ -33,7 +33,7 @@ class LearningManager:
         self._weight_optimizer = get_weight_optimizer()
         self._backtest_learner = get_backtest_learner()
         self._learning_loop = SimpleLearningLoop()
-        logger.info("[LearningManager] 初始化完成")
+        logger.debug("[LearningManager] 初始化完成")
 
     def record_trade(self, trade_data: Dict[str, Any]) -> None:
         """记录交易数据用于学习

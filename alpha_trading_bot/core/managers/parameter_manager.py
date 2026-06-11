@@ -30,13 +30,15 @@ class ParameterManager:
     提供参数查询和更新接口。
     """
 
-    def __init__(self) -> None:
+    def __init__(self, performance_tracker: Optional[Any] = None) -> None:
         from alpha_trading_bot.ai.adaptive import AdaptiveParameterManager
 
-        self._param_manager = AdaptiveParameterManager()
+        self._param_manager = AdaptiveParameterManager(
+            performance_tracker=performance_tracker
+        )
         self._config_updater: Optional[Any] = None
         self._current_snapshot: Optional[ParameterSnapshot] = None
-        logger.info("[ParameterManager] 初始化完成")
+        logger.debug("[ParameterManager] 初始化完成")
 
     def set_config_updater(self, updater: Any) -> None:
         """设置配置更新器

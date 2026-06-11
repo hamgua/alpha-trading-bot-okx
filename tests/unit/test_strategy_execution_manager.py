@@ -32,7 +32,10 @@ def mock_selected_strategy():
         confidence=0.75,
         weight=1.0,
         source="strategy",
-        reasons=["优先策略: trend_following (置信度: 75.00%)", "市场状态: strong_trend"],
+        reasons=[
+            "优先策略: trend_following (置信度: 75.00%)",
+            "市场状态: strong_trend",
+        ],
         market_conditions={"regime": "strong_trend"},
     )
 
@@ -42,12 +45,12 @@ class TestAnalyzeAndSelectProxy:
 
     def test_analyze_and_select_exists(self, manager: StrategyExecutionManager):
         """验证 analyze_and_select 方法存在于 StrategyExecutionManager"""
-        assert hasattr(manager, "analyze_and_select"), (
-            "StrategyExecutionManager 应该有 analyze_and_select 方法"
-        )
-        assert callable(manager.analyze_and_select), (
-            "analyze_and_select 应该是可调用的方法"
-        )
+        assert hasattr(
+            manager, "analyze_and_select"
+        ), "StrategyExecutionManager 应该有 analyze_and_select 方法"
+        assert callable(
+            manager.analyze_and_select
+        ), "analyze_and_select 应该是可调用的方法"
 
     def test_analyze_and_select_delegates_to_selector(
         self, manager: StrategyExecutionManager, mock_selected_strategy
@@ -145,12 +148,18 @@ class TestStrategyExecutionManagerInit:
 
     def test_init_creates_strategy_selector(self, manager: StrategyExecutionManager):
         """验证初始化时创建了 _strategy_selector"""
-        assert hasattr(manager, "_strategy_selector"), (
-            "应该有 _strategy_selector 属性"
-        )
+        assert hasattr(manager, "_strategy_selector"), "应该有 _strategy_selector 属性"
 
     def test_init_creates_strategy_library(self, manager: StrategyExecutionManager):
         """验证初始化时创建了 _strategy_library"""
-        assert hasattr(manager, "_strategy_library"), (
-            "应该有 _strategy_library 属性"
-        )
+        assert hasattr(manager, "_strategy_library"), "应该有 _strategy_library 属性"
+
+    def test_init_reuses_injected_strategy_library(self):
+        """允许复用策略库，避免启动时重复注册策略。"""
+        from alpha_trading_bot.ai.adaptive.strategy_library import StrategyLibrary
+
+        strategy_library = StrategyLibrary()
+        manager = StrategyExecutionManager(strategy_library=strategy_library)
+
+        assert manager._strategy_library is strategy_library
+        assert manager._strategy_selector.strategy_library is strategy_library

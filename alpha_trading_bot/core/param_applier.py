@@ -27,7 +27,7 @@ class ParamApplier:
         if self._ai_client:
             self._ai_client.update_integrator_config(current_params)
 
-        logger.info(
+        logger.debug(
             f"[自适应] 参数已调整: "
             f"阈值={current_params.get('fusion_threshold', 0):.2f}, "
             f"止损={current_params.get('stop_loss_percent', 0):.2%}, "

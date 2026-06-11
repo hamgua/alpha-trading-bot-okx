@@ -302,14 +302,18 @@ class AdaptiveStrategyManager:
     整合策略库、策略选择器和表现追踪
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        strategy_library: Optional[Any] = None,
+        performance_tracker: Optional[Any] = None,
+    ):
         from .strategy_library import StrategyLibrary, StrategyType
         from .performance_tracker import PerformanceTracker
 
         # 初始化组件
-        self.strategy_library = StrategyLibrary()
+        self.strategy_library = strategy_library or StrategyLibrary()
         self.selector = StrategySelector()
-        self.performance_tracker = PerformanceTracker()
+        self.performance_tracker = performance_tracker or PerformanceTracker()
 
         # 策略配置
         self._strategy_configs: Dict[StrategyType, Dict[str, Any]] = {}

@@ -83,15 +83,24 @@ class AdaptiveTradingBot:
         )
         from ..ai.optimizer import ConfigUpdater
         from ..ai.adaptive import AdaptiveRulesEngine
+        from ..ai.adaptive.performance_tracker import PerformanceTracker
+        from ..ai.adaptive.strategy_library import StrategyLibrary
 
-        self.market_manager = MarketRegimeManager()
-        self.strategy_manager = StrategyExecutionManager()
+        performance_tracker = PerformanceTracker()
+        strategy_library = StrategyLibrary()
+        self.market_manager = MarketRegimeManager(
+            performance_tracker=performance_tracker
+        )
+        self.strategy_manager = StrategyExecutionManager(
+            strategy_library=strategy_library,
+            performance_tracker=performance_tracker,
+        )
         self.risk_manager = RiskControlManager(
             hard_stop_loss_percent=0.05,
             max_position_percent=0.1,
             circuit_breaker_threshold=0.03,
         )
-        self.param_manager = ParameterManager()
+        self.param_manager = ParameterManager(performance_tracker=performance_tracker)
         self.learning_manager = LearningManager()
 
         self.config_updater = ConfigUpdater()
@@ -136,7 +145,7 @@ class AdaptiveTradingBot:
         self.performance_tracker = self.market_manager._performance_tracker
         self.strategy_library = self.strategy_manager._strategy_library
 
-        logger.info("[自适应] 所有组件初始化完成（含Manager分层架构 + 属性别名）")
+        logger.debug("[自适应] 所有组件初始化完成（含Manager分层架构 + 属性别名）")
 
     @property
     def exchange(self):
@@ -228,9 +237,7 @@ class AdaptiveTradingBot:
                 raise RuntimeError("初始化失败")
 
         self._running = True
-        logger.info("=" * 60)
-        logger.info("自适应交易机器人 v2.0 启动")
-        logger.info("=" * 60)
+        logger.info("[启动] 自适应交易机器人 v2.0")
 
         # 启动后台优化任务
         asyncio.create_task(self._background_optimization_task())
@@ -264,9 +271,7 @@ class AdaptiveTradingBot:
         # 1. 等待周期
         await self.scheduler.wait_for_next_cycle(first_run)
 
-        logger.info("=" * 60)
-        logger.info("开始新的自适应交易周期")
-        logger.info("=" * 60)
+        logger.info("[周期] 开始新的自适应交易周期")
 
         try:
             # 类型断言：确保交易所和AI客户端已初始化
@@ -277,14 +282,12 @@ class AdaptiveTradingBot:
             market_data = await self._exchange.get_market_data()
             current_price = market_data.get("price", 0)
 
-            logger.info(f"[市场] 当前价格: {current_price}")
-            logger.info(f"[市场] 24h涨跌: {market_data.get('change_percent', 0):.2f}%")
+            technical = market_data.get("technical", {})
             logger.info(
-                f"[市场] RSI: {market_data.get('technical', {}).get('rsi', 50):.2f}"
-            )
-            logger.info(
-                "[市场] ATR%: "
-                f"{market_data.get('technical', {}).get('atr_percent', 0.02):.2%}"
+                f"[市场] 价格={current_price}, "
+                f"24h={market_data.get('change_percent', 0):.2f}%, "
+                f"RSI={technical.get('rsi', 50):.2f}, "
+                f"ATR%={technical.get('atr_percent', 0.02):.2%}"
             )
 
             # 3. 市场环境检测
@@ -302,7 +305,7 @@ class AdaptiveTradingBot:
             strategy_signals = self.strategy_library.get_all_signals(market_data)
             logger.info(f"[策略] {len(strategy_signals)} 个策略产生信号")
             for s in strategy_signals:
-                logger.info(
+                logger.debug(
                     f"  - {s.strategy_type.value}: {s.signal.upper()} "
                     f"(置信度: {s.confidence:.0%}, 原因: {s.reason})"
                 )

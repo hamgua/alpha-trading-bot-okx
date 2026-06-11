@@ -148,7 +148,7 @@ class SustainedDeclineDetector:
         self._cycle_high_price: Optional[float] = None
         self._cycle_high_time: Optional[datetime] = None
 
-        logger.info(
+        logger.debug(
             f"[持续下跌检测器] 初始化完成: "
             f"启用={self.config.enabled}, "
             f"轻度阈值={self.config.mild_decline_threshold}%, "
@@ -219,7 +219,7 @@ class SustainedDeclineDetector:
                 )
             else:
                 start_price = current_price
-            logger.info(
+            logger.debug(
                 f"[持续下跌检测] 使用日跌幅估算周期高点: {start_price} (日跌幅: {daily_change}%)"
             )
 
@@ -293,7 +293,7 @@ class SustainedDeclineDetector:
             logger.warning(log_msg)
             logger.warning(f"  → 信号调整: {suggested_adjustment}")
         else:
-            logger.info(log_msg)
+            logger.debug(log_msg)
 
         return DeclineDetectionResult(
             is_detected=is_sustained,

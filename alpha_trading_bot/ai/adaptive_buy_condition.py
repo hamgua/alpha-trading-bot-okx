@@ -124,7 +124,7 @@ class AdaptiveBuyCondition:
         self.conditions = conditions or BuyConditions()
         self._validate_conditions()
 
-        logger.info(
+        logger.debug(
             f"[自适应买入条件] 初始化完成: "
             f"超卖反弹={self.conditions.oversold_enabled}, "
             f"强势支撑={self.conditions.support_enabled}, "
@@ -269,7 +269,7 @@ class AdaptiveBuyCondition:
             timestamp=datetime.now().isoformat(),
         )
 
-        logger.info(
+        logger.debug(
             f"[自适应买入条件] 结果: can_buy={can_buy}, mode={best_mode}, "
             f"confidence={final_confidence:.2%}, reason={best_result['reason']}"
         )
@@ -432,8 +432,6 @@ class AdaptiveBuyCondition:
         # 布林带低位加分
         if bb_position < 0.35:
             base_confidence += 0.08
-
-        
 
         final_confidence = max(min(base_confidence + pass_rate * 0.05, 0.88), 0.45)
 
@@ -674,7 +672,9 @@ class AdaptiveBuyCondition:
         hourly_changes = market_data.get("hourly_changes", [])
 
         try:
-            price_position = float(price_position) if price_position is not None else 0.5
+            price_position = (
+                float(price_position) if price_position is not None else 0.5
+            )
         except (ValueError, TypeError):
             price_position = 0.5
         try:
@@ -703,7 +703,8 @@ class AdaptiveBuyCondition:
             }
 
         checks = {
-            "trend_up": trend_direction == "up" and trend_strength >= c.breakout_trend_strength_min,
+            "trend_up": trend_direction == "up"
+            and trend_strength >= c.breakout_trend_strength_min,
             "rsi": rsi < c.breakout_rsi_max,
             "bb_breakout": bb_position > c.breakout_bb_position_min,
             "momentum": recent_change > 0.005,
@@ -781,7 +782,9 @@ class AdaptiveBuyCondition:
         hourly_changes = market_data.get("hourly_changes", [])
 
         try:
-            price_position = float(price_position) if price_position is not None else 0.5
+            price_position = (
+                float(price_position) if price_position is not None else 0.5
+            )
         except (ValueError, TypeError):
             price_position = 0.5
         try:
