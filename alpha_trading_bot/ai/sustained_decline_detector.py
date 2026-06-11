@@ -371,27 +371,20 @@ class SustainedDeclineDetector:
         # 2. 分析下跌连续性
         consecutive_down = 0
         total_periods = len(hourly_changes)
-        down_periods = 0
+        recent_changes = list(reversed(hourly_changes[-min(12, total_periods) :]))
 
         # 从最近到最旧遍历，计算连续下跌
-        for change in hourly_changes[: min(12, len(hourly_changes))]:  # 最多取12个周期
+        for change in recent_changes:
             if change < -0.001:  # 下跌超过0.1%
                 consecutive_down += 1
-                down_periods += 1
             else:
                 break  # 遇到非下跌，停止连续计数
 
-        # 如果最近的不是下跌，从头开始计算连续下跌
-        if not hourly_changes or hourly_changes[0] >= -0.001:
-            consecutive_down = 0
-            for change in hourly_changes:
-                if change < -0.001:
-                    consecutive_down += 1
-                else:
-                    break
-
         # 计算下跌周期占比
-        down_ratio = down_periods / total_periods if total_periods > 0 else 0
+        down_periods = sum(1 for change in recent_changes if change < -0.001)
+        down_ratio = (
+            down_periods / len(recent_changes) if recent_changes else 0
+        )
 
         # 3. 反弹分析
         rebounds = [c for c in hourly_changes if c > 0.003]  # 超过0.3%视为反弹
