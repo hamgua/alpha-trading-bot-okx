@@ -288,6 +288,34 @@ class ExchangeClient:
             logger.error(f"[算法订单查询] 获取算法订单失败: {e}")
             return []
 
+    async def get_algo_order_history(
+        self, symbol: str, algo_id: str = "", limit: int = 20
+    ) -> list:
+        """获取算法订单历史（用于确认止损/止盈触发）。"""
+        try:
+            method = get_callable(
+                self.exchange,
+                "private_get_trade_orders_algo_history",
+                "privateGetTradeOrdersAlgoHistory",
+            )
+            if method is not None:
+                params = {
+                    "instId": okx_inst_id_from_symbol(symbol),
+                    "ordType": "conditional",
+                    "limit": str(limit),
+                }
+                if algo_id:
+                    params["algoId"] = algo_id
+                algo_orders = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: parse_okx_algo_orders(method(params), symbol)
+                )
+            else:
+                raise RuntimeError("OKX raw algo-order-history endpoint is unavailable")
+            return algo_orders
+        except Exception as e:
+            logger.error(f"[算法订单查询] 获取算法订单历史失败: {e}")
+            return []
+
     async def cleanup(self) -> None:
         """清理"""
         if self.exchange:

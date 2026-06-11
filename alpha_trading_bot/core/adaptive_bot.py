@@ -59,6 +59,10 @@ class AdaptiveTradingBot:
         )
         self._last_position_unrealized_pnl: float = 0.0
         self._last_close_was_profitable: bool = False
+        self._last_position_entry_price: float = 0.0
+        self._last_position_amount: float = 0.0
+        self._last_stop_order_id: str = ""
+        self._last_stop_price: float = 0.0
 
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
@@ -312,9 +316,13 @@ class AdaptiveTradingBot:
             if has_position:
                 self.position_manager.update_from_exchange(position_data)
                 entry_price = position_data.get("entry_price", 0)
-                self._last_position_side = position_side
-                self._last_position_unrealized_pnl = float(
-                    position_data.get("unrealized_pnl", 0) or 0
+                self._remember_position_close_audit_context(
+                    side=position_side,
+                    entry_price=entry_price,
+                    amount=position_data.get("amount", 0),
+                    unrealized_pnl=position_data.get("unrealized_pnl", 0),
+                    stop_order_id=self.position_manager.stop_order_id or "",
+                    stop_price=self.position_manager.last_stop_price,
                 )
                 if is_short_to_close:
                     logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
@@ -323,7 +331,7 @@ class AdaptiveTradingBot:
             else:
                 # 检测持仓消失（被止损触发了）
                 if self._last_position_side:
-                    self._record_position_disappeared()
+                    await self._record_position_disappeared()
                 logger.info("[持仓] 无持仓")
 
             # 8. 风险状态评估
@@ -456,7 +464,7 @@ class AdaptiveTradingBot:
         logger.info("[周期] 完成")
         logger.info("=" * 60)
 
-    def _record_position_disappeared(self) -> None:
+    async def _record_position_disappeared(self) -> None:
         """记录持仓消失后的方向和盈亏质量，用于同向再入场冷却。"""
         import time
 
@@ -464,12 +472,123 @@ class AdaptiveTradingBot:
         self._last_closed_side = self._last_position_side
         self._last_close_was_profitable = self._last_position_unrealized_pnl > 0
 
+        await self._log_disappeared_position_close_event()
+
         logger.info(
             f"[持仓] 无持仓 (上次方向={self._last_position_side}, "
             f"浮动盈亏={self._last_position_unrealized_pnl:.4f}, "
             f"盈利={self._last_close_was_profitable})，方向冷却已启动"
         )
         self._last_position_side = ""
+
+    def _remember_position_close_audit_context(
+        self,
+        side: str,
+        entry_price: Any,
+        amount: Any,
+        unrealized_pnl: Any = 0.0,
+        stop_order_id: str = "",
+        stop_price: Any = 0.0,
+    ) -> None:
+        """保存最近持仓上下文，供下一轮持仓消失审计使用。"""
+        self._last_position_side = side
+        self._last_position_entry_price = self._extract_float(entry_price)
+        self._last_position_amount = self._extract_float(amount)
+        self._last_position_unrealized_pnl = self._extract_float(unrealized_pnl)
+        self._last_stop_order_id = stop_order_id or ""
+        self._last_stop_price = self._extract_float(stop_price)
+
+    async def _log_disappeared_position_close_event(self) -> None:
+        """查询算法单历史并记录止损/止盈触发导致的平仓事件。"""
+        if self._exchange is None:
+            self._log_inferred_position_close_event("exchange_not_initialized")
+            return
+
+        symbol = getattr(self._exchange, "symbol", self.config.exchange.symbol)
+        history = []
+        if self._last_stop_order_id and hasattr(
+            self._exchange, "get_algo_order_history"
+        ):
+            try:
+                history = await self._exchange.get_algo_order_history(
+                    symbol, algo_id=self._last_stop_order_id, limit=20
+                )
+            except Exception as e:
+                logger.warning(f"[平仓审计] 查询算法单历史失败: {e}")
+
+        matched = self._find_close_algo_history(history)
+        if not matched:
+            self._log_inferred_position_close_event("algo_history_not_found")
+            return
+
+        info = matched.get("info", {})
+        close_type = "止盈" if info.get("tpTriggerPx") else "止损"
+        trigger_price = self._extract_float(
+            info.get("slTriggerPx") or info.get("tpTriggerPx") or self._last_stop_price
+        )
+        exit_price = self._extract_float(
+            info.get("actualPx")
+            or info.get("avgPx")
+            or info.get("triggerPx")
+            or trigger_price
+        )
+        amount = self._extract_float(info.get("sz"), self._last_position_amount)
+        pnl_percent = self._calculate_close_pnl_percent(exit_price)
+        trigger_time = info.get("triggerTime") or info.get("uTime") or info.get("cTime")
+
+        logger.info(
+            f"[平仓确认] {close_type}单触发平仓: "
+            f"side={self._last_position_side}, "
+            f"algoId={matched.get('id') or self._last_stop_order_id}, "
+            f"entry={self._last_position_entry_price}, "
+            f"{close_type}价={trigger_price}, exit={exit_price}, "
+            f"amount={amount}, pnl={pnl_percent:.2f}%, "
+            f"trigger_time={trigger_time or 'unknown'}"
+        )
+
+    def _find_close_algo_history(self, history: Any) -> Optional[Dict[str, Any]]:
+        """从算法单历史中找到最近一次止损/止盈触发记录。"""
+        if not isinstance(history, list):
+            return None
+        for order in history:
+            if not isinstance(order, dict):
+                continue
+            info = order.get("info", {})
+            algo_id = str(order.get("id") or info.get("algoId") or "")
+            if self._last_stop_order_id and algo_id != self._last_stop_order_id:
+                continue
+            if info.get("slTriggerPx") or info.get("tpTriggerPx"):
+                return order
+        return None
+
+    def _log_inferred_position_close_event(self, reason: str) -> None:
+        """算法单历史暂不可用时，至少记录一条可追踪的推断平仓日志。"""
+        logger.info(
+            f"[平仓推断] 持仓消失，疑似止损/止盈触发: "
+            f"side={self._last_position_side}, "
+            f"last_stop_algoId={self._last_stop_order_id or 'unknown'}, "
+            f"entry={self._last_position_entry_price}, "
+            f"last_stop={self._last_stop_price}, "
+            f"amount={self._last_position_amount}, "
+            f"last_unrealized_pnl={self._last_position_unrealized_pnl}, "
+            f"reason={reason}"
+        )
+
+    def _calculate_close_pnl_percent(self, exit_price: float) -> float:
+        """根据最后持仓上下文估算平仓收益率。"""
+        entry = self._last_position_entry_price
+        if entry <= 0 or exit_price <= 0:
+            return 0.0
+        if self._last_position_side == "short":
+            return (entry - exit_price) / entry * 100
+        return (exit_price - entry) / entry * 100
+
+    @staticmethod
+    def _extract_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
 
     def _get_direction_cooldown_seconds(
         self,
@@ -688,6 +807,11 @@ class AdaptiveTradingBot:
                 symbol=symbol,
                 side=position_side,
             )
+            self._remember_position_close_audit_context(
+                side=position_side,
+                entry_price=current_price,
+                amount=amount,
+            )
             logger.info(f"[执行] 开仓订单已提交: {order_id}")
 
             # 如果有止损价，设置止损单（带重试机制）
@@ -701,6 +825,13 @@ class AdaptiveTradingBot:
                 )
                 if stop_order_id:
                     self.position_manager.set_stop_order(stop_order_id, stop_loss_price)
+                    self._remember_position_close_audit_context(
+                        side=position_side,
+                        entry_price=current_price,
+                        amount=amount,
+                        stop_order_id=stop_order_id,
+                        stop_price=stop_loss_price,
+                    )
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
                 else:
                     logger.warning("[执行] 止损单创建失败")

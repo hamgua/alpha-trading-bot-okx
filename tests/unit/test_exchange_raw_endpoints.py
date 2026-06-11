@@ -319,3 +319,51 @@ async def test_exchange_client_uses_raw_open_order_queries(
         ("open", {"instId": "BTC-USDT-SWAP"}),
         ("algo", {"instId": "BTC-USDT-SWAP", "ordType": "conditional"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_uses_raw_algo_order_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.client import ExchangeClient
+
+    calls = []
+
+    class _Exchange:
+        def private_get_trade_orders_algo_history(self, params):
+            calls.append(params)
+            return {
+                "code": "0",
+                "data": [
+                    {
+                        "algoId": "algo-stop-1",
+                        "state": "effective",
+                        "ordType": "conditional",
+                        "side": "sell",
+                        "sz": "0.01",
+                        "slTriggerPx": "107680",
+                        "actualPx": "107675.2",
+                        "triggerTime": "1781179923000",
+                    }
+                ],
+            }
+
+    client = ExchangeClient(symbol="BTC/USDT:USDT")
+    client.exchange = _Exchange()
+
+    history = await client.get_algo_order_history(
+        "BTC/USDT:USDT", algo_id="algo-stop-1", limit=20
+    )
+
+    assert history[0]["id"] == "algo-stop-1"
+    assert history[0]["status"] == "closed"
+    assert history[0]["info"]["actualPx"] == "107675.2"
+    assert calls == [
+        {
+            "instId": "BTC-USDT-SWAP",
+            "ordType": "conditional",
+            "algoId": "algo-stop-1",
+            "limit": "20",
+        }
+    ]

@@ -1,6 +1,9 @@
 """AdaptiveTradingBot direction cooldown quality gates."""
 
-from unittest.mock import MagicMock
+import logging
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from alpha_trading_bot.config.models import Config, ExchangeConfig, TradingConfig
 from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
@@ -60,14 +63,100 @@ def test_high_risk_long_reentry_keeps_full_cooldown() -> None:
     )
 
 
-def test_records_profitable_close_when_position_disappears() -> None:
+def test_records_position_close_audit_context() -> None:
+    """开仓/轮询持仓时记录平仓审计所需上下文。"""
+    bot = _make_bot()
+
+    bot._remember_position_close_audit_context(
+        side="long",
+        entry_price=108250.0,
+        amount=0.01,
+        unrealized_pnl=-0.05,
+        stop_order_id="algo-stop-1",
+        stop_price=107680.0,
+    )
+
+    assert bot._last_position_side == "long"
+    assert bot._last_position_entry_price == 108250.0
+    assert bot._last_position_amount == 0.01
+    assert bot._last_position_unrealized_pnl == -0.05
+    assert bot._last_stop_order_id == "algo-stop-1"
+    assert bot._last_stop_price == 107680.0
+
+
+@pytest.mark.asyncio
+async def test_records_profitable_close_when_position_disappears() -> None:
     """持仓消失时记录上一笔是否盈利，用于再入场冷却。"""
     bot = _make_bot()
     bot._last_position_side = "long"
     bot._last_position_unrealized_pnl = 0.05
 
-    bot._record_position_disappeared()
+    await bot._record_position_disappeared()
 
     assert bot._last_closed_side == "long"
     assert bot._last_close_was_profitable is True
     assert bot._last_position_side == ""
+
+
+@pytest.mark.asyncio
+async def test_logs_stop_loss_close_when_position_disappears(caplog) -> None:
+    """持仓消失时查询算法单历史并记录止损触发平仓事件。"""
+    bot = _make_bot()
+    bot._exchange = MagicMock()
+    bot._exchange.symbol = "BTC/USDT:USDT"
+    bot._exchange.get_algo_order_history = AsyncMock(
+        return_value=[
+            {
+                "id": "algo-stop-1",
+                "status": "closed",
+                "info": {
+                    "algoId": "algo-stop-1",
+                    "state": "effective",
+                    "side": "sell",
+                    "sz": "0.01",
+                    "slTriggerPx": "107680",
+                    "actualPx": "107675.2",
+                    "triggerTime": "1781179923000",
+                },
+            }
+        ]
+    )
+    bot._last_position_side = "long"
+    bot._last_position_entry_price = 108250.0
+    bot._last_position_amount = 0.01
+    bot._last_position_unrealized_pnl = -0.05
+    bot._last_stop_order_id = "algo-stop-1"
+    bot._last_stop_price = 107680.0
+
+    with caplog.at_level(logging.INFO):
+        await bot._record_position_disappeared()
+
+    bot._exchange.get_algo_order_history.assert_awaited_once_with(
+        "BTC/USDT:USDT", algo_id="algo-stop-1", limit=20
+    )
+    assert "[平仓确认] 止损单触发平仓" in caplog.text
+    assert "algo-stop-1" in caplog.text
+    assert "exit=107675.2" in caplog.text
+    assert "pnl=-0.53%" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_logs_inferred_close_when_algo_history_missing(caplog) -> None:
+    """算法单历史暂未返回时也要留下平仓推断日志。"""
+    bot = _make_bot()
+    bot._exchange = MagicMock()
+    bot._exchange.symbol = "BTC/USDT:USDT"
+    bot._exchange.get_algo_order_history = AsyncMock(return_value=[])
+    bot._last_position_side = "short"
+    bot._last_position_entry_price = 108250.0
+    bot._last_position_amount = 0.01
+    bot._last_position_unrealized_pnl = 0.02
+    bot._last_stop_order_id = "algo-stop-2"
+    bot._last_stop_price = 108800.0
+
+    with caplog.at_level(logging.INFO):
+        await bot._record_position_disappeared()
+
+    assert "[平仓推断] 持仓消失" in caplog.text
+    assert "algo-stop-2" in caplog.text
+    assert "reason=algo_history_not_found" in caplog.text

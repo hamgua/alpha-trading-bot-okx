@@ -57,6 +57,7 @@ def okx_order_status(state: Optional[str]) -> OrderStatus:
         "live": OrderStatus.OPEN,
         "partially_filled": OrderStatus.OPEN,
         "filled": OrderStatus.CLOSED,
+        "effective": OrderStatus.CLOSED,
         "canceled": OrderStatus.CANCELED,
         "cancelled": OrderStatus.CANCELED,
         "mmp_canceled": OrderStatus.CANCELED,
