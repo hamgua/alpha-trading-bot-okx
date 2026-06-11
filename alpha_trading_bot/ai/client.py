@@ -107,7 +107,8 @@ class SignalCache:
     def get_stats(self) -> Dict[str, Any]:
         """获取缓存统计"""
         valid_count = sum(
-            1 for _, entry in self._cache.items()
+            1
+            for _, entry in self._cache.items()
             if time.time() - entry[1] < (entry[3] if len(entry) > 3 else self._ttl)
         )
         return {
@@ -282,6 +283,11 @@ class AIClient:
             original_signal=original_signal,
             original_confidence=confidence_float,
         )
+        market_data["ai_final_confidence"] = result.final_confidence
+        market_data["final_confidence"] = result.final_confidence
+        market_data["is_high_risk"] = result.is_high_risk
+        market_data["is_low_opportunity"] = result.is_low_opportunity
+        market_data["price_level"] = result.price_level
 
         # 记录集成过程
         if result.adjustments_made:
@@ -654,8 +660,7 @@ class AIClient:
                             if provider == "gemini":
                                 record_gemini_request(False)
                             raise ValueError(
-                                f"AI[{provider}]响应缺少choices字段: "
-                                f"{result}"
+                                f"AI[{provider}]响应缺少choices字段: " f"{result}"
                             )
                     message = result["choices"][0]["message"]
                     content = message.get("content", "") or ""
@@ -668,9 +673,7 @@ class AIClient:
                             "Thinking Mode可能因max_tokens不足导致最终答案被截断"
                         )
                         # 尝试从reasoning_content末尾提取信号决策
-                        extracted = self._extract_signal_from_reasoning(
-                            reasoning_text
-                        )
+                        extracted = self._extract_signal_from_reasoning(reasoning_text)
                         if extracted:
                             content = extracted
                             logger.info(

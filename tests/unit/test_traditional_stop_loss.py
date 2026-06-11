@@ -9,10 +9,14 @@ AdaptiveBot._update_stop_loss 传统ATR模式全路径测试
 5. 容差跳过 (price_diff < 0.2%)
 6. 做空传统ATR模式
 """
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from alpha_trading_bot.config.models import (
-    Config, ExchangeConfig, StopLossConfig, TradingConfig,
+    Config,
+    ExchangeConfig,
+    StopLossConfig,
+    TradingConfig,
 )
 
 
@@ -104,3 +108,27 @@ class TestTraditionalATRStopLoss:
         existing_id, stop_price = await bot._get_existing_stop_order_id()
         assert existing_id is None
         assert stop_price is None
+
+    @pytest.mark.asyncio
+    async def test_stop_update_aborts_when_old_algo_cancel_fails(self):
+        """更新止损时旧算法单取消失败，不应继续创建新止损单。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.position_manager.calculate_stop_price.return_value = 61600
+        bot._get_existing_stop_order_id = AsyncMock(return_value=("old-stop", 61450.0))
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(False, "failed"))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="new-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=61700,
+            position_data={"side": "long", "entry_price": 61000, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.01}},
+        )
+
+        bot._exchange.cancel_algo_order.assert_awaited_once_with(
+            "old-stop", "BTC/USDT:USDT"
+        )
+        bot._create_stop_loss_with_retry.assert_not_awaited()

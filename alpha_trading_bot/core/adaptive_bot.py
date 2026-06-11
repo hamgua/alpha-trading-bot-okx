@@ -54,7 +54,11 @@ class AdaptiveTradingBot:
         # === 方向冷却机制 ===
         self._last_position_side: str = ""  # 上一次的持仓方向
         self._position_close_time: float = 0  # 持仓被平仓的时间戳
-        self._last_closed_side: str = ""  # 上次被平仓的方向（long/short），用于区分方向冷却
+        self._last_closed_side: str = (
+            ""  # 上次被平仓的方向（long/short），用于区分方向冷却
+        )
+        self._last_position_unrealized_pnl: float = 0.0
+        self._last_close_was_profitable: bool = False
 
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
@@ -279,9 +283,7 @@ class AdaptiveTradingBot:
                     or {}
                 )
                 if not position_data_early.get("amount", 0) > 0:
-                    logger.info(
-                        "[信号评估] AI=HOLD + 无持仓，继续评估策略信号..."
-                    )
+                    logger.info("[信号评估] AI=HOLD + 无持仓，继续评估策略信号...")
 
             # 6. 策略选择（此时还没有持仓数据）
             selected = self.strategy_manager.analyze_and_select(
@@ -311,6 +313,9 @@ class AdaptiveTradingBot:
                 self.position_manager.update_from_exchange(position_data)
                 entry_price = position_data.get("entry_price", 0)
                 self._last_position_side = position_side
+                self._last_position_unrealized_pnl = float(
+                    position_data.get("unrealized_pnl", 0) or 0
+                )
                 if is_short_to_close:
                     logger.warning(f"[持仓] 检测到空单需平仓: {entry_price}")
                 else:
@@ -318,14 +323,7 @@ class AdaptiveTradingBot:
             else:
                 # 检测持仓消失（被止损触发了）
                 if self._last_position_side:
-                    import time
-                    self._position_close_time = time.time()
-                    self._last_closed_side = self._last_position_side  # 记录被平仓的方向
-                    logger.info(
-                        f"[持仓] 无持仓 (上次方向={self._last_position_side}), "
-                        f"方向冷却已启动"
-                    )
-                    self._last_position_side = ""
+                    self._record_position_disappeared()
                 logger.info("[持仓] 无持仓")
 
             # 8. 风险状态评估
@@ -359,14 +357,18 @@ class AdaptiveTradingBot:
             # 如果冷却期仍在，先检查最终信号方向后再决定是否跳过
             # 冷却计时在决策后检查，避免阻挡反方向开仓
             _in_cooldown = False
+            cool_down_elapsed = 0.0
             if not has_position and self._position_close_time > 0:
                 import time
+
                 cool_down_elapsed = time.time() - self._position_close_time
-                COOL_DOWN_SECONDS = 1800  # 30分钟冷却
-                _in_cooldown = cool_down_elapsed < COOL_DOWN_SECONDS
+                cooldown_seconds = self._get_direction_cooldown_seconds(
+                    {}, market_data, self._last_closed_side
+                )
+                _in_cooldown = cool_down_elapsed < cooldown_seconds
                 if _in_cooldown:
                     logger.info(
-                        f"[冷却] 方向冷却进行中 ({cool_down_elapsed:.0f}/{COOL_DOWN_SECONDS}s)"
+                        f"[冷却] 方向冷却进行中 ({cool_down_elapsed:.0f}/{cooldown_seconds}s)"
                         f"，上次平仓方向={self._last_closed_side}"
                     )
 
@@ -400,11 +402,22 @@ class AdaptiveTradingBot:
                 elif action == "sell" and self.config.trading.allow_short_selling:
                     this_side = "short"
                 if this_side and this_side == self._last_closed_side:
-                    logger.info(
-                        f"[冷却] 方向冷却中({this_side})，跳过{this_side}开仓"
+                    cooldown_seconds = self._get_direction_cooldown_seconds(
+                        final_signal, market_data, this_side
                     )
-                    final_signal = {"action": "skip",
-                                    "reason": f"方向冷却({this_side})"}
+                    if cool_down_elapsed >= cooldown_seconds:
+                        logger.info(
+                            f"[冷却] 高质量{this_side}再入场冷却已满足 "
+                            f"({cool_down_elapsed:.0f}/{cooldown_seconds}s)"
+                        )
+                    else:
+                        logger.info(
+                            f"[冷却] 方向冷却中({this_side})，跳过{this_side}开仓"
+                        )
+                        final_signal = {
+                            "action": "skip",
+                            "reason": f"方向冷却({this_side})",
+                        }
                 elif this_side and this_side != self._last_closed_side:
                     logger.info(
                         f"[冷却] 冷却方向={self._last_closed_side}，本次方向={this_side}，"
@@ -442,6 +455,54 @@ class AdaptiveTradingBot:
 
         logger.info("[周期] 完成")
         logger.info("=" * 60)
+
+    def _record_position_disappeared(self) -> None:
+        """记录持仓消失后的方向和盈亏质量，用于同向再入场冷却。"""
+        import time
+
+        self._position_close_time = time.time()
+        self._last_closed_side = self._last_position_side
+        self._last_close_was_profitable = self._last_position_unrealized_pnl > 0
+
+        logger.info(
+            f"[持仓] 无持仓 (上次方向={self._last_position_side}, "
+            f"浮动盈亏={self._last_position_unrealized_pnl:.4f}, "
+            f"盈利={self._last_close_was_profitable})，方向冷却已启动"
+        )
+        self._last_position_side = ""
+
+    def _get_direction_cooldown_seconds(
+        self,
+        final_signal: Dict[str, Any],
+        market_data: Dict[str, Any],
+        side: str,
+    ) -> int:
+        """按上一笔结果和本次机会质量计算同向冷却时间。"""
+        full_cooldown_seconds = 1800
+        short_cooldown_seconds = 300
+
+        if not self._last_close_was_profitable:
+            return full_cooldown_seconds
+
+        if not final_signal:
+            return full_cooldown_seconds
+
+        if side == "long" and bool(market_data.get("is_high_risk", False)):
+            return full_cooldown_seconds
+
+        confidence = final_signal.get("confidence", 0)
+        risk_reward_ratio = market_data.get("risk_reward_ratio", 0)
+        try:
+            confidence_value = float(confidence)
+            risk_reward_value = float(risk_reward_ratio)
+        except (TypeError, ValueError):
+            return full_cooldown_seconds
+
+        is_high_quality = confidence_value >= 0.70 and risk_reward_value >= 2.0
+        if is_high_quality:
+            return short_cooldown_seconds
+
+        return full_cooldown_seconds
 
     def _make_decision(
         self,
@@ -784,9 +845,7 @@ class AdaptiveTradingBot:
                 self.config.stop_loss.price_vs_entry_tolerance_percent
             )
             if entry_price > 0:
-                price_vs_entry_percent = (
-                    current_price - entry_price
-                ) / entry_price
+                price_vs_entry_percent = (current_price - entry_price) / entry_price
                 if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
                     logger.info(
                         f"[止损-智能] 当前价与建仓价差值"
@@ -800,9 +859,7 @@ class AdaptiveTradingBot:
                 initial_stop = entry_price * (
                     1 - self.config.stop_loss.stop_loss_percent
                 )
-                logger.info(
-                    f"[止损-智能] 首次创建，初始止损: {initial_stop:.1f}"
-                )
+                logger.info(f"[止损-智能] 首次创建，初始止损: {initial_stop:.1f}")
                 stop_order_id = await self._create_stop_loss_with_retry(
                     amount=amount,
                     stop_price=initial_stop,
@@ -828,15 +885,20 @@ class AdaptiveTradingBot:
                 return
 
             # 执行更新
-            logger.info(
-                f"[止损-智能] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}"
-            )
+            logger.info(f"[止损-智能] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}")
             try:
-                await self._exchange.cancel_algo_order(
+                cancel_success, cancel_reason = await self._exchange.cancel_algo_order(
                     str(existing_stop_id), self._exchange.symbol
                 )
+                if not cancel_success and cancel_reason != "already_gone":
+                    logger.warning(
+                        f"[止损-智能] 取消旧止损单失败: {existing_stop_id}, "
+                        f"原因={cancel_reason}，跳过创建新止损单"
+                    )
+                    return
             except Exception as e:
                 logger.warning(f"[止损-智能] 取消旧止损单失败: {e}")
+                return
 
             stop_order_id = await self._create_stop_loss_with_retry(
                 amount=amount,
@@ -846,9 +908,7 @@ class AdaptiveTradingBot:
                 max_retries=3,
             )
             if stop_order_id:
-                self.position_manager.set_stop_order(
-                    stop_order_id, new_stop_price
-                )
+                self.position_manager.set_stop_order(stop_order_id, new_stop_price)
                 logger.info(f"[止损-智能] 更新成功: {stop_order_id}")
             return
 
@@ -949,11 +1009,18 @@ class AdaptiveTradingBot:
         logger.info(f"[止损] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}")
 
         try:
-            await self._exchange.cancel_algo_order(
+            cancel_success, cancel_reason = await self._exchange.cancel_algo_order(
                 str(existing_stop_id), self._exchange.symbol
             )
+            if not cancel_success and cancel_reason != "already_gone":
+                logger.warning(
+                    f"[止损] 取消旧止损单失败: {existing_stop_id}, "
+                    f"原因={cancel_reason}，跳过创建新止损单"
+                )
+                return
         except Exception as e:
             logger.warning(f"[止损] 取消旧止损单失败: {e}")
+            return
 
         stop_order_id = await self._create_stop_loss_with_retry(
             amount=amount,

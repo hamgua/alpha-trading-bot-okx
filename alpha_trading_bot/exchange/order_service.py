@@ -313,6 +313,8 @@ class OrderService:
             "side": side,
             "ordType": "conditional",
             "sz": format_okx_number(amount),
+            "reduceOnly": "true",
+            "posSide": "long" if side == "sell" else "short",
         }
         for key, value in trigger_params.items():
             params[key] = "-1" if value == -1 else format_okx_number(value)

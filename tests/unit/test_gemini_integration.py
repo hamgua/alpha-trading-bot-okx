@@ -127,6 +127,44 @@ async def test_single_mode_routes_to_gemini(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_get_signal_exposes_integrated_risk_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AIClient.get_signal 应把集成后的风控元数据写回 market_data。"""
+    from types import SimpleNamespace
+
+    config = AIConfig(
+        mode="single", default_provider="gemini", api_keys={"gemini": "k"}
+    )
+    client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
+
+    async def fake_call(provider: str, market_data: dict, api_key: str) -> str:
+        return "buy | confidence: 70%"
+
+    def fake_process(market_data, original_signal, original_confidence):
+        return SimpleNamespace(
+            final_signal="BUY",
+            final_confidence=0.42,
+            is_high_risk=True,
+            price_level="high",
+            is_low_opportunity=False,
+            adjustments_made=["BTC检测: 高位风险"],
+        )
+
+    monkeypatch.setattr(client, "_call_ai_with_retry", fake_call)
+    monkeypatch.setattr(client.integrator, "process", fake_process)
+
+    market_data = {"technical": {"rsi": 61}}
+    signal = await client.get_signal(market_data)
+
+    assert signal == "BUY"
+    assert market_data["ai_final_confidence"] == pytest.approx(0.42)
+    assert market_data["final_confidence"] == pytest.approx(0.42)
+    assert market_data["is_high_risk"] is True
+    assert market_data["price_level"] == "high"
+
+
+@pytest.mark.asyncio
 async def test_fusion_all_failed_triggers_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

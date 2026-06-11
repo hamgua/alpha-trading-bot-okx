@@ -231,6 +231,8 @@ async def test_order_service_uses_raw_algo_order_endpoints(
             "side": "sell",
             "ordType": "conditional",
             "sz": "0.1",
+            "reduceOnly": "true",
+            "posSide": "long",
             "slTriggerPx": "61000",
             "slOrdPx": "-1",
         },
@@ -240,9 +242,47 @@ async def test_order_service_uses_raw_algo_order_endpoints(
             "side": "sell",
             "ordType": "conditional",
             "sz": "0.1",
+            "reduceOnly": "true",
+            "posSide": "long",
             "tpTriggerPx": "65000",
             "tpOrdPx": "-1",
         },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_order_service_sets_short_reduce_only_algo_params(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.order_service import OrderService
+
+    calls = []
+
+    class _Exchange:
+        def private_post_trade_order_algo(self, params):
+            calls.append(params)
+            return {"code": "0", "data": [{"algoId": "algo-short"}]}
+
+    service = OrderService(_Exchange(), "BTC/USDT:USDT")
+
+    stop = await service.create_stop_loss_with_status(
+        "BTC/USDT:USDT", "buy", 0.1, 63000
+    )
+
+    assert stop.order_id == "algo-short"
+    assert calls == [
+        {
+            "instId": "BTC-USDT-SWAP",
+            "tdMode": "cross",
+            "side": "buy",
+            "ordType": "conditional",
+            "sz": "0.1",
+            "reduceOnly": "true",
+            "posSide": "short",
+            "slTriggerPx": "63000",
+            "slOrdPx": "-1",
+        }
     ]
 
 
