@@ -45,12 +45,54 @@ class MarketDataService:
             method = getattr(self.exchange, "publicGetMarketTicker", None)
         return method if callable(method) else None
 
+    def _get_okx_candles_method(self):
+        method = getattr(self.exchange, "public_get_market_candles", None)
+        if method is None:
+            method = getattr(self.exchange, "publicGetMarketCandles", None)
+        return method if callable(method) else None
+
+    @staticmethod
+    def _okx_bar_from_timeframe(timeframe: str) -> str:
+        """将 ccxt timeframe 转换为 OKX candle bar。"""
+        timeframe_map = {
+            "1h": "1H",
+            "2h": "2H",
+            "4h": "4H",
+            "6h": "6H",
+            "12h": "12H",
+            "1d": "1D",
+            "1w": "1W",
+            "1M": "1M",
+        }
+        return timeframe_map.get(timeframe, timeframe)
+
     @staticmethod
     def _to_float(value: Any, default: float = 0.0) -> float:
         try:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _parse_okx_ohlcv(self, response: Dict[str, Any]) -> List[List[float]]:
+        if str(response.get("code", "0")) != "0":
+            raise RuntimeError(f"OKX candles failed: {response}")
+
+        candles = []
+        for raw in response.get("data") or []:
+            if len(raw) < 6:
+                continue
+            candles.append(
+                [
+                    int(self._to_float(raw[0])),
+                    self._to_float(raw[1]),
+                    self._to_float(raw[2]),
+                    self._to_float(raw[3]),
+                    self._to_float(raw[4]),
+                    self._to_float(raw[5]),
+                ]
+            )
+        candles.sort(key=lambda candle: candle[0])
+        return candles
 
     def _parse_okx_ticker(self, response: Dict[str, Any]) -> Dict[str, Any]:
         if str(response.get("code", "0")) != "0":
@@ -80,10 +122,23 @@ class MarketDataService:
     ) -> List[List[float]]:
         """获取K线数据"""
         try:
-            ohlcv = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self.exchange.fetch_ohlcv(self.symbol, timeframe, limit=limit),
-            )
+            method = self._get_okx_candles_method()
+            if method is not None:
+                params = {
+                    "instId": self._okx_inst_id_from_symbol(self.symbol),
+                    "bar": self._okx_bar_from_timeframe(timeframe),
+                    "limit": str(limit),
+                }
+                ohlcv = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self._parse_okx_ohlcv(method(params))
+                )
+            else:
+                ohlcv = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.exchange.fetch_ohlcv(
+                        self.symbol, timeframe, limit=limit
+                    ),
+                )
             return ohlcv
         except Exception as e:
             logger.error(f"获取K线数据失败: {e}")

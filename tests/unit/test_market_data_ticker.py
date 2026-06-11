@@ -68,3 +68,58 @@ async def test_get_ticker_falls_back_to_ccxt_when_raw_endpoint_is_unavailable() 
 
     assert calls == ["BTC/USDT:USDT"]
     assert ticker["last"] == 108000.5
+
+
+@pytest.mark.asyncio
+async def test_get_ohlcv_uses_okx_raw_endpoint_without_loading_markets() -> None:
+    _install_fake_ccxt()
+    from alpha_trading_bot.exchange.market_data import MarketDataService
+
+    calls = []
+
+    class _Exchange:
+        def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int):
+            raise AssertionError("ccxt fetch_ohlcv should not be called")
+
+        def public_get_market_candles(self, params):
+            calls.append(params)
+            return {
+                "code": "0",
+                "data": [
+                    [
+                        "1718064000000",
+                        "107000.0",
+                        "108500.0",
+                        "106800.0",
+                        "108000.5",
+                        "123.45",
+                    ]
+                ],
+            }
+
+    service = MarketDataService(_Exchange(), "BTC/USDT:USDT")
+
+    ohlcv = await service.get_ohlcv(timeframe="1h", limit=1)
+
+    assert calls == [{"instId": "BTC-USDT-SWAP", "bar": "1H", "limit": "1"}]
+    assert ohlcv == [[1718064000000, 107000.0, 108500.0, 106800.0, 108000.5, 123.45]]
+
+
+@pytest.mark.asyncio
+async def test_get_ohlcv_falls_back_to_ccxt_when_raw_endpoint_is_unavailable() -> None:
+    _install_fake_ccxt()
+    from alpha_trading_bot.exchange.market_data import MarketDataService
+
+    calls = []
+
+    class _Exchange:
+        def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int):
+            calls.append((symbol, timeframe, limit))
+            return [[1718064000000, 107000.0, 108500.0, 106800.0, 108000.5, 123.45]]
+
+    service = MarketDataService(_Exchange(), "BTC/USDT:USDT")
+
+    ohlcv = await service.get_ohlcv(timeframe="1h", limit=1)
+
+    assert calls == [("BTC/USDT:USDT", "1h", 1)]
+    assert ohlcv == [[1718064000000, 107000.0, 108500.0, 106800.0, 108000.5, 123.45]]

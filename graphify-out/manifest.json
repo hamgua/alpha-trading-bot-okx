@@ -28,8 +28,8 @@
     "hash": "bc4e69e9475cb8e2e92eb19f24264f28"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/market_data.py": {
-    "mtime": 1781160208.2439702,
-    "hash": "7e9a833144f90249227a0d4cf896cc74"
+    "mtime": 1781161102.021186,
+    "hash": "72afb9b5151d93b6fdfe2eabd753a707"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/models/__init__.py": {
     "mtime": 1774321626.5588813,
@@ -468,8 +468,8 @@
     "hash": "1f98948c06008d321943a02a3469164c"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_market_data_ticker.py": {
-    "mtime": 1781160193.7934628,
-    "hash": "a7ee055b72af827ffa0cc5940baf54db"
+    "mtime": 1781161064.3970892,
+    "hash": "32dfc518a85eaac1b533c2c3daa4b1c0"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_deepseek_response_parse.py": {
     "mtime": 1779698729.7878838,
