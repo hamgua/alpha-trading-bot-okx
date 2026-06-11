@@ -26,6 +26,55 @@ class MarketDataService:
             return False
         return True
 
+    @staticmethod
+    def _okx_inst_id_from_symbol(symbol: str) -> str:
+        """将 ccxt symbol 转换为 OKX instId。"""
+        normalized = symbol.strip()
+        if "/" not in normalized:
+            return normalized.replace("/", "-").replace(":", "-")
+
+        pair, _, contract_suffix = normalized.partition(":")
+        base, quote = pair.split("/", 1)
+        if contract_suffix:
+            return f"{base}-{quote}-SWAP"
+        return f"{base}-{quote}"
+
+    def _get_okx_ticker_method(self):
+        method = getattr(self.exchange, "public_get_market_ticker", None)
+        if method is None:
+            method = getattr(self.exchange, "publicGetMarketTicker", None)
+        return method if callable(method) else None
+
+    @staticmethod
+    def _to_float(value: Any, default: float = 0.0) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _parse_okx_ticker(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        if str(response.get("code", "0")) != "0":
+            raise RuntimeError(f"OKX ticker failed: {response}")
+
+        data = response.get("data") or []
+        if not data:
+            return {}
+
+        raw = data[0]
+        last = self._to_float(raw.get("last"))
+        open_24h = self._to_float(raw.get("open24h"))
+        percentage = ((last - open_24h) / open_24h * 100) if open_24h > 0 else 0.0
+
+        return {
+            "symbol": self.symbol,
+            "last": last,
+            "high": self._to_float(raw.get("high24h")),
+            "low": self._to_float(raw.get("low24h")),
+            "baseVolume": self._to_float(raw.get("volCcy24h")),
+            "percentage": percentage,
+            "info": raw,
+        }
+
     async def get_ohlcv(
         self, timeframe: str = "1h", limit: int = 100
     ) -> List[List[float]]:
@@ -43,9 +92,18 @@ class MarketDataService:
     async def get_ticker(self) -> Dict[str, Any]:
         """获取 ticker 数据"""
         try:
-            ticker = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.exchange.fetch_ticker(self.symbol)
-            )
+            method = self._get_okx_ticker_method()
+            if method is not None:
+                ticker = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self._parse_okx_ticker(
+                        method({"instId": self._okx_inst_id_from_symbol(self.symbol)})
+                    ),
+                )
+            else:
+                ticker = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self.exchange.fetch_ticker(self.symbol)
+                )
             if ticker and ticker.get("last", 0) > 0:
                 self._last_valid_ticker = ticker
             return ticker
@@ -159,7 +217,10 @@ class MarketDataService:
         return 0.0
 
     async def calculate_max_contracts(
-        self, price: float, leverage: int, get_balance_func,
+        self,
+        price: float,
+        leverage: int,
+        get_balance_func,
         max_position_usage: float = 0.30,
     ) -> float:
         """根据余额和杠杆计算最大可开合约数
