@@ -80,8 +80,8 @@
     "hash": "b5de52487d1b5ae955a257f52486b121"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/decision_engine.py": {
-    "mtime": 1781169008.2018232,
-    "hash": "8ff8848a09351d59be5d38e063c457fe"
+    "mtime": 1781504348.5379226,
+    "hash": "1cc1e1c0895f884eee4426cf86d3fa17"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_close_audit.py": {
     "mtime": 1781169008.2022135,
@@ -414,6 +414,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_control_manager.py": {
     "mtime": 1779253136.4783,
     "hash": "21f1bf19b3d87a8bb8404c9e09e33bde"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_hold_override.py": {
+    "mtime": 1781504333.7616787,
+    "hash": "7bea1258adba869078ed58a64802fb14"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_zero_behavior_golden.py": {
     "mtime": 1781169008.2258933,

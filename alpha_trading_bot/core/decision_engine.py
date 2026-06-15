@@ -51,6 +51,9 @@ HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 
+OVERSOLD_BUY_RSI_THRESHOLD = 30
+OVERSOLD_BUY_MIN_RR = 0.6
+
 # 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
 SHORT_RR_THRESHOLDS = {
     "conservative": RR_SHORT_CONSERVATIVE_MIN,
@@ -374,14 +377,43 @@ class DecisionEngine:
         market_structure = market_data.get("market_structure", "sideways")
         rr_ratio = market_data.get("risk_reward_ratio", 0)
         if (
+            selected.strategy_type == "mean_reversion"
+            and selected.signal.upper() == "BUY"
+            and rsi < OVERSOLD_BUY_RSI_THRESHOLD
+            and not has_position
+            and rr_ratio >= OVERSOLD_BUY_MIN_RR
+            and atr_percent < MAX_TRADE_ATR_PERCENT
+        ):
+            confidence_block = self._confidence_gate("long", selected, market_data)
+            if confidence_block:
+                return confidence_block
+            logger.info(
+                f"[决策] 均值回归超卖反弹(BUY)覆盖AI-HOLD, "
+                f"RSI={rsi:.1f}, R/R={rr_ratio:.2f}"
+            )
+            return {
+                "action": "open",
+                "reason": (
+                    f"均值回归超卖反弹覆盖AI-HOLD"
+                    f"(RSI={rsi:.1f}, R/R={rr_ratio:.2f})"
+                ),
+                "confidence": selected.confidence * 0.8,
+                "strategy": "mean_reversion_oversold_override",
+                "position_advice": "超卖反弹，建议轻仓",
+            }
+        relaxed_min_rr = max(OVERSOLD_BUY_MIN_RR, self._get_min_rr() * 0.6)
+        if (
             selected.signal.upper() == "BUY"
             and selected.confidence >= HOLD_STRATEGY_BUY_MIN_CONFIDENCE
             and market_structure != "bearish"
-            and rr_ratio >= self._get_min_rr()
+            and rr_ratio >= relaxed_min_rr
         ):
+            confidence_block = self._confidence_gate("long", selected, market_data)
+            if confidence_block:
+                return confidence_block
             logger.info(
                 f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                f"R/R={rr_ratio:.2f}"
+                f"R/R={rr_ratio:.2f}, 阈值={relaxed_min_rr:.2f}"
             )
             result = {
                 "action": "open",
@@ -394,18 +426,22 @@ class DecisionEngine:
             elif rr_ratio >= self._get_min_rr():
                 result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
             return result
+        relaxed_short_min_rr = max(0.5, self._get_short_min_rr())
         if (
             selected.signal.upper() == "SHORT"
             and selected.confidence >= HOLD_STRATEGY_SHORT_MIN_CONFIDENCE
             and not has_position
             and self._config.trading.allow_short_selling
-            and rr_ratio >= self._get_short_min_rr()
+            and rr_ratio >= relaxed_short_min_rr
             and atr_percent < MAX_TRADE_ATR_PERCENT
             and rsi > SHORT_RSI_OVERSOLD_BLOCK
         ):
+            confidence_block = self._confidence_gate("short", selected, market_data)
+            if confidence_block:
+                return confidence_block
             logger.info(
                 f"[决策] 策略SHORT(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                f"短R/R={rr_ratio:.2f}"
+                f"短R/R={rr_ratio:.2f}, 阈值={relaxed_short_min_rr:.2f}"
             )
             return {
                 "action": "sell",
