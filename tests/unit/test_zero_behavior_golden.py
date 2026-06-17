@@ -177,7 +177,7 @@ def test_order_service_raw_order_and_algo_params_are_stable() -> None:
             "ordType": "conditional",
             "sz": "0.01",
             "reduceOnly": "true",
-            "posSide": "long",
+            "posSide": "net",
             "slTriggerPx": "99950",
             "slOrdPx": "-1",
         }

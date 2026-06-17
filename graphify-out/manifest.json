@@ -16,8 +16,8 @@
     "hash": "cbcba3b51acaf40ee49b0a7d4b2ff712"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/order_service.py": {
-    "mtime": 1781163482.5522568,
-    "hash": "71dfb1183357ea34c2485117c4fd55a1"
+    "mtime": 1781692357.310448,
+    "hash": "ca72c3272cf804765f04d7096498bee1"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/client.py": {
     "mtime": 1781169008.2035577,
@@ -80,7 +80,7 @@
     "hash": "b5de52487d1b5ae955a257f52486b121"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/decision_engine.py": {
-    "mtime": 1781504348.5379226,
+    "mtime": 1781510860.1309109,
     "hash": "1cc1e1c0895f884eee4426cf86d3fa17"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_close_audit.py": {
@@ -404,8 +404,8 @@
     "hash": "aa33e342e5ac16f2ef370424f4cee5ce"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_exchange_raw_endpoints.py": {
-    "mtime": 1781164684.0034342,
-    "hash": "0af4fe17e7769946bf8f4ea83acf5ba8"
+    "mtime": 1781692953.7182624,
+    "hash": "6d52a644a141234e2ebb6412dc2f87dc"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_stop_loss_protection.py": {
     "mtime": 1779157556.281961,
@@ -416,12 +416,12 @@
     "hash": "21f1bf19b3d87a8bb8404c9e09e33bde"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_hold_override.py": {
-    "mtime": 1781504333.7616787,
+    "mtime": 1781510860.1464248,
     "hash": "7bea1258adba869078ed58a64802fb14"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_zero_behavior_golden.py": {
-    "mtime": 1781169008.2258933,
-    "hash": "79c2b1d7b3a68573e1b4754be752f314"
+    "mtime": 1781693000.0353496,
+    "hash": "d0957777a109ccfc7ab9495d22cb6824"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_tree_full.py": {
     "mtime": 1781164060.6293385,
@@ -474,6 +474,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_config_updater_weights.py": {
     "mtime": 1776841150.1108248,
     "hash": "88aafe75c821023b88c31174f16445a0"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_stop_loss_posside_fix.py": {
+    "mtime": 1781692754.8281555,
+    "hash": "ac84c45e1725c475154757d8fc17d608"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_ml_dynamic_weights.py": {
     "mtime": 1781094773.758899,

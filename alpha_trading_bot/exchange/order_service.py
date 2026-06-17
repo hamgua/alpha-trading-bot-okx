@@ -23,10 +23,75 @@ logger = logging.getLogger(__name__)
 class OrderService:
     """订单服务（带状态确认）"""
 
+    POS_MODE_ONEWAY = "net_mode"
+    POS_MODE_HEDGE = "long_short_mode"
+    POS_MODE_UNKNOWN = "unknown"
+
     def __init__(self, exchange, symbol: str):
         self.exchange = exchange
         self.symbol = symbol
         self._stop_orders: Dict[str, str] = {}
+        self._pos_mode: str = self.POS_MODE_UNKNOWN
+        self._pos_mode_detected: bool = False
+
+    def _detect_pos_mode(self) -> str:
+        """查询 OKX 账户配置，识别持仓模式（one-way / hedge）。
+
+        OKX API: GET /api/v5/account/config
+        返回字段: posMode (long_short_mode | net_mode)
+
+        检测失败时 fallback 到 one-way（posSide="net"），原因是 OKX 账户默认是
+        单向持仓，且 "net" 是兼容性最强的取值。
+        """
+        if self._pos_mode_detected:
+            return self._pos_mode
+        try:
+            method = get_callable(
+                self.exchange,
+                "private_get_account_config",
+                "privateGetAccountConfig",
+            )
+            if method is None:
+                logger.warning(
+                    "[posMode] OKX 账户配置接口不可用，默认 one-way (posSide=net)"
+                )
+                self._pos_mode = self.POS_MODE_ONEWAY
+            else:
+                response = method()
+                ensure_okx_success(response, "account config")
+                raw = first_data(response) or {}
+                pos_mode = raw.get("posMode", self.POS_MODE_ONEWAY)
+                self._pos_mode = pos_mode
+                logger.info(f"[posMode] OKX 账户持仓模式: {pos_mode}")
+        except Exception as e:
+            logger.warning(
+                f"[posMode] 检测失败，fallback 到 one-way (posSide=net): {e}"
+            )
+            self._pos_mode = self.POS_MODE_ONEWAY
+        finally:
+            self._pos_mode_detected = True
+        return self._pos_mode
+
+    def _resolve_pos_side(self, side: str) -> str:
+        """根据持仓模式生成正确的 posSide。
+
+        Args:
+            side: 订单方向（buy/sell）
+
+        Returns:
+            OKX 接受的 posSide:
+              - one-way 模式: "net"
+              - hedge 模式:   "long"（平多仓）或 "short"（平空仓）
+        """
+        pos_mode = self._detect_pos_mode()
+        if pos_mode == self.POS_MODE_HEDGE:
+            return "long" if side == "sell" else "short"
+        return "net"
+
+    def reset_pos_mode_cache(self) -> None:
+        """重置 posMode 缓存（用于测试或模式切换后）。"""
+        self._pos_mode = self.POS_MODE_UNKNOWN
+        self._pos_mode_detected = False
 
     async def create_order(
         self,
@@ -307,6 +372,7 @@ class OrderService:
         trigger_params: Dict[str, float],
     ) -> Dict[str, Any]:
         """绕过 ccxt load_markets，直接调用 OKX 算法单接口。"""
+        pos_side = self._resolve_pos_side(side)
         params = {
             "instId": okx_inst_id_from_symbol(symbol),
             "tdMode": "cross",
@@ -314,7 +380,7 @@ class OrderService:
             "ordType": "conditional",
             "sz": format_okx_number(amount),
             "reduceOnly": "true",
-            "posSide": "long" if side == "sell" else "short",
+            "posSide": pos_side,
         }
         for key, value in trigger_params.items():
             params[key] = "-1" if value == -1 else format_okx_number(value)
