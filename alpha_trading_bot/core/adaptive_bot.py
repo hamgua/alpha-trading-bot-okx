@@ -947,6 +947,20 @@ class AdaptiveTradingBot:
         if self.config.stop_loss.stop_loss_entry_based and position_side == "long":
             new_stop_price = self.position_manager.calculate_stop_price(current_price)
 
+            # P1 (2026-06-17 fix-sl-trigger-price): OKX 51280 防护
+            # 智能止损价基于建仓价计算，在市价大幅下跌时仍可能 ≥ 当前价，
+            # 违反 OKX 规则（LONG 止损 = sell 单，触发价必须 < 当前价）。
+            # 此处一次性校正，避免交给重试机制处理。
+            if current_price > 0 and new_stop_price >= current_price:
+                safety_margin = max(current_price * 0.001, 1.0)
+                safe_stop_price = current_price - safety_margin
+                logger.warning(
+                    f"[止损-智能] 智能止损价 {new_stop_price:.1f} >= "
+                    f"当前价 {current_price:.1f}，"
+                    f"调整为安全止损价 {safe_stop_price:.1f}"
+                )
+                new_stop_price = safe_stop_price
+
             # 检查当前价与建仓价的容错
             price_vs_entry_tolerance = (
                 self.config.stop_loss.price_vs_entry_tolerance_percent
@@ -966,6 +980,14 @@ class AdaptiveTradingBot:
                 initial_stop = entry_price * (
                     1 - self.config.stop_loss.stop_loss_percent
                 )
+                # 再次校验：首次创建的初始止损价也必须 < 当前价
+                if current_price > 0 and initial_stop >= current_price:
+                    safety_margin = max(current_price * 0.001, 1.0)
+                    initial_stop = current_price - safety_margin
+                    logger.warning(
+                        f"[止损-智能] 首次创建初始止损价 >= 当前价，"
+                        f"调整为安全止损价 {initial_stop:.1f}"
+                    )
                 logger.info(f"[止损-智能] 首次创建，初始止损: {initial_stop:.1f}")
                 stop_order_id = await self._create_stop_loss_with_retry(
                     amount=amount,
