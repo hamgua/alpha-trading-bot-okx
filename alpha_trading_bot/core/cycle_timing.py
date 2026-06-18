@@ -44,9 +44,10 @@ def calculate_cycle_timing(
     wait_seconds = (next_time - now).total_seconds()
 
     if wait_seconds < min_wait:
-        next_time = base_time + timedelta(seconds=min_wait)
-        wait_seconds = min_wait
-        random_offset = min_wait - seconds_to_next
+        clamped_offset = min(offset_range, min_wait - seconds_to_next)
+        random_offset = clamped_offset
+        next_time = base_time + timedelta(seconds=clamped_offset)
+        wait_seconds = (next_time - now).total_seconds()
 
     return CycleTiming(
         next_time=next_time,
