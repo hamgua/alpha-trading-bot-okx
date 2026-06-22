@@ -79,6 +79,14 @@ class DecisionEngine:
             "ai_hold_strategy_buy_executed": 0,
             "market_structure_short_executed": 0,
         }
+        self._oversold_metrics: Dict[str, int] = {
+            "oversold_signal_total": 0,
+            "oversold_signal_executed": 0,
+            "oversold_signal_blocked_position": 0,
+            "oversold_signal_blocked_rr": 0,
+            "oversold_signal_blocked_atr": 0,
+            "oversold_signal_blocked_confidence": 0,
+        }
         logger.info(
             f"[决策引擎] 投资类型={self._investment_type}, "
             f"R/R最低阈值={self._min_rr}"
@@ -87,6 +95,10 @@ class DecisionEngine:
     def get_conflict_metrics(self) -> Dict[str, int]:
         """返回 AI/策略冲突相关的决策指标快照。"""
         return dict(self._conflict_metrics)
+
+    def get_oversold_metrics(self) -> Dict[str, int]:
+        """返回均值回归超卖信号相关的指标快照。"""
+        return dict(self._oversold_metrics)
 
     def _detect_investment_type(self) -> str:
         """检测投资类型（从环境变量读取）"""
@@ -387,6 +399,16 @@ class DecisionEngine:
 
         market_structure = market_data.get("market_structure", "sideways")
         rr_ratio = market_data.get("risk_reward_ratio", 0)
+        if selected.strategy_type == "mean_reversion" and selected.signal.upper() == "BUY":
+            self._oversold_metrics["oversold_signal_total"] += 1
+            if has_position:
+                self._oversold_metrics["oversold_signal_blocked_position"] += 1
+            elif rsi >= OVERSOLD_BUY_RSI_THRESHOLD:
+                pass
+            elif rr_ratio < OVERSOLD_BUY_MIN_RR:
+                self._oversold_metrics["oversold_signal_blocked_rr"] += 1
+            elif atr_percent >= MAX_TRADE_ATR_PERCENT:
+                self._oversold_metrics["oversold_signal_blocked_atr"] += 1
         if (
             selected.strategy_type == "mean_reversion"
             and selected.signal.upper() == "BUY"
@@ -397,12 +419,14 @@ class DecisionEngine:
         ):
             confidence_block = self._confidence_gate("long", selected, market_data)
             if confidence_block:
+                self._oversold_metrics["oversold_signal_blocked_confidence"] += 1
                 return confidence_block
             logger.info(
                 f"[决策] 均值回归超卖反弹(BUY)覆盖AI-HOLD, "
                 f"RSI={rsi:.1f}, R/R={rr_ratio:.2f}"
             )
             self._conflict_metrics["ai_hold_oversold_buy_executed"] += 1
+            self._oversold_metrics["oversold_signal_executed"] += 1
             return {
                 "action": "open",
                 "reason": (

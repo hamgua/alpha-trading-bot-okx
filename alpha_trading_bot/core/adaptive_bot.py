@@ -69,6 +69,15 @@ class AdaptiveTradingBot:
             self._position_close_audit_context
         )
 
+        # === 方向冷却指标 ===
+        self._cooldown_metrics: Dict[str, int] = {
+            "cooldown_triggered_skip": 0,        # 方向冷却期内同向开仓被跳过
+            "cooldown_high_quality_reentry": 0,  # 高质量信号短冷却再入场
+            "cooldown_allow_opposite": 0,        # 反方向开仓被允许
+            "cooldown_full_cooldown": 0,         # 完整冷却时间（1800s）返回
+            "cooldown_short_cooldown": 0,        # 短冷却时间（300s）返回
+        }
+
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
 
@@ -412,6 +421,7 @@ class AdaptiveTradingBot:
                 )
                 _in_cooldown = cool_down_elapsed < cooldown_seconds
                 if _in_cooldown:
+                    self._cooldown_metrics["cooldown_triggered_skip"] += 1
                     logger.info(
                         f"[冷却] 方向冷却进行中 ({cool_down_elapsed:.0f}/{cooldown_seconds}s)"
                         f"，上次平仓方向={self._last_closed_side}"
@@ -451,11 +461,13 @@ class AdaptiveTradingBot:
                         final_signal, market_data, this_side
                     )
                     if cool_down_elapsed >= cooldown_seconds:
+                        self._cooldown_metrics["cooldown_high_quality_reentry"] += 1
                         logger.info(
                             f"[冷却] 高质量{this_side}再入场冷却已满足 "
                             f"({cool_down_elapsed:.0f}/{cooldown_seconds}s)"
                         )
                     else:
+                        self._cooldown_metrics["cooldown_triggered_skip"] += 1
                         logger.info(
                             f"[冷却] 方向冷却中({this_side})，跳过{this_side}开仓"
                         )
@@ -464,6 +476,7 @@ class AdaptiveTradingBot:
                             "reason": f"方向冷却({this_side})",
                         }
                 elif this_side and this_side != self._last_closed_side:
+                    self._cooldown_metrics["cooldown_allow_opposite"] += 1
                     logger.info(
                         f"[冷却] 冷却方向={self._last_closed_side}，本次方向={this_side}，"
                         f"允许反方向开仓"
@@ -562,6 +575,10 @@ class AdaptiveTradingBot:
         """根据最后持仓上下文估算平仓收益率。"""
         return self._position_close_auditor.calculate_close_pnl_percent(exit_price)
 
+    def get_cooldown_metrics(self) -> Dict[str, int]:
+        """返回方向冷却相关的决策指标快照。"""
+        return dict(self._cooldown_metrics)
+
     @staticmethod
     def _extract_float(value: Any, default: float = 0.0) -> float:
         return extract_float(value, default)
@@ -577,12 +594,15 @@ class AdaptiveTradingBot:
         short_cooldown_seconds = 300
 
         if not self._last_close_was_profitable:
+            self._cooldown_metrics["cooldown_full_cooldown"] += 1
             return full_cooldown_seconds
 
         if not final_signal:
+            self._cooldown_metrics["cooldown_full_cooldown"] += 1
             return full_cooldown_seconds
 
         if side == "long" and bool(market_data.get("is_high_risk", False)):
+            self._cooldown_metrics["cooldown_full_cooldown"] += 1
             return full_cooldown_seconds
 
         confidence = final_signal.get("confidence", 0)
@@ -591,12 +611,15 @@ class AdaptiveTradingBot:
             confidence_value = float(confidence)
             risk_reward_value = float(risk_reward_ratio)
         except (TypeError, ValueError):
+            self._cooldown_metrics["cooldown_full_cooldown"] += 1
             return full_cooldown_seconds
 
         is_high_quality = confidence_value >= 0.70 and risk_reward_value >= 2.0
         if is_high_quality:
+            self._cooldown_metrics["cooldown_short_cooldown"] += 1
             return short_cooldown_seconds
 
+        self._cooldown_metrics["cooldown_full_cooldown"] += 1
         return full_cooldown_seconds
 
     def _make_decision(

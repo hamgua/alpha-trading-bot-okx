@@ -522,3 +522,241 @@ class TestDecisionEngineConflictMetrics:
         assert metrics["ai_hold_oversold_buy_executed"] == 1
         assert metrics["ai_hold_strategy_buy_executed"] == 3
         assert metrics["market_structure_short_executed"] == 1
+
+
+class TestDecisionEngineOversoldMetrics:
+    """2026-06-22-2 任务：决策引擎均值回归超卖信号独立指标"""
+
+    @staticmethod
+    def _make_engine():
+        from alpha_trading_bot.core.decision_engine import DecisionEngine
+
+        class FakeConfig:
+            class trading:
+                allow_short_selling = False
+
+            class ai:
+                fusion_threshold = 0.5
+
+        return DecisionEngine(FakeConfig())
+
+    def test_oversold_metrics_initialized_with_zero(self):
+        """超卖指标初始化为 0"""
+        engine = self._make_engine()
+        metrics = engine.get_oversold_metrics()
+        assert metrics["oversold_signal_total"] == 0
+        assert metrics["oversold_signal_executed"] == 0
+        assert metrics["oversold_signal_blocked_position"] == 0
+        assert metrics["oversold_signal_blocked_rr"] == 0
+        assert metrics["oversold_signal_blocked_atr"] == 0
+        assert metrics["oversold_signal_blocked_confidence"] == 0
+
+    def test_oversold_metrics_returns_copy(self):
+        """get_oversold_metrics 返回副本"""
+        engine = self._make_engine()
+        snapshot = engine.get_oversold_metrics()
+        snapshot["oversold_signal_total"] = 999
+        assert engine.get_oversold_metrics()["oversold_signal_total"] == 0
+
+    def test_oversold_signal_total_counter(self):
+        """总触发计数自增"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_total"] += 4
+        assert engine.get_oversold_metrics()["oversold_signal_total"] == 4
+
+    def test_oversold_signal_blocked_position_counter(self):
+        """有持仓阻断计数"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_blocked_position"] += 1
+        assert engine.get_oversold_metrics()["oversold_signal_blocked_position"] == 1
+
+    def test_oversold_signal_blocked_rr_counter(self):
+        """R/R 不足阻断计数"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_blocked_rr"] += 3
+        assert engine.get_oversold_metrics()["oversold_signal_blocked_rr"] == 3
+
+    def test_oversold_signal_blocked_atr_counter(self):
+        """高 ATR 阻断计数"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_blocked_atr"] += 2
+        assert engine.get_oversold_metrics()["oversold_signal_blocked_atr"] == 2
+
+    def test_oversold_signal_blocked_confidence_counter(self):
+        """置信度不足阻断计数"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_blocked_confidence"] += 1
+        assert (
+            engine.get_oversold_metrics()["oversold_signal_blocked_confidence"] == 1
+        )
+
+    def test_oversold_signal_executed_counter(self):
+        """实际执行计数"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_executed"] += 2
+        assert engine.get_oversold_metrics()["oversold_signal_executed"] == 2
+
+    def test_all_oversold_counters_independent(self):
+        """全部超卖计数器独立"""
+        engine = self._make_engine()
+        engine._oversold_metrics["oversold_signal_total"] += 10
+        engine._oversold_metrics["oversold_signal_executed"] += 2
+        engine._oversold_metrics["oversold_signal_blocked_position"] += 1
+        engine._oversold_metrics["oversold_signal_blocked_rr"] += 5
+        engine._oversold_metrics["oversold_signal_blocked_atr"] += 1
+        engine._oversold_metrics["oversold_signal_blocked_confidence"] += 1
+
+        metrics = engine.get_oversold_metrics()
+        assert metrics["oversold_signal_total"] == 10
+        assert metrics["oversold_signal_executed"] == 2
+        assert metrics["oversold_signal_blocked_position"] == 1
+        assert metrics["oversold_signal_blocked_rr"] == 5
+        assert metrics["oversold_signal_blocked_atr"] == 1
+        assert metrics["oversold_signal_blocked_confidence"] == 1
+
+
+class TestAdaptiveBotCooldownMetrics:
+    """2026-06-22-2 任务：AdaptiveBot 方向冷却指标"""
+
+    def test_cooldown_metrics_initialized_with_zero(self):
+        """冷却指标初始化为 0"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        metrics = bot.get_cooldown_metrics()
+        assert metrics["cooldown_triggered_skip"] == 0
+        assert metrics["cooldown_high_quality_reentry"] == 0
+        assert metrics["cooldown_allow_opposite"] == 0
+        assert metrics["cooldown_full_cooldown"] == 0
+        assert metrics["cooldown_short_cooldown"] == 0
+
+    def test_cooldown_metrics_returns_copy(self):
+        """get_cooldown_metrics 返回副本"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        snapshot = bot.get_cooldown_metrics()
+        snapshot["cooldown_triggered_skip"] = 999
+        assert bot.get_cooldown_metrics()["cooldown_triggered_skip"] == 0
+
+    def test_cooldown_triggered_skip_counter(self):
+        """冷却触发跳过计数"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_triggered_skip"] += 3
+        assert bot.get_cooldown_metrics()["cooldown_triggered_skip"] == 3
+
+    def test_cooldown_high_quality_reentry_counter(self):
+        """高质量再入场计数"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_high_quality_reentry"] += 1
+        assert bot.get_cooldown_metrics()["cooldown_high_quality_reentry"] == 1
+
+    def test_cooldown_allow_opposite_counter(self):
+        """反方向开仓允许计数"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_allow_opposite"] += 2
+        assert bot.get_cooldown_metrics()["cooldown_allow_opposite"] == 2
+
+    def test_cooldown_full_cooldown_counter(self):
+        """完整冷却返回计数"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_full_cooldown"] += 5
+        assert bot.get_cooldown_metrics()["cooldown_full_cooldown"] == 5
+
+    def test_cooldown_short_cooldown_counter(self):
+        """短冷却返回计数"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_short_cooldown"] += 1
+        assert bot.get_cooldown_metrics()["cooldown_short_cooldown"] == 1
+
+    def test_all_cooldown_counters_independent(self):
+        """全部冷却计数器独立"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        bot._cooldown_metrics["cooldown_triggered_skip"] += 4
+        bot._cooldown_metrics["cooldown_high_quality_reentry"] += 1
+        bot._cooldown_metrics["cooldown_allow_opposite"] += 1
+        bot._cooldown_metrics["cooldown_full_cooldown"] += 6
+        bot._cooldown_metrics["cooldown_short_cooldown"] += 1
+
+        metrics = bot.get_cooldown_metrics()
+        assert metrics["cooldown_triggered_skip"] == 4
+        assert metrics["cooldown_high_quality_reentry"] == 1
+        assert metrics["cooldown_allow_opposite"] == 1
+        assert metrics["cooldown_full_cooldown"] == 6
+        assert metrics["cooldown_short_cooldown"] == 1
