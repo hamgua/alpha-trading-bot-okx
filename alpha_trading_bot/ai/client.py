@@ -193,6 +193,12 @@ class AIClient:
             )
         )
 
+        self._metrics: Dict[str, int] = {
+            "max_tokens_truncated": 0,
+            "reasoning_fallback_hits": 0,
+            "reasoning_fallback_misses": 0,
+        }
+
     def _get_normalized_fusion_weights(self) -> Dict[str, float]:
         """返回融合提供商完整且归一化的权重。"""
         providers = self.config.fusion_providers or ["deepseek", "kimi"]
@@ -668,6 +674,7 @@ class AIClient:
                     # 推理内容在 reasoning_content 中
                     if not content.strip() and message.get("reasoning_content"):
                         reasoning_text = message.get("reasoning_content", "")
+                        self._metrics["max_tokens_truncated"] += 1
                         logger.warning(
                             f"AI[{provider}] content为空但存在reasoning_content，"
                             "Thinking Mode可能因max_tokens不足导致最终答案被截断"
@@ -676,11 +683,13 @@ class AIClient:
                         extracted = self._extract_signal_from_reasoning(reasoning_text)
                         if extracted:
                             content = extracted
+                            self._metrics["reasoning_fallback_hits"] += 1
                             logger.info(
                                 f"AI[{provider}] 从reasoning_content提取到信号文本: "
                                 f"{content[:100]}"
                             )
                         else:
+                            self._metrics["reasoning_fallback_misses"] += 1
                             logger.warning(
                                 f"AI[{provider}] reasoning_content中也无法提取信号，"
                                 "将触发重试"
@@ -749,6 +758,10 @@ class AIClient:
                 return f"{signal} confidence:70%"
 
         return ""
+
+    def get_metrics(self) -> Dict[str, int]:
+        """返回当前累计的监控指标快照（用于诊断和报告）。"""
+        return dict(self._metrics)
 
 
 async def get_signal(market_data: Dict[str, Any], mode: str = "single") -> str:

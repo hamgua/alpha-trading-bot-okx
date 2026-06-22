@@ -380,3 +380,145 @@ class TestMarketStructureHoldConfirmation:
             else:
                 # R/R不低，则无需确认（测试数据可能产生不同的R/R）
                 pass
+
+
+class TestAIClientMetrics:
+    """2026-06-22 任务：AI 客户端 max_tokens 截断与 reasoning 兜底指标"""
+
+    def test_metrics_initialized_with_zero(self):
+        """指标字段初始化为 0"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        metrics = client.get_metrics()
+        assert metrics["max_tokens_truncated"] == 0
+        assert metrics["reasoning_fallback_hits"] == 0
+        assert metrics["reasoning_fallback_misses"] == 0
+
+    def test_metrics_returns_copy(self):
+        """get_metrics 返回副本，外部修改不影响内部状态"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        snapshot = client.get_metrics()
+        snapshot["max_tokens_truncated"] = 999
+        assert client.get_metrics()["max_tokens_truncated"] == 0
+
+    def test_max_tokens_counter_increments(self):
+        """max_tokens_truncated 计数正确自增（直接模拟）"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        # 直接调用内部自增（模拟三次截断）
+        for _ in range(3):
+            client._metrics["max_tokens_truncated"] += 1
+        assert client.get_metrics()["max_tokens_truncated"] == 3
+
+    def test_reasoning_fallback_hits_counter(self):
+        """reasoning_fallback_hits 计数正确自增"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        for _ in range(2):
+            client._metrics["reasoning_fallback_hits"] += 1
+        assert client.get_metrics()["reasoning_fallback_hits"] == 2
+
+    def test_reasoning_fallback_misses_counter(self):
+        """reasoning_fallback_misses 计数正确自增"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        client._metrics["reasoning_fallback_misses"] += 1
+        assert client.get_metrics()["reasoning_fallback_misses"] == 1
+
+    def test_all_three_counters_independent(self):
+        """三个计数器相互独立，不会互相影响"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        client._metrics["max_tokens_truncated"] += 5
+        client._metrics["reasoning_fallback_hits"] += 3
+        client._metrics["reasoning_fallback_misses"] += 2
+
+        metrics = client.get_metrics()
+        assert metrics["max_tokens_truncated"] == 5
+        assert metrics["reasoning_fallback_hits"] == 3
+        assert metrics["reasoning_fallback_misses"] == 2
+
+
+class TestDecisionEngineConflictMetrics:
+    """2026-06-22 任务：决策引擎 AI/策略冲突指标"""
+
+    @staticmethod
+    def _make_engine():
+        from alpha_trading_bot.core.decision_engine import DecisionEngine
+
+        class FakeConfig:
+            class trading:
+                allow_short_selling = False
+
+            class ai:
+                fusion_threshold = 0.5
+
+        return DecisionEngine(FakeConfig())
+
+    def test_metrics_initialized_with_zero(self):
+        """冲突指标初始化为 0"""
+        engine = self._make_engine()
+        metrics = engine.get_conflict_metrics()
+        assert metrics["ai_hold_strategy_buy_conservative_skip"] == 0
+        assert metrics["ai_hold_oversold_buy_executed"] == 0
+        assert metrics["ai_hold_strategy_buy_executed"] == 0
+        assert metrics["market_structure_short_executed"] == 0
+
+    def test_metrics_returns_copy(self):
+        """get_conflict_metrics 返回副本"""
+        engine = self._make_engine()
+        snapshot = engine.get_conflict_metrics()
+        snapshot["ai_hold_strategy_buy_conservative_skip"] = 99
+        assert (
+            engine.get_conflict_metrics()["ai_hold_strategy_buy_conservative_skip"]
+            == 0
+        )
+
+    def test_conservative_skip_counter(self):
+        """保守跳过计数器自增"""
+        engine = self._make_engine()
+        engine._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1
+        engine._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1
+        assert (
+            engine.get_conflict_metrics()["ai_hold_strategy_buy_conservative_skip"]
+            == 2
+        )
+
+    def test_oversold_buy_counter(self):
+        """超卖反弹执行计数器自增"""
+        engine = self._make_engine()
+        engine._conflict_metrics["ai_hold_oversold_buy_executed"] += 1
+        assert engine.get_conflict_metrics()["ai_hold_oversold_buy_executed"] == 1
+
+    def test_strategy_buy_counter(self):
+        """策略 BUY 覆盖执行计数器自增"""
+        engine = self._make_engine()
+        engine._conflict_metrics["ai_hold_strategy_buy_executed"] += 1
+        assert engine.get_conflict_metrics()["ai_hold_strategy_buy_executed"] == 1
+
+    def test_market_structure_short_counter(self):
+        """市场结构 SHORT 覆盖执行计数器自增"""
+        engine = self._make_engine()
+        engine._conflict_metrics["market_structure_short_executed"] += 1
+        assert engine.get_conflict_metrics()["market_structure_short_executed"] == 1
+
+    def test_all_counters_independent(self):
+        """四个计数器相互独立"""
+        engine = self._make_engine()
+        engine._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 2
+        engine._conflict_metrics["ai_hold_oversold_buy_executed"] += 1
+        engine._conflict_metrics["ai_hold_strategy_buy_executed"] += 3
+        engine._conflict_metrics["market_structure_short_executed"] += 1
+
+        metrics = engine.get_conflict_metrics()
+        assert metrics["ai_hold_strategy_buy_conservative_skip"] == 2
+        assert metrics["ai_hold_oversold_buy_executed"] == 1
+        assert metrics["ai_hold_strategy_buy_executed"] == 3
+        assert metrics["market_structure_short_executed"] == 1

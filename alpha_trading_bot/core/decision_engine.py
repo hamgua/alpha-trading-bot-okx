@@ -73,10 +73,20 @@ class DecisionEngine:
         self._min_rr = INVESTMENT_RR_THRESHOLDS.get(
             self._investment_type, DEFAULT_RR_THRESHOLD
         )
+        self._conflict_metrics: Dict[str, int] = {
+            "ai_hold_strategy_buy_conservative_skip": 0,
+            "ai_hold_oversold_buy_executed": 0,
+            "ai_hold_strategy_buy_executed": 0,
+            "market_structure_short_executed": 0,
+        }
         logger.info(
             f"[决策引擎] 投资类型={self._investment_type}, "
             f"R/R最低阈值={self._min_rr}"
         )
+
+    def get_conflict_metrics(self) -> Dict[str, int]:
+        """返回 AI/策略冲突相关的决策指标快照。"""
+        return dict(self._conflict_metrics)
 
     def _detect_investment_type(self) -> str:
         """检测投资类型（从环境变量读取）"""
@@ -360,6 +370,7 @@ class DecisionEngine:
                 if confidence_block:
                     return confidence_block
                 logger.info(f"[决策] 市场结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD")
+                self._conflict_metrics["market_structure_short_executed"] += 1
                 return {
                     "action": "sell",
                     "reason": f"市场结构做空(R/R={rr_ratio:.2f})覆盖AI-HOLD",
@@ -391,6 +402,7 @@ class DecisionEngine:
                 f"[决策] 均值回归超卖反弹(BUY)覆盖AI-HOLD, "
                 f"RSI={rsi:.1f}, R/R={rr_ratio:.2f}"
             )
+            self._conflict_metrics["ai_hold_oversold_buy_executed"] += 1
             return {
                 "action": "open",
                 "reason": (
@@ -415,6 +427,7 @@ class DecisionEngine:
                 f"[决策] 策略BUY(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
                 f"R/R={rr_ratio:.2f}, 阈值={relaxed_min_rr:.2f}"
             )
+            self._conflict_metrics["ai_hold_strategy_buy_executed"] += 1
             result = {
                 "action": "open",
                 "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, R/R={rr_ratio:.2f})",
@@ -451,6 +464,7 @@ class DecisionEngine:
                 "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
             }
         logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
+        self._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1
         return {
             "action": "skip",
             "reason": f"AI-HOLD覆盖策略({selected.signal})",
