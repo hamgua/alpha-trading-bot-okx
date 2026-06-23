@@ -52,7 +52,8 @@ MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
-OVERSOLD_BUY_MIN_RR = 0.6
+OVERSOLD_BUY_MIN_RR = 1.0
+STRATEGY_BUY_OVERRIDE_RR_FLOOR = 0.6
 
 # 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
 SHORT_RR_THRESHOLDS = {
@@ -416,6 +417,7 @@ class DecisionEngine:
             and not has_position
             and rr_ratio >= OVERSOLD_BUY_MIN_RR
             and atr_percent < MAX_TRADE_ATR_PERCENT
+            and market_structure != "bearish"
         ):
             confidence_block = self._confidence_gate("long", selected, market_data)
             if confidence_block:
@@ -437,7 +439,7 @@ class DecisionEngine:
                 "strategy": "mean_reversion_oversold_override",
                 "position_advice": "超卖反弹，建议轻仓",
             }
-        relaxed_min_rr = max(OVERSOLD_BUY_MIN_RR, self._get_min_rr() * 0.6)
+        relaxed_min_rr = max(STRATEGY_BUY_OVERRIDE_RR_FLOOR, self._get_min_rr() * 0.6)
         if (
             selected.signal.upper() == "BUY"
             and selected.confidence >= HOLD_STRATEGY_BUY_MIN_CONFIDENCE

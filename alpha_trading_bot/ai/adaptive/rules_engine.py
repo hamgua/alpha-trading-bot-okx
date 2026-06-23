@@ -145,9 +145,9 @@ class VolatilityRule(AdaptiveRule):
                 category=self.category,
                 triggered=True,
                 adjustment={
-                    "stop_loss_percent": 0.004,
-                    "position_multiplier": 1.2,  # 可以适当加仓
-                    "fusion_threshold": 0.45,  # 放宽信号要求
+                    "stop_loss_percent": 0.008,
+                    "position_multiplier": 1.2,
+                    "fusion_threshold": 0.45,
                 },
                 reason=f"低波动 (ATR%: {atr_percent:.2%})",
                 confidence=0.65,
@@ -293,9 +293,9 @@ class RSIRule(AdaptiveRule):
                 category=self.category,
                 triggered=True,
                 adjustment={
-                    "buy_rsi_threshold": 25,  # 更激进买入
+                    "buy_rsi_threshold": 25,
                     "fusion_threshold": 0.45,
-                    "position_multiplier": 1.3,
+                    "position_multiplier": 0.8,
                 },
                 reason=f"RSI超卖 ({rsi:.1f})",
                 confidence=0.85,

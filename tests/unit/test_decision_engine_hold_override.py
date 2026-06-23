@@ -43,14 +43,14 @@ class TestHoldOversoldOverride:
         return selected
 
     def test_hold_oversold_buy_overrides(self):
-        """HOLD + mean_reversion BUY + RSI<30 + R/R>=0.6 + 无持仓 → 开仓"""
+        """HOLD + mean_reversion BUY + RSI<30 + R/R>=1.0 + 无持仓 + 非bearish → 开仓"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
             "technical": {"atr_percent": 0.35, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
@@ -60,13 +60,13 @@ class TestHoldOversoldOverride:
         assert result["confidence"] == pytest.approx(0.68)
         assert "RSI" in result["reason"]
 
-    def test_hold_oversold_buy_blocked_by_has_position(self):
-        """HOLD + 超卖反弹 + 已有持仓 → 仍 skip"""
+    def test_hold_oversold_buy_blocked_in_bearish(self):
+        """HOLD + 超卖反弹 + market_structure=bearish → 跳过（禁止下跌结构中做多）"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
             "technical": {"atr_percent": 0.35, "rsi": 27.9},
-            "has_position": True,
+            "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "bearish",
         }
@@ -74,6 +74,38 @@ class TestHoldOversoldOverride:
         result = engine.make_decision("HOLD", selected, market_data)
 
         assert result["action"] == "skip"
+        assert result["strategy"] != "mean_reversion_oversold_override"
+
+    def test_hold_oversold_buy_blocked_by_rr_below_1_0(self):
+        """HOLD + 超卖反弹 + R/R<1.0 → 不走超卖通道，走strategy buy override"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("BUY", confidence=0.85)
+        market_data = {
+            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "has_position": False,
+            "risk_reward_ratio": 0.8,
+            "market_structure": "sideways",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["strategy"] != "mean_reversion_oversold_override"
+
+    def test_hold_oversold_buy_blocked_by_has_position(self):
+        """HOLD + 超卖反弹 + 已有持仓 → 不走超卖通道"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("BUY", confidence=0.85)
+        market_data = {
+            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "has_position": True,
+            "risk_reward_ratio": 1.2,
+            "market_structure": "sideways",
+            "min_trade_confidence": 0.40,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["strategy"] != "mean_reversion_oversold_override"
 
     def test_hold_oversold_buy_blocked_by_high_atr(self):
         """HOLD + 超卖反弹 + ATR>55% → 高波动停仓"""
@@ -83,7 +115,7 @@ class TestHoldOversoldOverride:
             "technical": {"atr_percent": 0.60, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
@@ -92,14 +124,14 @@ class TestHoldOversoldOverride:
         assert "高波动" in result["reason"]
 
     def test_hold_oversold_buy_blocked_by_low_rr(self):
-        """HOLD + 超卖反弹 + R/R<0.6 → 不满足最低阈值"""
+        """HOLD + 超卖反弹 + R/R<1.0 → 不满足最低阈值"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
             "technical": {"atr_percent": 0.35, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 0.4,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
@@ -116,7 +148,7 @@ class TestHoldOversoldOverride:
             "technical": {"atr_percent": 0.35, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
@@ -131,7 +163,7 @@ class TestHoldOversoldOverride:
             "technical": {"atr_percent": 0.35, "rsi": 30.0},
             "has_position": False,
             "risk_reward_ratio": 1.2,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
@@ -146,7 +178,7 @@ class TestHoldOversoldOverride:
             "technical": {"atr_percent": 0.35, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
-            "market_structure": "bearish",
+            "market_structure": "sideways",
         }
 
         result = engine.make_decision("HOLD", selected, market_data)
