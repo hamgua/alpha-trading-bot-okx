@@ -45,8 +45,20 @@ class PositionRecoveryManager:
                 else:
                     logger.info(f"[状态验证] 持仓已更新: {side} {amount}@{entry_price}")
             else:
-                logger.info("[状态验证] 交易所无持仓")
-                self._position_manager.update_from_exchange({})
+                query_failed = getattr(self._exchange, "last_query_failed", False)
+                if query_failed:
+                    logger.warning(
+                        "[状态验证] API查询持仓失败，保留本地持仓状态不清理"
+                    )
+                else:
+                    if self._position_manager.has_position():
+                        local_pos = self._position_manager.position
+                        logger.warning(
+                            "[状态验证] API返回无持仓但本地有持仓状态，清理本地缓存。"
+                            f"本地持仓: 方向={local_pos.side if local_pos else 'N/A'}, "
+                            f"入场价={self._position_manager.entry_price}"
+                        )
+                    self._position_manager.update_from_exchange({})
 
         except Exception as e:
             logger.error(f"[状态验证] 获取持仓失败: {e}")

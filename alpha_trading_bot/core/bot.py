@@ -87,7 +87,11 @@ class TradingBot:
     async def _check_stop_order_recovery(self) -> None:
         """检查并恢复止损单"""
         # 从交易所获取最新持仓状态
-        position_data = await self._exchange.get_position()
+        try:
+            position_data = await self._exchange.get_position()
+        except Exception as e:
+            logger.error(f"[止损恢复] 获取持仓失败: {e}")
+            return
         if position_data:
             self.position_manager.update_from_exchange(position_data)
 
@@ -208,10 +212,28 @@ class TradingBot:
         logger.info(f"[市场数据] ATR: {atr_str}")
 
         # 3. 检查当前持仓状态
-        position_data = await self._exchange.get_position()
+        try:
+            position_data = await self._exchange.get_position()
+            api_query_failed = False
+        except Exception as e:
+            logger.error(f"[持仓状态] 获取持仓失败: {e}")
+            position_data = None
+            api_query_failed = True
         if position_data:
             self.position_manager.update_from_exchange(position_data)
+        elif api_query_failed:
+            logger.warning(
+                "[持仓对账] API查询持仓失败，保留本地持仓状态不清理，"
+                "等待下一周期重试"
+            )
         else:
+            if self.position_manager.has_position():
+                logger.warning(
+                    "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
+                    f"清理本地缓存。本地持仓: "
+                    f"方向={self.position_manager.position.side if self.position_manager.position else 'N/A'}, "
+                    f"入场价={self.position_manager.entry_price}"
+                )
             self.position_manager.update_from_exchange({})
         has_position = self.position_manager.has_position()
 

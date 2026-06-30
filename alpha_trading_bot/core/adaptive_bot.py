@@ -347,7 +347,6 @@ class AdaptiveTradingBot:
             for reason in selected.reasons:
                 logger.info(f"  - {reason}")
 
-            # 7. 获取持仓状态
             # 7. 获取持仓状态（带重试机制）
             position_data = (
                 await self._exchange.get_position_with_retry(
@@ -380,11 +379,24 @@ class AdaptiveTradingBot:
                     await self._record_position_disappeared()
                 # 持仓对账：API返回无持仓但本地仍有持仓状态时，清理本地缓存
                 if self.position_manager.has_position():
-                    logger.warning(
-                        "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
-                        "清理本地缓存"
-                    )
-                    self.position_manager.clear_position()
+                    query_failed = self._is_position_query_failed()
+                    if query_failed:
+                        logger.warning(
+                            "[持仓对账] API查询持仓失败，保留本地持仓状态不清理，"
+                            "等待下一周期重试"
+                        )
+                    else:
+                        pm = self.position_manager
+                        local_pos = pm.position
+                        logger.warning(
+                            "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
+                            "清理本地缓存。"
+                            f"本地持仓: 方向={local_pos.side if local_pos else 'N/A'}, "
+                            f"入场价={pm.entry_price}, "
+                            f"止损单ID={pm.stop_order_id or 'N/A'}, "
+                            f"止损价={pm.last_stop_price}"
+                        )
+                        pm.clear_position()
                 logger.info("[持仓] 无持仓")
 
             # 8. 风险状态评估
@@ -577,6 +589,12 @@ class AdaptiveTradingBot:
     def _log_inferred_position_close_event(self, reason: str) -> None:
         """算法单历史暂不可用时，至少记录一条可追踪的推断平仓日志。"""
         self._position_close_auditor.log_inferred_position_close_event(reason)
+
+    def _is_position_query_failed(self) -> bool:
+        """检查最近一次 get_position_with_retry 是否因 API 异常而失败。"""
+        if self._exchange is None:
+            return False
+        return getattr(self._exchange, "last_query_failed", False)
 
     def _calculate_close_pnl_percent(self, exit_price: float) -> float:
         """根据最后持仓上下文估算平仓收益率。"""

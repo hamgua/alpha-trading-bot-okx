@@ -24,6 +24,10 @@ class AccountService:
         self.symbol = symbol
         self.allow_short_selling = allow_short_selling  # 是否允许做空
         self._last_position_state: Optional[Dict[str, Any]] = None  # 上一次持仓状态
+        # 标记最后一次 get_position_with_retry 查询是否失败
+        # True=查询失败(网络/API异常), False=查询成功(无论有无持仓)
+        # 调用方可通过此标记区分"无持仓"和"查询失败"，避免误清理本地缓存
+        self._last_query_failed: bool = False
 
     async def get_balance(self) -> float:
         """获取可用USDT余额"""
@@ -34,7 +38,7 @@ class AccountService:
                 "privateGetAccountBalance",
             )
             if method is not None:
-                usdt_available = await asyncio.get_event_loop().run_in_executor(
+                usdt_available = await asyncio.get_running_loop().run_in_executor(
                     None, lambda: self._get_okx_usdt_balance(method({"ccy": "USDT"}))
                 )
             else:
@@ -69,12 +73,18 @@ class AccountService:
         - 上次有持仓 → 本次无持仓：触发额外验证（避免 API 延迟误判）
         - 上次无持仓 → 本次无持仓：直接确认（无需验证）
         - 上次有持仓 → 本次有持仓：直接返回
+
+        _last_query_failed 属性标记本次查询是否因异常而失败：
+        - True: 查询失败，返回值 None 不可信，调用方不应据此清理本地持仓
+        - False: 查询成功，返回值 None 表示交易所确实无持仓
         """
         # 第一次查询
         try:
             result = await self.get_position()
+            self._last_query_failed = False
         except Exception as e:
             logger.error(f"[账户查询] 获取持仓失败: {e}")
+            self._last_query_failed = True
             return None
 
         current_has_position = result is not None
@@ -96,11 +106,14 @@ class AccountService:
                     if verify_result is not None:
                         logger.info("[账户查询] 验证成功，持仓确认")
                         self._last_position_state = verify_result
+                        self._last_query_failed = False
                         return verify_result
                 except Exception as e:
                     logger.warning(f"[账户查询] 验证失败: {e}")
+                    self._last_query_failed = True
 
             logger.warning("[账户查询] 验证多次仍不一致，以本次API返回为准")
+            self._last_query_failed = False
 
         # 更新状态
         self._last_position_state = result
@@ -116,74 +129,74 @@ class AccountService:
         return result
 
     async def get_position(self) -> Optional[Dict[str, Any]]:
-        """获取当前持仓（只支持做多，空单自动标记平仓）"""
-        try:
-            logger.debug(f"[账户查询] 正在获取 {self.symbol} 的持仓信息...")
-            method = get_callable(
-                self.exchange,
-                "private_get_account_positions",
-                "privateGetAccountPositions",
-            )
-            if method is not None:
-                positions = await asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: self._parse_okx_positions(
-                        method({"instId": okx_inst_id_from_symbol(self.symbol)})
-                    ),
-                )
-            else:
-                raise RuntimeError("OKX raw positions endpoint is unavailable")
+        """获取当前持仓（只支持做多，空单自动标记平仓）
 
-            for pos in positions:
-                if pos["contracts"] and pos["contracts"] != 0:
-                    side = pos["side"]
-                    if side == "short":
-                        if not self.allow_short_selling:
-                            logger.warning(
-                                f"[账户查询] 检测到空单(禁止做空): 数量={abs(pos['contracts'])}, "
-                                f"入场价={pos['entryPrice']}, 系统将自动平仓"
-                            )
-                            position_info = {
-                                "symbol": self.symbol,
-                                "side": "short_to_close",
-                                "amount": abs(pos["contracts"]),
-                                "entry_price": pos["entryPrice"],
-                                "unrealized_pnl": pos.get("unrealizedPnl", 0),
-                            }
-                        else:
-                            logger.info(
-                                f"[账户查询] 检测到空单(允许做空): 数量={abs(pos['contracts'])}, "
-                                f"入场价={pos['entryPrice']}, 正常持有"
-                            )
-                            position_info = {
-                                "symbol": self.symbol,
-                                "side": "short",
-                                "amount": abs(pos["contracts"]),
-                                "entry_price": pos["entryPrice"],
-                                "unrealized_pnl": pos.get("unrealizedPnl", 0),
-                            }
-                    else:
+        Raises:
+            Exception: OKX API 调用失败时向上传播异常，调用方需自行捕获。
+                       返回 None 表示交易所确认无持仓。
+        """
+        logger.debug(f"[账户查询] 正在获取 {self.symbol} 的持仓信息...")
+        method = get_callable(
+            self.exchange,
+            "private_get_account_positions",
+            "privateGetAccountPositions",
+        )
+        if method is not None:
+            positions = await asyncio.get_running_loop().run_in_executor(
+                None,
+                lambda: self._parse_okx_positions(
+                    method({"instId": okx_inst_id_from_symbol(self.symbol)})
+                ),
+            )
+        else:
+            raise RuntimeError("OKX raw positions endpoint is unavailable")
+
+        for pos in positions:
+            if pos["contracts"] and pos["contracts"] != 0:
+                side = pos["side"]
+                if side == "short":
+                    if not self.allow_short_selling:
+                        logger.warning(
+                            f"[账户查询] 检测到空单(禁止做空): 数量={abs(pos['contracts'])}, "
+                            f"入场价={pos['entryPrice']}, 系统将自动平仓"
+                        )
                         position_info = {
                             "symbol": self.symbol,
-                            "side": "long",
+                            "side": "short_to_close",
                             "amount": abs(pos["contracts"]),
                             "entry_price": pos["entryPrice"],
                             "unrealized_pnl": pos.get("unrealizedPnl", 0),
                         }
-                    logger.info(
-                        f"[账户查询] 找到持仓: 方向={position_info['side']}, "
-                        f"数量={position_info['amount']}, "
-                        f"入场价={position_info['entry_price']}, "
-                        f"未实现盈亏={position_info['unrealized_pnl']}"
-                    )
-                    return position_info
+                    else:
+                        logger.info(
+                            f"[账户查询] 检测到空单(允许做空): 数量={abs(pos['contracts'])}, "
+                            f"入场价={pos['entryPrice']}, 正常持有"
+                        )
+                        position_info = {
+                            "symbol": self.symbol,
+                            "side": "short",
+                            "amount": abs(pos["contracts"]),
+                            "entry_price": pos["entryPrice"],
+                            "unrealized_pnl": pos.get("unrealizedPnl", 0),
+                        }
+                else:
+                    position_info = {
+                        "symbol": self.symbol,
+                        "side": "long",
+                        "amount": abs(pos["contracts"]),
+                        "entry_price": pos["entryPrice"],
+                        "unrealized_pnl": pos.get("unrealizedPnl", 0),
+                    }
+                logger.info(
+                    f"[账户查询] 找到持仓: 方向={position_info['side']}, "
+                    f"数量={position_info['amount']}, "
+                    f"入场价={position_info['entry_price']}, "
+                    f"未实现盈亏={position_info['unrealized_pnl']}"
+                )
+                return position_info
 
-            logger.debug(f"[账户查询] {self.symbol} 无持仓")
-            return None
-
-        except Exception as e:
-            logger.error(f"[账户查询] 获取持仓失败: {e}")
-            return None
+        logger.debug(f"[账户查询] {self.symbol} 无持仓")
+        return None
 
     def _parse_okx_positions(self, response: Dict[str, Any]) -> list:
         ensure_okx_success(response, "positions")

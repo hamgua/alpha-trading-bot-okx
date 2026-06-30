@@ -4,53 +4,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "dream-runner",
-  "model": "fcloud-glm-52-fp8/glm-52-fp8",
+  "model": "fcloud-minimax-m3/minimax-m3",
   "permission": {
     "read": "allow",
     "glob": "allow",
     "grep": "allow",
     "edit": "allow",
     "task": "allow",
-
-    "bash": {
-      "git status": "allow",
-      "git status --porcelain": "allow",
-      "git branch": "allow",
-      "git branch --show-current": "allow",
-      "git diff": "allow",
-      "git diff --stat": "allow",
-      "git log": "allow",
-
-      "npm test": "allow",
-      "npm run test": "allow",
-      "pnpm test": "allow",
-      "yarn test": "allow",
-      "pytest": "allow",
-      "pytest *": "allow",
-      "mvn test": "allow",
-      "go test ./...": "allow",
-
-      "git checkout -b *": "allow",
-      "git worktree *": "allow",
-
-      "git commit *": "deny",
-      "git push *": "deny",
-      "git merge *": "deny",
-      "git rebase *": "deny",
-      "git reset *": "deny",
-
-      "rm *": "deny",
-      "rm -rf *": "deny",
-      "sudo *": "deny",
-      "curl *": "deny",
-      "wget *": "deny",
-      "kubectl *": "deny",
-      "terraform *": "deny",
-      "docker system *": "deny",
-
-      "*": "ask"
-    },
-
+    "bash": "allow",
     "external_directory": "deny",
     "doom_loop": "deny",
     "webfetch": "deny",

@@ -158,6 +158,13 @@ class ExchangeClient:
             max_retries, retry_delay
         )
 
+    @property
+    def last_query_failed(self) -> bool:
+        """最后一次 get_position_with_retry 是否因异常失败"""
+        if self._account_service is not None:
+            return self._account_service._last_query_failed
+        return False
+
     async def get_ohlcv(
         self, timeframe: str = "1h", limit: int = 100
     ) -> List[List[float]]:
