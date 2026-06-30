@@ -48,6 +48,8 @@ SAFE_MODE_REDUCED_MIN_RR = 1.0
 SAFE_MODE_REDUCED_MAX_ATR = 0.40
 HOLD_STRATEGY_BUY_MIN_CONFIDENCE = 0.80
 HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
+# SELL覆盖AI-HOLD最低置信度（均值回归超买信号）
+HOLD_STRATEGY_SELL_MIN_CONFIDENCE = 0.75
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 
@@ -489,6 +491,47 @@ class DecisionEngine:
                 "strategy": selected.strategy_type,
                 "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
             }
+        # 策略 SELL 覆盖 AI-HOLD：当 mean_reversion SELL 置信度 >= 75% 时允许做空/平仓
+        if (
+            selected.signal.upper() == "SELL"
+            and selected.confidence >= HOLD_STRATEGY_SELL_MIN_CONFIDENCE
+        ):
+            # 有持仓时执行平仓（平仓不受做空安全门禁限制）
+            if has_position:
+                confidence_block = self._confidence_gate("short", selected, market_data)
+                if confidence_block:
+                    return confidence_block
+                logger.info(
+                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                    f"平仓已有持仓"
+                )
+                return {
+                    "action": "close",
+                    "reason": f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%})，平仓",
+                    "confidence": selected.confidence * 0.8,
+                    "strategy": selected.strategy_type,
+                }
+            # 无持仓时执行做空（需满足做空安全门禁）
+            if (
+                self._config.trading.allow_short_selling
+                and rr_ratio >= relaxed_short_min_rr
+                and atr_percent < MAX_TRADE_ATR_PERCENT
+                and rsi > SHORT_RSI_OVERSOLD_BLOCK
+            ):
+                confidence_block = self._confidence_gate("short", selected, market_data)
+                if confidence_block:
+                    return confidence_block
+                logger.info(
+                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                    f"做空开仓, 短R/R={rr_ratio:.2f}, 阈值={relaxed_short_min_rr:.2f}"
+                )
+                return {
+                    "action": "sell",
+                    "reason": f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
+                    "confidence": selected.confidence * 0.8,
+                    "strategy": selected.strategy_type,
+                    "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
+                }
         logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
         self._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1
         return {

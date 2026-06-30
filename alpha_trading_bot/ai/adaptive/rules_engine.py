@@ -147,7 +147,8 @@ class VolatilityRule(AdaptiveRule):
                 adjustment={
                     "stop_loss_percent": 0.008,
                     "position_multiplier": 1.2,
-                    "fusion_threshold": 0.45,
+                    "fusion_threshold": 0.40,
+                    "buy_rsi_threshold": 35,
                 },
                 reason=f"低波动 (ATR%: {atr_percent:.2%})",
                 confidence=0.65,

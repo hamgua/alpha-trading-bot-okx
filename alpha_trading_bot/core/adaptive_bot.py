@@ -378,6 +378,13 @@ class AdaptiveTradingBot:
                 # 检测持仓消失（被止损触发了）
                 if self._last_position_side:
                     await self._record_position_disappeared()
+                # 持仓对账：API返回无持仓但本地仍有持仓状态时，清理本地缓存
+                if self.position_manager.has_position():
+                    logger.warning(
+                        "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
+                        "清理本地缓存"
+                    )
+                    self.position_manager.clear_position()
                 logger.info("[持仓] 无持仓")
 
             # 8. 风险状态评估

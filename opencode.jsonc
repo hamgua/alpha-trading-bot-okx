@@ -4,7 +4,7 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "default_agent": "dream-runner",
-  "model": "fcloud-glm-5/glm-5",
+  "model": "fcloud-glm-52-fp8/glm-52-fp8",
   "permission": {
     "read": "allow",
     "glob": "allow",

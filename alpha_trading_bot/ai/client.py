@@ -599,7 +599,7 @@ class AIClient:
         # DeepSeek Thinking Mode 的 max_tokens 包含 CoT（链式思考）部分
         # 原800tokens导致reasoning消耗完全部配额，content为空 → 默认hold
         if provider in ("minimax", "deepseek"):
-            data["max_tokens"] = 2000  # 800→2000，确保推理后仍有足够空间输出答案
+            data["max_tokens"] = 3000  # 2000→3000，确保推理后仍有足够空间输出答案
 
         # 根据提供商类型设置不同的超时时间
         timeout_config = self._get_timeout_config(provider)
