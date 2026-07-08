@@ -805,7 +805,10 @@ class AdaptiveTradingBot:
 
             risk_gate = getattr(self.risk_manager, "can_open_position", None)
             if callable(risk_gate):
-                can_open, block_reason = risk_gate(market_data, position_data)
+                risk_position_data = self._build_risk_gate_position_data(
+                    position_data, risk_params
+                )
+                can_open, block_reason = risk_gate(market_data, risk_position_data)
                 if not can_open:
                     logger.warning(f"[风险闸门] 拒绝开仓: {block_reason}")
                     return
@@ -890,6 +893,11 @@ class AdaptiveTradingBot:
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
                 else:
                     logger.warning("[执行] 止损单创建失败")
+                    await self._close_position_without_stop_loss(
+                        position_side=position_side,
+                        amount=filled_amount,
+                        current_price=current_price,
+                    )
         elif action in ["close", "close_short"]:
             if not has_position:
                 logger.info("[执行] 无持仓，跳过平仓")
@@ -932,22 +940,38 @@ class AdaptiveTradingBot:
                 logger.info(f"[执行] 平多单(卖出): 价格={current_price}")
                 close_side = "sell"
 
-            order_id = await self._exchange.create_order(
+            fill = await self._create_confirmed_market_order(
                 symbol=symbol,
                 side=close_side,
                 amount=amount,
-                order_type="market",
+                current_price=current_price,
             )
             # P0: 验证订单是否创建成功
-            if not order_id:
+            if not fill:
                 logger.error(
                     f"[执行] 平{position_side}单订单创建失败！尝试重新获取持仓状态验证"
                 )
                 await self._verify_and_recover_position()
                 return
+            order_id = fill["order_id"]
+            self.position_manager.clear_position()
             logger.info(f"[执行] 平仓订单已提交: {order_id}")
 
         logger.info("[执行] 完成")
+
+    def _build_risk_gate_position_data(
+        self, position_data: Dict[str, Any], risk_params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """构造风控闸门上下文，包含本次计划仓位。"""
+        risk_position_data = dict(position_data)
+        if "position_percent" not in risk_position_data:
+            suggested_position = risk_params.get("suggested_position")
+            try:
+                if suggested_position is not None:
+                    risk_position_data["position_percent"] = float(suggested_position)
+            except (TypeError, ValueError):
+                pass
+        return risk_position_data
 
     async def _create_confirmed_market_order(
         self,
@@ -1009,6 +1033,33 @@ class AdaptiveTradingBot:
             "amount": filled_amount,
             "average_price": average_price,
         }
+
+    async def _close_position_without_stop_loss(
+        self, position_side: str, amount: float, current_price: float
+    ) -> None:
+        """保护性止损缺失时立即市价退出，避免裸仓。"""
+        assert self._exchange is not None, "Exchange client not initialized"
+        close_side = "buy" if position_side == "short" else "sell"
+        logger.error(
+            f"[止损保护] {position_side} 开仓后无有效止损，"
+            f"立即{close_side}平仓"
+        )
+        fill = await self._create_confirmed_market_order(
+            symbol=self._exchange.symbol,
+            side=close_side,
+            amount=amount,
+            current_price=current_price,
+        )
+        if fill:
+            self.position_manager.clear_position()
+            logger.warning(
+                f"[止损保护] 裸仓保护性平仓已确认: {fill['order_id']}"
+            )
+        else:
+            logger.critical(
+                "[止损保护] 裸仓保护性平仓未确认，请人工检查账户"
+            )
+            await self._verify_and_recover_position()
 
     def _update_strategy_weights(self, trade: Any) -> None:
         """根据交易结果更新策略权重（学习闭环）"""
