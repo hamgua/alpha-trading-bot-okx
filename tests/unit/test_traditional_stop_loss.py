@@ -132,3 +132,54 @@ class TestTraditionalATRStopLoss:
             "old-stop", "BTC/USDT:USDT"
         )
         bot._create_stop_loss_with_retry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_smart_stop_update_sanitizes_price_before_cancel(self):
+        """更新旧止损前先校验新止损价，避免撤单后才发现触发价非法。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.position_manager.calculate_stop_price.return_value = 61992.2
+        bot._get_existing_stop_order_id = AsyncMock(return_value=("old-stop", 61768.6))
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="new-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=61998.4,
+            position_data={"side": "long", "entry_price": 62303.7, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.01}},
+        )
+
+        used_stop = bot._create_stop_loss_with_retry.await_args.kwargs["stop_price"]
+        assert used_stop < 61998.4
+        bot._exchange.cancel_algo_order.assert_awaited_once_with(
+            "old-stop", "BTC/USDT:USDT"
+        )
+
+    @pytest.mark.asyncio
+    async def test_stop_update_rechecks_exchange_when_new_stop_create_fails(self):
+        """旧止损替换失败后立即复查交易所有效止损，恢复本地保护状态。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.position_manager.calculate_stop_price.return_value = 61600
+        bot._get_existing_stop_order_id = AsyncMock(
+            side_effect=[("old-stop", 61450.0), ("recovered-stop", 61460.0)]
+        )
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value=None)
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=61700,
+            position_data={"side": "long", "entry_price": 61000, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.01}},
+        )
+
+        assert bot._get_existing_stop_order_id.await_count == 2
+        bot.position_manager.set_stop_order.assert_called_with(
+            "recovered-stop", 61460.0
+        )

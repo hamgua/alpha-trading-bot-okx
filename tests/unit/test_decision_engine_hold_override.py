@@ -42,12 +42,16 @@ class TestHoldOversoldOverride:
         selected.reasons = []
         return selected
 
-    def test_hold_oversold_buy_overrides(self):
-        """HOLD + mean_reversion BUY + RSI<30 + R/R>=1.0 + 无持仓 + 非bearish → 开仓"""
+    def test_hold_oversold_buy_overrides_with_confirmation(self):
+        """HOLD + mean_reversion BUY 需要超卖反转确认后才可开仓"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {
+                "atr_percent": 0.35,
+                "rsi": 27.9,
+                "reversal_confirmed": True,
+            },
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -59,6 +63,22 @@ class TestHoldOversoldOverride:
         assert result["strategy"] == "mean_reversion_oversold_override"
         assert result["confidence"] == pytest.approx(0.68)
         assert "RSI" in result["reason"]
+
+    def test_hold_oversold_buy_without_confirmation_stays_observation(self):
+        """只有 RSI 超卖时不再直接覆盖 AI-HOLD。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("BUY", confidence=0.85)
+        market_data = {
+            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "has_position": False,
+            "risk_reward_ratio": 1.2,
+            "market_structure": "sideways",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+        assert result["strategy"] != "mean_reversion_oversold_override"
 
     def test_hold_oversold_buy_blocked_in_bearish(self):
         """HOLD + 超卖反弹 + market_structure=bearish → 跳过（禁止下跌结构中做多）"""
@@ -211,14 +231,29 @@ class TestHoldStrategyBuyOverride:
         selected.reasons = []
         return selected
 
-    def test_hold_strategy_buy_overrides_relaxed_rr(self):
-        """moderate 投资类型下 R/R=0.7 可触发 BUY 覆盖（原阈值 1.0）"""
+    def test_hold_strategy_buy_blocked_below_full_rr_threshold(self):
+        """moderate 投资类型下 BUY 覆盖 AI-HOLD 不再放宽到 R/R=0.7。"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.82)
         market_data = {
             "technical": {"atr_percent": 0.35, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
+            "market_structure": "sideways",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+
+    def test_hold_strategy_buy_overrides_at_full_rr_threshold(self):
+        """BUY 覆盖 AI-HOLD 至少需要 R/R>=1.0。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("BUY", confidence=0.82)
+        market_data = {
+            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "has_position": False,
+            "risk_reward_ratio": 1.0,
             "market_structure": "sideways",
         }
 
@@ -438,13 +473,15 @@ class TestHoldStrategySellOverride:
         assert result["confidence"] == pytest.approx(0.64)
 
     def test_hold_strategy_sell_overrides_no_position_short(self):
-        """HOLD + 策略 SELL + 置信度≥75% + 无持仓 + 允许做空 → sell（做空）"""
+        """HOLD + 策略 SELL + 已确认短 R/R + 无持仓 + 允许做空 → sell"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.03, "rsi": 70, "reversal_confirmed": True},
             "has_position": False,
-            "risk_reward_ratio": 0.7,
+            "risk_reward_ratio": 8.0,
+            "short_risk_reward_ratio": 0.7,
+            "market_structure_direction": "short",
             "market_structure": "bearish",
         }
 
@@ -452,6 +489,38 @@ class TestHoldStrategySellOverride:
 
         assert result["action"] == "sell"
         assert "策略SELL覆盖AI-HOLD" in result["reason"]
+
+    def test_hold_strategy_sell_without_confirmation_stays_observation(self):
+        """只有 RSI 超买时不再直接覆盖 AI-HOLD 做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "has_position": False,
+            "short_risk_reward_ratio": 0.7,
+            "market_structure_direction": "short",
+            "market_structure": "bearish",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+
+    def test_hold_strategy_sell_does_not_reuse_long_rr_for_short(self):
+        """长方向 R/R 很高但短方向未确认时，SELL 不应开空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "has_position": False,
+            "risk_reward_ratio": 102.8,
+            "market_structure_direction": "long",
+            "market_structure": "bullish",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
 
     def test_hold_strategy_sell_blocked_by_low_confidence(self):
         """策略 SELL 置信度 < 75% → skip"""
@@ -606,7 +675,11 @@ class TestHoldBuyConfidenceGate:
         selected.strategy_type = "mean_reversion"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {
+                "atr_percent": 0.35,
+                "rsi": 27.9,
+                "reversal_confirmed": True,
+            },
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",

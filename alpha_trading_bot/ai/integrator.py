@@ -527,6 +527,13 @@ class AISignalIntegrator:
                 market_data["position_size_factor"] = (
                     structure_result.position_size_factor
                 )
+                short_rr_result = self.risk_reward_calculator.calculate_for_short(
+                    current_price=current_price,
+                    support=structure_result.nearest_support,
+                    resistance=structure_result.nearest_resistance,
+                    atr_percent=atr_percent,
+                )
+                market_data["short_risk_reward_ratio"] = short_rr_result.rr_ratio
 
                 # 风险收益比过滤 - 只对BUY信号生效
                 if original_signal == "BUY" and structure_result.risk_reward_ratio > 0:
@@ -600,13 +607,8 @@ class AISignalIntegrator:
                     original_signal == "SHORT"
                     and structure_result.risk_reward_ratio > 0
                 ):
-                    rr_result = self.risk_reward_calculator.calculate_for_short(
-                        current_price=current_price,
-                        support=structure_result.nearest_support,
-                        resistance=structure_result.nearest_resistance,
-                        atr_percent=atr_percent,
-                    )
-                    result.risk_reward_result = rr_result
+                    rr_result = short_rr_result
+                    result.risk_reward_result = short_rr_result
 
                     if not rr_result.should_trade:
                         if rr_result.rr_ratio <= 0:

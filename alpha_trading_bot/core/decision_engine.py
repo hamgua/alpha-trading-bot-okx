@@ -55,7 +55,7 @@ MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
-STRATEGY_BUY_OVERRIDE_RR_FLOOR = 0.6
+STRATEGY_BUY_OVERRIDE_MIN_RR = 1.0
 
 # 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
 SHORT_RR_THRESHOLDS = {
@@ -156,6 +156,47 @@ class DecisionEngine:
             }
 
         return {}
+
+    def _get_short_rr(self, market_data: Dict[str, Any]) -> float:
+        """获取做空专用 R/R，避免复用做多方向的风险收益比。"""
+        short_rr = market_data.get("short_risk_reward_ratio")
+        if isinstance(short_rr, Number) and short_rr > 0:
+            return float(short_rr)
+
+        structure_direction = market_data.get("market_structure_direction")
+        market_structure = market_data.get("market_structure")
+        if structure_direction == "short" or market_structure == "bearish":
+            rr_ratio = market_data.get("risk_reward_ratio", 0)
+            if isinstance(rr_ratio, Number) and rr_ratio > 0:
+                return float(rr_ratio)
+        return 0.0
+
+    def _has_mean_reversion_confirmation(
+        self, side: str, market_data: Dict[str, Any], technical: Dict[str, Any]
+    ) -> bool:
+        """均值回归只在出现反转/拒绝确认后覆盖 AI-HOLD。"""
+        if market_data.get("mean_reversion_confirmed") is True:
+            return True
+        if technical.get("reversal_confirmed") is True:
+            return True
+
+        macd_hist = technical.get("macd_hist", 0)
+        if side == "long":
+            has_rebound = bool(technical.get("rsi_rebounding"))
+            has_price_reclaim = bool(
+                technical.get("price_above_short_ma")
+                or technical.get("price_above_vwap")
+                or technical.get("bullish_reversal_candle")
+            )
+            return has_rebound and (has_price_reclaim or macd_hist > 0)
+
+        has_rejection = bool(technical.get("rsi_falling"))
+        has_price_reject = bool(
+            technical.get("price_below_short_ma")
+            or technical.get("price_below_vwap")
+            or technical.get("bearish_reversal_candle")
+        )
+        return has_rejection and (has_price_reject or macd_hist < 0)
 
     def _make_safe_mode_decision(
         self,
@@ -314,7 +355,7 @@ class DecisionEngine:
             }
 
         short_min_rr = self._get_short_min_rr()
-        rr_ratio = market_data.get("risk_reward_ratio", 0)
+        rr_ratio = self._get_short_rr(market_data)
         if rr_ratio > 0 and rr_ratio < short_min_rr:
             logger.warning(
                 f"[短R/R门禁] 做空R/R={rr_ratio:.2f} < {short_min_rr}，风险收益比不足"
@@ -402,7 +443,11 @@ class DecisionEngine:
 
         market_structure = market_data.get("market_structure", "sideways")
         rr_ratio = market_data.get("risk_reward_ratio", 0)
-        if selected.strategy_type == "mean_reversion" and selected.signal.upper() == "BUY":
+        short_rr_ratio = self._get_short_rr(market_data)
+        if (
+            selected.strategy_type == "mean_reversion"
+            and selected.signal.upper() == "BUY"
+        ):
             self._oversold_metrics["oversold_signal_total"] += 1
             if has_position:
                 self._oversold_metrics["oversold_signal_blocked_position"] += 1
@@ -412,6 +457,13 @@ class DecisionEngine:
                 self._oversold_metrics["oversold_signal_blocked_rr"] += 1
             elif atr_percent >= MAX_TRADE_ATR_PERCENT:
                 self._oversold_metrics["oversold_signal_blocked_atr"] += 1
+            elif not self._has_mean_reversion_confirmation(
+                "long", market_data, technical
+            ):
+                self._oversold_metrics.setdefault(
+                    "oversold_signal_blocked_confirmation", 0
+                )
+                self._oversold_metrics["oversold_signal_blocked_confirmation"] += 1
         if (
             selected.strategy_type == "mean_reversion"
             and selected.signal.upper() == "BUY"
@@ -421,6 +473,15 @@ class DecisionEngine:
             and atr_percent < MAX_TRADE_ATR_PERCENT
             and market_structure != "bearish"
         ):
+            if not self._has_mean_reversion_confirmation(
+                "long", market_data, technical
+            ):
+                return {
+                    "action": "skip",
+                    "reason": "均值回归BUY等待反转确认",
+                    "confidence": selected.confidence,
+                    "strategy": selected.strategy_type,
+                }
             confidence_block = self._confidence_gate("long", selected, market_data)
             if confidence_block:
                 self._oversold_metrics["oversold_signal_blocked_confidence"] += 1
@@ -441,9 +502,10 @@ class DecisionEngine:
                 "strategy": "mean_reversion_oversold_override",
                 "position_advice": "超卖反弹，建议轻仓",
             }
-        relaxed_min_rr = max(STRATEGY_BUY_OVERRIDE_RR_FLOOR, self._get_min_rr() * 0.6)
+        relaxed_min_rr = max(STRATEGY_BUY_OVERRIDE_MIN_RR, self._get_min_rr())
         if (
             selected.signal.upper() == "BUY"
+            and selected.strategy_type != "mean_reversion"
             and selected.confidence >= HOLD_STRATEGY_BUY_MIN_CONFIDENCE
             and market_structure != "bearish"
             and rr_ratio >= relaxed_min_rr
@@ -458,7 +520,10 @@ class DecisionEngine:
             self._conflict_metrics["ai_hold_strategy_buy_executed"] += 1
             result = {
                 "action": "open",
-                "reason": f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, R/R={rr_ratio:.2f})",
+                "reason": (
+                    f"策略BUY覆盖AI-HOLD(置信度{selected.confidence:.0%}, "
+                    f"R/R={rr_ratio:.2f})"
+                ),
                 "confidence": selected.confidence * 0.8,
                 "strategy": selected.strategy_type,
             }
@@ -467,13 +532,13 @@ class DecisionEngine:
             elif rr_ratio >= self._get_min_rr():
                 result["position_advice"] = f"R/R={rr_ratio:.2f}勉强，建议减仓"
             return result
-        relaxed_short_min_rr = max(0.5, self._get_short_min_rr())
+        relaxed_short_min_rr = self._get_short_min_rr()
         if (
             selected.signal.upper() == "SHORT"
             and selected.confidence >= HOLD_STRATEGY_SHORT_MIN_CONFIDENCE
             and not has_position
             and self._config.trading.allow_short_selling
-            and rr_ratio >= relaxed_short_min_rr
+            and short_rr_ratio >= relaxed_short_min_rr
             and atr_percent < MAX_TRADE_ATR_PERCENT
             and rsi > SHORT_RSI_OVERSOLD_BLOCK
         ):
@@ -481,56 +546,77 @@ class DecisionEngine:
             if confidence_block:
                 return confidence_block
             logger.info(
-                f"[决策] 策略SHORT(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                f"短R/R={rr_ratio:.2f}, 阈值={relaxed_short_min_rr:.2f}"
+                f"[决策] 策略SHORT(置信度{selected.confidence:.0%})"
+                f"覆盖AI-HOLD, "
+                f"短R/R={short_rr_ratio:.2f}, 阈值={relaxed_short_min_rr:.2f}"
             )
             return {
                 "action": "sell",
-                "reason": f"策略SHORT覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
+                "reason": (
+                    f"策略SHORT覆盖AI-HOLD(置信度{selected.confidence:.0%}, "
+                    f"短R/R={short_rr_ratio:.2f})"
+                ),
                 "confidence": selected.confidence * 0.8,
                 "strategy": selected.strategy_type,
-                "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
+                "position_advice": f"短R/R={short_rr_ratio:.2f}，做空开仓",
             }
-        # 策略 SELL 覆盖 AI-HOLD：当 mean_reversion SELL 置信度 >= 75% 时允许做空/平仓
+        # 策略 SELL 覆盖 AI-HOLD：
+        # mean_reversion SELL 置信度 >= 75% 时允许做空/平仓
         if (
             selected.signal.upper() == "SELL"
             and selected.confidence >= HOLD_STRATEGY_SELL_MIN_CONFIDENCE
         ):
             # 有持仓时执行平仓（平仓不受做空安全门禁限制）
             if has_position:
-                confidence_block = self._confidence_gate("short", selected, market_data)
+                confidence_block = self._confidence_gate(
+                    "short", selected, market_data
+                )
                 if confidence_block:
                     return confidence_block
                 logger.info(
-                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
+                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})"
+                    f"覆盖AI-HOLD, "
                     f"平仓已有持仓"
                 )
                 return {
                     "action": "close",
-                    "reason": f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%})，平仓",
+                    "reason": (
+                        f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%})"
+                        f"，平仓"
+                    ),
                     "confidence": selected.confidence * 0.8,
                     "strategy": selected.strategy_type,
                 }
             # 无持仓时执行做空（需满足做空安全门禁）
             if (
                 self._config.trading.allow_short_selling
-                and rr_ratio >= relaxed_short_min_rr
+                and short_rr_ratio >= relaxed_short_min_rr
                 and atr_percent < MAX_TRADE_ATR_PERCENT
                 and rsi > SHORT_RSI_OVERSOLD_BLOCK
+                and self._has_mean_reversion_confirmation(
+                    "short", market_data, technical
+                )
             ):
-                confidence_block = self._confidence_gate("short", selected, market_data)
+                confidence_block = self._confidence_gate(
+                    "short", selected, market_data
+                )
                 if confidence_block:
                     return confidence_block
                 logger.info(
-                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})覆盖AI-HOLD, "
-                    f"做空开仓, 短R/R={rr_ratio:.2f}, 阈值={relaxed_short_min_rr:.2f}"
+                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})"
+                    f"覆盖AI-HOLD, 做空开仓, "
+                    f"短R/R={short_rr_ratio:.2f}, "
+                    f"阈值={relaxed_short_min_rr:.2f}"
                 )
                 return {
                     "action": "sell",
-                    "reason": f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%}, 短R/R={rr_ratio:.2f})",
+                    "reason": (
+                        f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%}, "
+                        f"短R/R={short_rr_ratio:.2f})"
+                    ),
                     "confidence": selected.confidence * 0.8,
                     "strategy": selected.strategy_type,
-                    "position_advice": f"短R/R={rr_ratio:.2f}，做空开仓",
+                    "position_advice": f"短R/R={short_rr_ratio:.2f}，做空开仓",
                 }
         logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
         self._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1

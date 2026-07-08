@@ -28,6 +28,23 @@ from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
 
+_STOP_PRICE_MARGIN_PCT = 0.001
+_STOP_PRICE_MARGIN_ABS = 1.0
+
+
+def _normalize_stop_price_for_order(
+    stop_price: float, current_price: float, position_side: str
+) -> float:
+    """根据 OKX 触发价约束预校验止损价。"""
+    if current_price <= 0:
+        return stop_price
+    margin = max(current_price * _STOP_PRICE_MARGIN_PCT, _STOP_PRICE_MARGIN_ABS)
+    if position_side == "short" and stop_price <= current_price:
+        return current_price + margin
+    if position_side != "short" and stop_price >= current_price:
+        return current_price - margin
+    return stop_price
+
 
 class AdaptiveTradingBot:
     """
@@ -1036,6 +1053,9 @@ class AdaptiveTradingBot:
                         f"[止损-智能] 首次创建初始止损价 >= 当前价，"
                         f"调整为安全止损价 {initial_stop:.1f}"
                     )
+                initial_stop = _normalize_stop_price_for_order(
+                    initial_stop, current_price, position_side
+                )
                 logger.info(f"[止损-智能] 首次创建，初始止损: {initial_stop:.1f}")
                 stop_order_id = await self._create_stop_loss_with_retry(
                     amount=amount,
@@ -1062,6 +1082,17 @@ class AdaptiveTradingBot:
                 return
 
             # 执行更新
+            checked_stop_price = _normalize_stop_price_for_order(
+                new_stop_price, current_price, position_side
+            )
+            if checked_stop_price != new_stop_price:
+                logger.warning(
+                    f"[止损-智能] 新止损价 {new_stop_price:.1f} "
+                    f"不满足当前价约束，"
+                    f"预调整为 {checked_stop_price:.1f} 后再替换旧止损"
+                )
+                new_stop_price = checked_stop_price
+
             logger.info(f"[止损-智能] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}")
             try:
                 cancel_success, cancel_reason = await self._exchange.cancel_algo_order(
@@ -1087,6 +1118,8 @@ class AdaptiveTradingBot:
             if stop_order_id:
                 self.position_manager.set_stop_order(stop_order_id, new_stop_price)
                 logger.info(f"[止损-智能] 更新成功: {stop_order_id}")
+            else:
+                await AdaptiveTradingBot._recover_stop_state_after_failed_update(self)
             return
 
         # === 传统模式：ATR动态止损 ===
@@ -1130,6 +1163,9 @@ class AdaptiveTradingBot:
                 initial_stop = entry_price * (1 - atr_adjusted_stop_pct)
             else:
                 initial_stop = entry_price * (1 + atr_adjusted_stop_pct)
+            initial_stop = _normalize_stop_price_for_order(
+                initial_stop, current_price, position_side
+            )
             logger.info(f"[止损] 首次创建，初始止损: {initial_stop:.1f}")
             stop_order_id = await self._create_stop_loss_with_retry(
                 amount=amount,
@@ -1183,6 +1219,17 @@ class AdaptiveTradingBot:
                 return
 
         # === P8: 执行更新 ===
+        checked_stop_price = _normalize_stop_price_for_order(
+            new_stop_price, current_price, position_side
+        )
+        if checked_stop_price != new_stop_price:
+            logger.warning(
+                f"[止损] 新止损价 {new_stop_price:.1f} "
+                f"不满足当前价约束，"
+                f"预调整为 {checked_stop_price:.1f} 后再替换旧止损"
+            )
+            new_stop_price = checked_stop_price
+
         logger.info(f"[止损] 执行更新: {old_stop:.1f} → {new_stop_price:.1f}")
 
         try:
@@ -1209,6 +1256,27 @@ class AdaptiveTradingBot:
         if stop_order_id:
             self.position_manager.set_stop_order(stop_order_id, new_stop_price)
             logger.info(f"[止损] 更新成功: {stop_order_id}")
+        else:
+            await AdaptiveTradingBot._recover_stop_state_after_failed_update(self)
+
+    async def _recover_stop_state_after_failed_update(self) -> None:
+        """新止损创建失败后立即复查交易所保护状态。"""
+        (
+            recovered_stop_id,
+            recovered_stop_price,
+        ) = await self._get_existing_stop_order_id()
+        if recovered_stop_id and recovered_stop_price:
+            self.position_manager.set_stop_order(
+                recovered_stop_id, recovered_stop_price
+            )
+            logger.warning(
+                f"[止损] 新止损创建失败，已恢复交易所有效止损: "
+                f"{recovered_stop_id}@{recovered_stop_price:.1f}"
+            )
+        else:
+            logger.error(
+                "[止损] 新止损创建失败，且未查询到有效止损保护"
+            )
 
     async def _get_existing_stop_order_id(
         self,
