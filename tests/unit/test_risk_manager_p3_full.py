@@ -62,6 +62,15 @@ class TestHardStopLossBoundary:
         assert not ok
         assert "硬止损" in reason
 
+    def test_check_long_side_loss_exceeds_threshold(self):
+        """交易所返回 side='long' 时也必须按多单计算硬止损。"""
+        b = self._make()
+        ok, reason = b.check(
+            {"price": 94000}, {"entry_price": 100000, "side": "long"}
+        )
+        assert not ok
+        assert "硬止损" in reason
+
     def test_check_short_loss_exceeds_threshold(self):
         b = self._make()
         # 做空: entry=100000, price=106000, 亏损=-6% > 5%

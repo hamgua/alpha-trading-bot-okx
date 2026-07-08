@@ -531,10 +531,11 @@ class OrderService:
             )
             if method is None:
                 raise RuntimeError("OKX raw cancel-algos endpoint is unavailable")
-            await asyncio.get_event_loop().run_in_executor(
+            response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: method([{"instId": inst_id, "algoId": algo_id}]),
             )
+            self._ensure_okx_order_item_success(response, "cancel algo order")
             logger.info(f"[算法单取消] 算法单取消成功: {algo_id}")
             return (True, "success")
         except Exception as e:

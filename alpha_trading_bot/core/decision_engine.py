@@ -411,7 +411,7 @@ class DecisionEngine:
             market_structure_direction = market_data.get(
                 "market_structure_direction", "none"
             )
-            rr_ratio = market_data.get("risk_reward_ratio", 0)
+            rr_ratio = self._get_short_rr(market_data)
             trend_strength = technical.get("trend_strength", 0)
             if (
                 market_structure_direction == "short"

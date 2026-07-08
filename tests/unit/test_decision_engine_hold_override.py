@@ -650,6 +650,26 @@ class TestHoldBothHold:
         assert result["action"] == "skip"
         assert "AI和策略都是HOLD" in result["reason"]
 
+    def test_market_structure_short_uses_explicit_short_rr(self):
+        """市场结构做空覆盖 AI-HOLD 必须使用短方向 R/R。"""
+        engine = DecisionEngine(self.config)
+        selected = MagicMock()
+        selected.signal = "HOLD"
+        selected.confidence = 0.8
+        selected.strategy_type = "trend_following"
+        selected.reasons = []
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 50, "trend_strength": 0.3},
+            "has_position": False,
+            "risk_reward_ratio": 5.0,
+            "short_risk_reward_ratio": 0.4,
+            "market_structure_direction": "short",
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+
 
 class TestHoldBuyConfidenceGate:
     """置信度门禁在 HOLD 分支也应生效"""

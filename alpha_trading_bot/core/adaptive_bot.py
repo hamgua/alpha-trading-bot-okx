@@ -803,20 +803,12 @@ class AdaptiveTradingBot:
             logger.info(f"[执行] 止损: {risk_params.get('stop_loss_price', '未设置')}")
             logger.info(f"[执行] 仓位: {risk_params.get('suggested_position', '默认')}")
 
-            # === P1: 记录开仓（学习闭环开始） ===
-            market_state = self.regime_detector.detect(market_data)
-            confidence = selected_strategy.confidence if selected_strategy else 0.5
-            self.performance_tracker.record_trade(
-                entry_time=datetime.now(timezone.utc).isoformat(),
-                entry_price=current_price,
-                side="buy",
-                confidence=confidence,
-                signal_type="buy",
-                market_regime=market_state.regime.value,
-                used_threshold=params.get("fusion_threshold", 0.5),
-                used_stop_loss=risk_params.get("stop_loss_percent", 0.005),
-            )
-            logger.info("[学习] 已记录开仓信号，用于后续学习")
+            risk_gate = getattr(self.risk_manager, "can_open_position", None)
+            if callable(risk_gate):
+                can_open, block_reason = risk_gate(market_data, position_data)
+                if not can_open:
+                    logger.warning(f"[风险闸门] 拒绝开仓: {block_reason}")
+                    return
 
             # 调用交易所API开仓
             symbol = self._exchange.symbol
@@ -829,36 +821,58 @@ class AdaptiveTradingBot:
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
             order_side = "buy" if position_side == "long" else "sell"
 
-            order_id = await self._exchange.create_order(
+            fill = await self._create_confirmed_market_order(
                 symbol=symbol,
                 side=order_side,
                 amount=amount,
+                current_price=current_price,
             )
 
             # P0: 验证订单是否创建成功
-            if not order_id:
-                logger.error("[执行] 开仓订单创建失败！尝试重新获取持仓状态验证")
+            if not fill:
+                logger.error(
+                    "[执行] 开仓订单未确认成交！"
+                    "尝试重新获取持仓状态验证"
+                )
                 await self._verify_and_recover_position()
                 return
+            order_id = fill["order_id"]
+            filled_amount = fill["amount"]
+            entry_price = fill["average_price"]
+
+            # === P1: 记录开仓（学习闭环开始） ===
+            market_state = self.regime_detector.detect(market_data)
+            confidence = selected_strategy.confidence if selected_strategy else 0.5
+            self.performance_tracker.record_trade(
+                entry_time=datetime.now(timezone.utc).isoformat(),
+                entry_price=entry_price,
+                side=order_side,
+                confidence=confidence,
+                signal_type=order_side,
+                market_regime=market_state.regime.value,
+                used_threshold=params.get("fusion_threshold", 0.5),
+                used_stop_loss=risk_params.get("stop_loss_percent", 0.005),
+            )
+            logger.info("[学习] 已记录开仓信号，用于后续学习")
 
             # 开仓成功后，更新持仓信息 (支持做多和做空)
             self.position_manager.update_position(
-                amount=amount,
-                entry_price=current_price,
+                amount=filled_amount,
+                entry_price=entry_price,
                 symbol=symbol,
                 side=position_side,
             )
             self._remember_position_close_audit_context(
                 side=position_side,
-                entry_price=current_price,
-                amount=amount,
+                entry_price=entry_price,
+                amount=filled_amount,
             )
             logger.info(f"[执行] 开仓订单已提交: {order_id}")
 
             # 如果有止损价，设置止损单（带重试机制）
             if stop_loss_price:
                 stop_order_id = await self._create_stop_loss_with_retry(
-                    amount=amount,
+                    amount=filled_amount,
                     stop_price=stop_loss_price,
                     current_price=current_price,
                     position_side=position_side,
@@ -868,8 +882,8 @@ class AdaptiveTradingBot:
                     self.position_manager.set_stop_order(stop_order_id, stop_loss_price)
                     self._remember_position_close_audit_context(
                         side=position_side,
-                        entry_price=current_price,
-                        amount=amount,
+                        entry_price=entry_price,
+                        amount=filled_amount,
                         stop_order_id=stop_order_id,
                         stop_price=stop_loss_price,
                     )
@@ -934,6 +948,67 @@ class AdaptiveTradingBot:
             logger.info(f"[执行] 平仓订单已提交: {order_id}")
 
         logger.info("[执行] 完成")
+
+    async def _create_confirmed_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        current_price: float,
+    ) -> Optional[Dict[str, Any]]:
+        """提交市价单并确认真实成交数量和均价。"""
+        assert self._exchange is not None, "Exchange client not initialized"
+        result = None
+        create_with_status = getattr(self._exchange, "create_order_with_status", None)
+        if callable(create_with_status):
+            result = await create_with_status(
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                order_type="market",
+            )
+        else:
+            order_id = await self._exchange.create_order(
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                order_type="market",
+            )
+            if not order_id:
+                return None
+            get_status = getattr(self._exchange, "get_order_status", None)
+            if callable(get_status):
+                result = await get_status(order_id, symbol)
+            else:
+                return {
+                    "order_id": str(order_id),
+                    "amount": amount,
+                    "average_price": current_price,
+                }
+
+        order_id = str(getattr(result, "order_id", "") or "")
+        if order_id and not getattr(result, "is_success", False):
+            get_status = getattr(self._exchange, "get_order_status", None)
+            if callable(get_status):
+                result = await get_status(order_id, symbol)
+
+        order_id = str(getattr(result, "order_id", "") or "")
+        filled_amount = float(getattr(result, "filled_amount", 0.0) or 0.0)
+        average_price = float(getattr(result, "average_price", 0.0) or 0.0)
+        if not order_id or filled_amount <= 0:
+            logger.error(
+                f"[订单确认] 市价单未确认成交: "
+                f"order_id={order_id or 'N/A'}, "
+                f"side={side}, requested={amount}"
+            )
+            return None
+        if average_price <= 0:
+            average_price = current_price
+        return {
+            "order_id": order_id,
+            "amount": filled_amount,
+            "average_price": average_price,
+        }
 
     def _update_strategy_weights(self, trade: Any) -> None:
         """根据交易结果更新策略权重（学习闭环）"""

@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, List
 
 from .account_service import AccountService, create_account_service
 from .market_data import MarketDataService, create_market_data_service
+from .models.orders import OrderResult, OrderStatus
 from .okx_raw import (
     ensure_okx_success,
     get_callable,
@@ -206,6 +207,41 @@ class ExchangeClient:
         return await self._order_service.create_order(
             symbol, side, amount, price, order_type
         )
+
+    async def create_order_with_status(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        price: Optional[float] = None,
+        order_type: str = "market",
+    ) -> OrderResult:
+        """创建订单并返回状态。"""
+        if self.test_mode:
+            simulated_id = f"SIMULATED_ORDER_{side.upper()}_{int(time.time())}"
+            logger.warning(
+                "[交易保护] TEST_MODE=true，跳过真实下单: "
+                f"side={side}, amount={amount}, symbol={symbol}"
+            )
+            return OrderResult(
+                order_id=simulated_id,
+                status=OrderStatus.CLOSED,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                requested_amount=amount,
+                filled_amount=amount,
+                remaining_amount=0.0,
+                average_price=price or 0.0,
+            )
+
+        return await self._order_service.create_order_with_status(
+            symbol, side, amount, price, order_type
+        )
+
+    async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
+        """查询普通订单状态。"""
+        return await self._order_service.get_order_status(order_id, symbol)
 
     async def create_stop_loss(
         self,

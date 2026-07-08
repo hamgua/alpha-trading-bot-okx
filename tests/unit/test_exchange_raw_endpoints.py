@@ -287,6 +287,34 @@ async def test_order_service_sets_short_reduce_only_algo_params(
 
 
 @pytest.mark.asyncio
+async def test_cancel_algo_order_checks_item_error_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OKX cancel-algos data item sCode 非 0 时不能当作撤单成功。"""
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.order_service import OrderService
+
+    class _Exchange:
+        def private_post_trade_cancel_algos(self, params):
+            return {
+                "code": "0",
+                "data": [
+                    {
+                        "algoId": params[0]["algoId"],
+                        "sCode": "51001",
+                        "sMsg": "algo order does not exist",
+                    }
+                ],
+            }
+
+    service = OrderService(_Exchange(), "BTC/USDT:USDT")
+
+    result = await service.cancel_algo_order("algo-404", "BTC/USDT:USDT")
+
+    assert result == (False, "already_gone")
+
+
+@pytest.mark.asyncio
 async def test_exchange_client_uses_raw_open_order_queries(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

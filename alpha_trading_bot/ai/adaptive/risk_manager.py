@@ -124,7 +124,7 @@ class HardStopLossBoundary(RiskBoundary):
             return True, ""
 
         # 计算当前亏损
-        if side == "buy":
+        if side in ("buy", "open", "long"):
             pnl_percent = (current_price - entry_price) / entry_price
         else:
             pnl_percent = (entry_price - current_price) / entry_price
