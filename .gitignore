@@ -166,6 +166,7 @@ cache/
 
 # codex
 .codex
+.worktrees/
 
 # .opencode
 .opencode
