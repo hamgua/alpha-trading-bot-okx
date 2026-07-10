@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
 from typing import Any, Dict
@@ -22,6 +23,29 @@ class InstrumentSpec:
     lot_size: Decimal
     tick_size: Decimal
 
+    def __post_init__(self) -> None:
+        parts = self.inst_id.split("-")
+        if (
+            len(parts) != 3
+            or not parts[0]
+            or parts[1] != "USDT"
+            or parts[2] != "SWAP"
+            or self.inst_type != "SWAP"
+            or self.settle_currency != "USDT"
+        ):
+            raise ValueError("unsupported instrument metadata")
+        if self.contract_value_currency not in (self.base_currency, "USDT"):
+            raise ValueError("unsupported instrument metadata")
+        for value in (
+            self.contract_value,
+            self.contract_multiplier,
+            self.minimum_size,
+            self.lot_size,
+            self.tick_size,
+        ):
+            if not value.is_finite() or value <= 0:
+                raise ValueError("invalid instrument metadata")
+
     @classmethod
     def from_okx(cls, raw: Dict[str, Any]) -> "InstrumentSpec":
         return cls(
@@ -42,29 +66,41 @@ class InstrumentSpec:
 
     def normalize_size(self, amount: float) -> float:
         value = _decimal(amount)
-        if self.lot_size <= 0 or self.minimum_size <= 0:
-            raise ValueError("invalid instrument size metadata")
+        if not value.is_finite():
+            raise ValueError("amount must be finite")
         lots = (value / self.lot_size).to_integral_value(rounding=ROUND_FLOOR)
         normalized = lots * self.lot_size
         if normalized < self.minimum_size:
             raise ValueError("normalized size is below minimum")
-        return float(normalized)
+        return _finite_float(normalized, "normalized size")
 
     def normalize_price(self, price: float, rounding: str = "down") -> float:
         value = _decimal(price)
-        if self.tick_size <= 0:
-            raise ValueError("invalid instrument tick metadata")
+        if not value.is_finite():
+            raise ValueError("price must be finite")
         mode = ROUND_CEILING if rounding == "up" else ROUND_FLOOR
         ticks = (value / self.tick_size).to_integral_value(rounding=mode)
-        return float(ticks * self.tick_size)
+        return _finite_float(ticks * self.tick_size, "normalized price")
 
     def notional_usdt(self, amount: float, price: float) -> float:
         if self.inst_type != "SWAP" or self.settle_currency != "USDT":
             raise ValueError("unsupported instrument for USDT notional")
         contracts = _decimal(amount)
+        quote = _decimal(price)
+        if not contracts.is_finite() or not quote.is_finite():
+            raise ValueError("notional inputs must be finite")
         multiplier = self.contract_value * self.contract_multiplier
         if self.contract_value_currency == self.base_currency:
-            return float(contracts * multiplier * _decimal(price))
+            return _finite_float(contracts * multiplier * quote, "USDT notional")
         if self.contract_value_currency == "USDT":
-            return float(contracts * multiplier)
+            return _finite_float(contracts * multiplier, "USDT notional")
         raise ValueError("unsupported instrument contract value currency")
+
+
+def _finite_float(value: Decimal, label: str) -> float:
+    if not value.is_finite():
+        raise ValueError(f"{label} must be finite")
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"{label} must be finite")
+    return result

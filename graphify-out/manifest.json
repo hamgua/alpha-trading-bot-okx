@@ -48,8 +48,8 @@
     "hash": "0a4cdb8e230945ef25065bf6969c7209"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/models/instruments.py": {
-    "mtime": 1783681596.4092202,
-    "hash": "c55bb4f2a057e283a54a347670ff194e"
+    "mtime": 1783682233.0234442,
+    "hash": "03e757f342a4d9ba62284b357dce082d"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/stop_loss_manager.py": {
     "mtime": 1783680342.7463436,
@@ -508,8 +508,8 @@
     "hash": "cb00ccc6942f3c670a8f15c208b8f4f8"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_instrument_spec.py": {
-    "mtime": 1783681567.4307702,
-    "hash": "712d722281a1d4df0dd647828b7bab6a"
+    "mtime": 1783682189.111886,
+    "hash": "e385d973cdb126ea1bcf34478deb4d88"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_risk_params.py": {
     "mtime": 1783680342.8256538,
