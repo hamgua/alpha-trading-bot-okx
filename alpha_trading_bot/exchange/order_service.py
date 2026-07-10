@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import Any, Dict, Optional
 
-from .models.orders import OrderResult, OrderStatus, StopOrderResult
+from .models.orders import OrderIntent, OrderResult, OrderStatus, StopOrderResult
 from .okx_raw import (
     ensure_okx_success,
     first_data,
@@ -100,10 +100,12 @@ class OrderService:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> str:
         """创建订单（向后兼容，返回order_id）"""
         result = await self.create_order_with_status(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
         )
         return result.order_id
 
@@ -114,6 +116,8 @@ class OrderService:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> OrderResult:
         """
         创建订单并返回完整状态
@@ -141,7 +145,14 @@ class OrderService:
                 order = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: self._create_order_direct(
-                        method, symbol, side, amount, price, order_type
+                        method,
+                        symbol,
+                        side,
+                        amount,
+                        price,
+                        order_type,
+                        intent,
+                        position_side,
                     ),
                 )
             else:
@@ -190,6 +201,8 @@ class OrderService:
         amount: float,
         price: Optional[float],
         order_type: str,
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> Dict[str, Any]:
         """绕过 ccxt load_markets，直接调用 OKX 普通下单接口。"""
         params = {
@@ -201,6 +214,16 @@ class OrderService:
         }
         if order_type != "market" and price is not None:
             params["px"] = format_okx_number(price)
+
+        pos_mode = self._detect_pos_mode()
+        if pos_mode == self.POS_MODE_HEDGE:
+            if position_side not in {"long", "short"}:
+                raise ValueError("position_side is required in hedge mode")
+            params["posSide"] = position_side
+        if intent in {OrderIntent.CLOSE, OrderIntent.REDUCE}:
+            params["reduceOnly"] = "true"
+            if pos_mode != self.POS_MODE_HEDGE:
+                params["posSide"] = "net"
 
         response = method(params)
         self._ensure_okx_order_item_success(response, "place order")

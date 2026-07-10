@@ -21,6 +21,11 @@ from alpha_trading_bot.core.trading_state_machine import (
     TradingLifecycleState,
     derive_lifecycle_state,
 )
+from alpha_trading_bot.exchange.models.orders import (
+    OrderIntent,
+    OrderResult,
+    OrderStatus,
+)
 from alpha_trading_bot.exchange.order_service import OrderService
 
 
@@ -183,6 +188,114 @@ def test_order_service_raw_order_and_algo_params_are_stable() -> None:
         }
     ]
     assert algo == {"id": "algo-1", "info": {"algoId": "algo-1", "sCode": "0"}}
+
+
+def test_close_order_is_reduce_only_in_one_way_mode() -> None:
+    calls = []
+
+    class Exchange:
+        def private_get_account_config(self):
+            return {"code": "0", "data": [{"posMode": "net_mode"}]}
+
+    service = OrderService(Exchange(), "BTC/USDT:USDT")
+
+    service._create_order_direct(
+        lambda params: calls.append(params)
+        or {"code": "0", "data": [{"ordId": "close-1", "sCode": "0"}]},
+        "BTC/USDT:USDT",
+        "sell",
+        0.01,
+        None,
+        "market",
+        OrderIntent.CLOSE,
+        "long",
+    )
+
+    assert calls[0]["reduceOnly"] == "true"
+    assert calls[0]["posSide"] == "net"
+
+
+def test_reduce_order_uses_position_side_in_hedge_mode() -> None:
+    calls = []
+
+    class Exchange:
+        def private_get_account_config(self):
+            return {"code": "0", "data": [{"posMode": "long_short_mode"}]}
+
+    service = OrderService(Exchange(), "BTC/USDT:USDT")
+
+    service._create_order_direct(
+        lambda params: calls.append(params)
+        or {"code": "0", "data": [{"ordId": "reduce-1", "sCode": "0"}]},
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        None,
+        "market",
+        OrderIntent.REDUCE,
+        "short",
+    )
+
+    assert calls[0]["reduceOnly"] == "true"
+    assert calls[0]["posSide"] == "short"
+
+
+def test_open_order_uses_position_side_in_hedge_mode() -> None:
+    calls = []
+
+    class Exchange:
+        def private_get_account_config(self):
+            return {"code": "0", "data": [{"posMode": "long_short_mode"}]}
+
+    service = OrderService(Exchange(), "BTC/USDT:USDT")
+
+    service._create_order_direct(
+        lambda params: calls.append(params)
+        or {"code": "0", "data": [{"ordId": "open-1", "sCode": "0"}]},
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        None,
+        "market",
+        OrderIntent.OPEN,
+        "long",
+    )
+
+    assert calls[0]["posSide"] == "long"
+    assert "reduceOnly" not in calls[0]
+
+
+@pytest.mark.parametrize(
+    ("status", "filled_amount", "has_fill", "is_terminal"),
+    [
+        (OrderStatus.OPEN, 0.0, False, False),
+        (OrderStatus.OPEN, 0.01, True, False),
+        (OrderStatus.CLOSED, 0.01, True, True),
+        (OrderStatus.CANCELED, 0.0, False, True),
+        (OrderStatus.REJECTED, 0.0, False, True),
+        (OrderStatus.EXPIRED, 0.0, False, True),
+    ],
+)
+def test_order_result_fill_and_terminal_helpers(
+    status: OrderStatus,
+    filled_amount: float,
+    has_fill: bool,
+    is_terminal: bool,
+) -> None:
+    result = OrderResult(
+        order_id="ord-1",
+        status=status,
+        symbol="BTC/USDT:USDT",
+        side="buy",
+        order_type="market",
+        requested_amount=0.01,
+        filled_amount=filled_amount,
+        remaining_amount=0.01 - filled_amount,
+        average_price=100000.0,
+    )
+
+    assert result.has_fill is has_fill
+    assert result.is_terminal is is_terminal
 
 
 def test_position_and_state_persistence_golden_outputs(tmp_path) -> None:

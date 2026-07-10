@@ -14,7 +14,7 @@ from .account_service import AccountService, create_account_service
 from .instrument_service import InstrumentService
 from .market_data import MarketDataService, create_market_data_service
 from .models.instruments import InstrumentSpec
-from .models.orders import OrderResult, OrderStatus
+from .models.orders import OrderIntent, OrderResult, OrderStatus
 from .okx_raw import (
     ensure_okx_success,
     get_callable,
@@ -221,6 +221,8 @@ class ExchangeClient:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> str:
         """创建订单"""
         if self.test_mode:
@@ -232,7 +234,7 @@ class ExchangeClient:
             return simulated_id
 
         return await self._order_service.create_order(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
         )
 
     async def create_order_with_status(
@@ -242,6 +244,8 @@ class ExchangeClient:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> OrderResult:
         """创建订单并返回状态。"""
         if self.test_mode:
@@ -263,7 +267,7 @@ class ExchangeClient:
             )
 
         return await self._order_service.create_order_with_status(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
         )
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:

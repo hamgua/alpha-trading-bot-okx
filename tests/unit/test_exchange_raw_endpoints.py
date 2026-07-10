@@ -2,6 +2,7 @@
 
 import sys
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -196,6 +197,54 @@ async def test_order_service_uses_raw_order_endpoints(
         ("cancel", {"instId": "BTC-USDT-SWAP", "ordId": "ord-1"}),
         ("status", {"instId": "BTC-USDT-SWAP", "ordId": "ord-1"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_forwards_order_intent_and_position_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.client import ExchangeClient
+    from alpha_trading_bot.exchange.models.orders import (
+        OrderIntent,
+        OrderResult,
+        OrderStatus,
+    )
+
+    client = ExchangeClient(test_mode=False)
+    client._order_service = AsyncMock(
+        create_order_with_status=AsyncMock(
+            return_value=OrderResult(
+                order_id="close-1",
+                status=OrderStatus.CLOSED,
+                symbol="BTC/USDT:USDT",
+                side="sell",
+                order_type="market",
+                requested_amount=0.01,
+                filled_amount=0.01,
+                remaining_amount=0.0,
+                average_price=100000.0,
+            )
+        )
+    )
+
+    await client.create_order_with_status(
+        "BTC/USDT:USDT",
+        "sell",
+        0.01,
+        intent=OrderIntent.CLOSE,
+        position_side="long",
+    )
+
+    client._order_service.create_order_with_status.assert_awaited_once_with(
+        "BTC/USDT:USDT",
+        "sell",
+        0.01,
+        None,
+        "market",
+        OrderIntent.CLOSE,
+        "long",
+    )
 
 
 @pytest.mark.asyncio
