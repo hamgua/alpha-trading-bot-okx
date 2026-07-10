@@ -395,3 +395,61 @@ async def test_exchange_client_uses_raw_algo_order_history(
             "limit": "20",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_loads_instrument_metadata_for_order_arithmetic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange import client as client_module
+    from alpha_trading_bot.exchange.client import ExchangeClient
+
+    calls = []
+
+    class _Exchange:
+        def set_sandbox_mode(self, enabled):
+            calls.append(("sandbox", enabled))
+
+        def fetch_time(self):
+            calls.append(("time", None))
+            return 0
+
+        def public_get_public_instruments(self, params):
+            calls.append(("instruments", params))
+            return {
+                "code": "0",
+                "data": [
+                    {
+                        "instId": "BTC-USDT-SWAP",
+                        "instType": "SWAP",
+                        "settleCcy": "USDT",
+                        "ctVal": "0.01",
+                        "ctMult": "1",
+                        "ctValCcy": "BTC",
+                        "minSz": "0.01",
+                        "lotSz": "0.01",
+                        "tickSz": "0.1",
+                    }
+                ],
+            }
+
+    exchange = _Exchange()
+    monkeypatch.setattr(client_module.ccxt, "okx", lambda config: exchange)
+
+    client = ExchangeClient(symbol="BTC/USDT:USDT")
+    await client.initialize()
+
+    assert client.instrument_spec.inst_id == "BTC-USDT-SWAP"
+    assert client.normalize_order_size(0.019) == pytest.approx(0.01)
+    assert client.normalize_trigger_price(99999.96, "long") == pytest.approx(99999.9)
+    assert client.normalize_trigger_price(99999.96, "short") == pytest.approx(100000.0)
+    assert client.calculate_notional_usdt(2.0, 100000.0) == pytest.approx(2000.0)
+    assert calls == [
+        ("sandbox", True),
+        (
+            "instruments",
+            {"instType": "SWAP", "instId": "BTC-USDT-SWAP"},
+        ),
+        ("time", None),
+    ]
