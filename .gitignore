@@ -167,6 +167,7 @@ cache/
 # codex
 .codex
 .worktrees/
+.superpowers/
 
 # .opencode
 .opencode
