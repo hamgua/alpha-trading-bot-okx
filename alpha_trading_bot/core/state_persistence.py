@@ -21,6 +21,16 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+def resolve_state_data_dir(data_dir: Optional[Path] = None) -> Path:
+    """解析状态目录，显式参数优先于环境变量。"""
+    if data_dir is not None:
+        return Path(data_dir)
+    configured = os.getenv("TRADING_STATE_DIR", "").strip()
+    if configured:
+        return Path(configured)
+    return StatePersistence.DEFAULT_DATA_DIR
+
+
 @dataclass
 class PositionState:
     """持仓状态（用于持久化）"""
@@ -70,7 +80,7 @@ class StatePersistence:
         Args:
             data_dir: 数据存储目录，默认为项目根目录/data/trading_state/
         """
-        self.data_dir = Path(data_dir) if data_dir else self.DEFAULT_DATA_DIR
+        self.data_dir = resolve_state_data_dir(data_dir)
         self.state_file = self.data_dir / "trading_state.json"
         self.history_file = self.data_dir / "trade_history.json"
         self.backup_dir = self.data_dir / "backups"

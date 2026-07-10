@@ -16,6 +16,7 @@ from collections import deque
 from enum import Enum
 import json
 import os
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +78,7 @@ class PerformanceTracker:
     def __init__(
         self,
         max_trades: int = 500,
-        data_dir: str = "data_json",
+        data_dir: Optional[str] = None,
     ):
         """
         初始化追踪器
@@ -87,7 +88,16 @@ class PerformanceTracker:
             data_dir: 数据保存目录
         """
         self.max_trades = max_trades
-        self.data_dir = data_dir
+        if data_dir is not None:
+            resolved_data_dir = Path(data_dir)
+        else:
+            state_override = os.getenv("TRADING_STATE_DIR", "").strip()
+            resolved_data_dir = (
+                Path(state_override).parent / "adaptive-performance"
+                if state_override
+                else Path("data_json")
+            )
+        self.data_dir = str(resolved_data_dir)
 
         # 交易记录
         self._trades: deque[TradeRecord] = deque(maxlen=max_trades)
@@ -100,7 +110,7 @@ class PerformanceTracker:
         self._peak_value: float = 10000  # 假设初始资金
 
         # 确保数据目录存在
-        os.makedirs(data_dir, exist_ok=True)
+        os.makedirs(self.data_dir, exist_ok=True)
 
         # 加载历史数据
         self._load_history()

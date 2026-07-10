@@ -7,6 +7,15 @@ import asyncio
 import os
 from unittest.mock import patch
 
+
+@pytest.fixture(autouse=True)
+def isolate_trading_state(tmp_path, monkeypatch):
+    """每个测试使用独立状态目录，禁止污染运行时数据。"""
+    state_dir = tmp_path / "trading-state"
+    monkeypatch.setenv("TRADING_STATE_DIR", str(state_dir))
+    yield state_dir
+
+
 @pytest.fixture
 def mock_env_vars():
     """模拟环境变量"""
