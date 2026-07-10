@@ -72,6 +72,8 @@ class PositionManager:
                 self._entry_price = state.position.entry_price
                 self._stop_order_id = state.position.stop_order_id
                 self._last_stop_price = state.position.last_stop_price  # 恢复上次止损价
+                self._take_profit_order_id = state.position.take_profit_order_id
+                self._last_take_profit_price = state.position.last_take_profit_price
                 self._highest_price_since_entry = (
                     state.position.highest_price_since_entry
                 )  # 恢复做多最高价
@@ -83,6 +85,8 @@ class PositionManager:
                     f"[持久化恢复] 已恢复持仓: {self._position.symbol} "
                     f"{self._position.side} {self._position.amount}@{self._position.entry_price}, "
                     f"止损单: {self._stop_order_id}, 上次止损价: {self._last_stop_price}, "
+                    f"止盈单: {self._take_profit_order_id}, "
+                    f"上次止盈价: {self._last_take_profit_price}, "
                     f"做多最高价: {self._highest_price_since_entry}, 做空最低价: {self._lowest_price_since_entry}"
                 )
         except Exception as e:
@@ -261,6 +265,8 @@ class PositionManager:
                 entry_price=position_data["entry_price"],
                 stop_order_id=self._stop_order_id,
                 last_stop_price=self._last_stop_price,
+                take_profit_order_id=self._take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
             )
@@ -517,6 +523,8 @@ class PositionManager:
                 entry_price=self._entry_price,
                 stop_order_id=stop_order_id,
                 last_stop_price=self._last_stop_price,
+                take_profit_order_id=self._take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
             )
@@ -538,6 +546,10 @@ class PositionManager:
                 side=self._position.side,
                 amount=self._position.amount,
                 entry_price=self._entry_price,
+                stop_order_id=self._stop_order_id,
+                last_stop_price=self._last_stop_price,
+                take_profit_order_id=self._take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
             )
@@ -625,6 +637,8 @@ class PositionManager:
             entry_price=entry_price,
             stop_order_id=self._stop_order_id,
             last_stop_price=self._last_stop_price,
+            take_profit_order_id=self._take_profit_order_id,
+            last_take_profit_price=self._last_take_profit_price,
             highest_price_since_entry=self._highest_price_since_entry,
             lowest_price_since_entry=self._lowest_price_since_entry,
         )

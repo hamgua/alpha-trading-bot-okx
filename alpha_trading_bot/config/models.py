@@ -344,6 +344,9 @@ class StopLossConfig:
         0.001  # 止损价容错比例 (如 0.001 = 0.1%)
     )
     take_profit_percent: float = 0.06  # 止盈比例 (如 0.06 = 6%)
+    take_profit_min_notional: float = (
+        0.0  # 启用止盈单的最小名义金额，0 表示不限制
+    )
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
     price_vs_entry_tolerance_percent: float = (
@@ -363,6 +366,10 @@ class StopLossConfig:
             errors.append(f"止损容错比例 {self.stop_loss_tolerance_percent} 不能为负数")
         if self.take_profit_percent <= 0 or self.take_profit_percent > 1:
             errors.append(f"止盈比例 {self.take_profit_percent} 不在有效范围 (0-1)")
+        if self.take_profit_min_notional < 0:
+            errors.append(
+                f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数"
+            )
         if self.price_vs_entry_tolerance_percent < 0:
             errors.append(
                 f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数"
@@ -463,6 +470,9 @@ class Config:
                     os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.0002")
                 ),
                 take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.06")),
+                take_profit_min_notional=float(
+                    os.getenv("TAKE_PROFIT_MIN_NOTIONAL", "0")
+                ),
                 stop_loss_entry_based=os.getenv(
                     "STOP_LOSS_ENTRY_BASED", "true"
                 ).lower()

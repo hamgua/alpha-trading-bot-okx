@@ -891,6 +891,12 @@ class AdaptiveTradingBot:
                         stop_price=stop_loss_price,
                     )
                     logger.info(f"[执行] 止损单已设置: {stop_loss_price}")
+                    await self._maybe_create_take_profit_order(
+                        position_side=position_side,
+                        amount=filled_amount,
+                        entry_price=entry_price,
+                        symbol=symbol,
+                    )
                 else:
                     logger.warning("[执行] 止损单创建失败")
                     await self._close_position_without_stop_loss(
@@ -1033,6 +1039,73 @@ class AdaptiveTradingBot:
             "amount": filled_amount,
             "average_price": average_price,
         }
+
+    async def _maybe_create_take_profit_order(
+        self,
+        position_side: str,
+        amount: float,
+        entry_price: float,
+        symbol: str,
+    ) -> None:
+        """按最小名义金额门槛创建止盈单。"""
+        if self._exchange is None or self._take_profit_calculator is None:
+            return
+
+        notional = amount * entry_price
+        min_notional = self.config.stop_loss.take_profit_min_notional
+        if min_notional > 0 and notional < min_notional:
+            logger.info(
+                "[止盈保护] 名义金额过小，跳过止盈单: "
+                f"notional={notional:.4f} < threshold={min_notional:.4f}"
+            )
+            return
+
+        take_profit_price = self._take_profit_calculator.calculate(
+            entry_price, position_side
+        )
+        if take_profit_price <= 0:
+            logger.warning("[止盈保护] 止盈价无效，跳过止盈单")
+            return
+
+        close_side = "buy" if position_side == "short" else "sell"
+        create_take_profit = getattr(self._exchange, "create_take_profit", None)
+        if not callable(create_take_profit):
+            logger.warning(
+                "[止盈保护] 交易所客户端不支持止盈单，跳过"
+            )
+            return
+
+        try:
+            result = await create_take_profit(
+                symbol=symbol,
+                side=close_side,
+                amount=amount,
+                take_profit_price=take_profit_price,
+            )
+        except Exception as e:
+            logger.warning(f"[止盈保护] 创建止盈单失败: {e}")
+            return
+
+        order_id = ""
+        if isinstance(result, str):
+            order_id = result
+        else:
+            is_success = getattr(result, "is_success", True)
+            if not is_success:
+                logger.warning("[止盈保护] 止盈单未成功创建")
+                return
+            order_id = str(getattr(result, "order_id", "") or "")
+
+        if not order_id:
+            logger.warning("[止盈保护] 止盈单ID为空，跳过记录")
+            return
+
+        self.position_manager.set_take_profit_order(order_id, take_profit_price)
+        logger.info(
+            f"[止盈保护] 止盈单已设置: id={order_id}, "
+            f"price={take_profit_price:.4f}, "
+            f"notional={notional:.4f}"
+        )
 
     async def _close_position_without_stop_loss(
         self, position_side: str, amount: float, current_price: float

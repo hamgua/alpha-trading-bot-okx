@@ -100,6 +100,8 @@ class StatePersistence:
         stop_order_id: Optional[str] = None,
         unrealized_pnl: float = 0.0,
         last_stop_price: float = 0.0,
+        take_profit_order_id: Optional[str] = None,
+        last_take_profit_price: float = 0.0,
         highest_price_since_entry: float = 0.0,
         lowest_price_since_entry: float = 0.0,
     ) -> bool:
@@ -132,6 +134,8 @@ class StatePersistence:
                 unrealized_pnl=unrealized_pnl,
                 stop_order_id=stop_order_id,
                 last_stop_price=last_stop_price,
+                take_profit_order_id=take_profit_order_id,
+                last_take_profit_price=last_take_profit_price,
                 highest_price_since_entry=highest_price_since_entry,
                 lowest_price_since_entry=lowest_price_since_entry,
                 updated_at=datetime.now().isoformat(),
@@ -231,6 +235,10 @@ class StatePersistence:
                         unrealized_pnl=pos_data.get("unrealized_pnl", 0),
                         stop_order_id=pos_data.get("stop_order_id"),
                         last_stop_price=pos_data.get("last_stop_price", 0),
+                        take_profit_order_id=pos_data.get("take_profit_order_id"),
+                        last_take_profit_price=pos_data.get(
+                            "last_take_profit_price", 0
+                        ),
                         highest_price_since_entry=pos_data.get(
                             "highest_price_since_entry", 0.0
                         ),

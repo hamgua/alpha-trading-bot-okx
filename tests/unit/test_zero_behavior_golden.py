@@ -205,10 +205,10 @@ def test_position_and_state_persistence_golden_outputs(tmp_path) -> None:
     assert state.position is not None
     assert state.position.symbol == "BTC/USDT:USDT"
     assert state.position.side == "long"
-    assert state.position.stop_order_id is None
-    assert state.position.take_profit_order_id is None
-    assert state.position.last_stop_price == 0.0
-    assert state.position.last_take_profit_price == 0.0
+    assert state.position.stop_order_id == "sl-1"
+    assert state.position.take_profit_order_id == "tp-1"
+    assert state.position.last_stop_price == 99950.0
+    assert state.position.last_take_profit_price == 106000.0
 
 
 def test_scheduler_next_cycle_seconds_golden_output() -> None:
