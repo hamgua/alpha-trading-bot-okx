@@ -248,6 +248,58 @@ async def test_exchange_client_forwards_order_intent_and_position_side(
 
 
 @pytest.mark.asyncio
+async def test_exchange_client_forwards_confirmation_settings_to_order_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.client import ExchangeClient
+    from alpha_trading_bot.exchange.models.orders import (
+        OrderIntent,
+        OrderResult,
+        OrderStatus,
+    )
+
+    client = ExchangeClient(
+        test_mode=False,
+        order_confirm_timeout_seconds=7.5,
+        order_confirm_poll_interval_seconds=0.4,
+    )
+    client._order_service = AsyncMock(
+        create_confirmed_market_order=AsyncMock(
+            return_value=OrderResult(
+                order_id="open-1",
+                status=OrderStatus.CLOSED,
+                symbol="BTC/USDT:USDT",
+                side="buy",
+                order_type="market",
+                requested_amount=0.01,
+                filled_amount=0.01,
+                remaining_amount=0.0,
+                average_price=100000.0,
+            )
+        )
+    )
+
+    await client.create_confirmed_market_order(
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        OrderIntent.OPEN,
+        "long",
+    )
+
+    client._order_service.create_confirmed_market_order.assert_awaited_once_with(
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        OrderIntent.OPEN,
+        "long",
+        7.5,
+        0.4,
+    )
+
+
+@pytest.mark.asyncio
 async def test_order_service_uses_raw_algo_order_endpoints(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -5,6 +5,7 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any, Dict, Optional
 
 from .models.orders import OrderIntent, OrderResult, OrderStatus, StopOrderResult
@@ -192,6 +193,82 @@ class OrderService:
                 average_price=0,
                 error_message=str(e),
             )
+
+    @staticmethod
+    def _preserve_observed_fill(
+        previous: OrderResult, observed: OrderResult
+    ) -> OrderResult:
+        """在后续查询缺少成交字段时保留已确认成交。"""
+        if not observed.order_id:
+            return previous
+
+        requested_amount = observed.requested_amount or previous.requested_amount
+        if observed.filled_amount >= previous.filled_amount:
+            average_price = observed.average_price or previous.average_price
+            return replace(
+                observed,
+                requested_amount=requested_amount,
+                average_price=average_price,
+            )
+
+        return replace(
+            observed,
+            requested_amount=requested_amount,
+            filled_amount=previous.filled_amount,
+            remaining_amount=max(observed.remaining_amount, previous.remaining_amount),
+            average_price=previous.average_price,
+        )
+
+    async def create_confirmed_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        intent: OrderIntent,
+        position_side: str,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
+    ) -> OrderResult:
+        """提交一次市价单，并轮询到终态或撤销超时剩余数量。"""
+        result = await self.create_order_with_status(
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            order_type="market",
+            intent=intent,
+            position_side=position_side,
+        )
+        if not result.order_id or result.is_rejected or result.is_terminal:
+            return result
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        latest = result
+
+        # 市价单只能提交一次；确认阶段仅查询同一订单，超时后尝试撤销剩余数量。
+        while True:
+            observed = await self.get_order_status(result.order_id, symbol)
+            latest = self._preserve_observed_fill(latest, observed)
+            if latest.is_terminal:
+                return latest
+
+            remaining_seconds = deadline - loop.time()
+            if remaining_seconds <= 0:
+                break
+            await asyncio.sleep(min(poll_interval_seconds, remaining_seconds))
+
+        try:
+            await self.cancel_order(result.order_id, symbol)
+        except Exception as e:
+            logger.error(f"[订单确认] 超时撤单失败: ID={result.order_id}, 错误={e}")
+
+        try:
+            final = await self.get_order_status(result.order_id, symbol)
+        except Exception as e:
+            logger.error(f"[订单确认] 撤单后查询失败: ID={result.order_id}, 错误={e}")
+            return latest
+
+        return self._preserve_observed_fill(latest, final)
 
     def _create_order_direct(
         self,

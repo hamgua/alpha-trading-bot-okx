@@ -122,6 +122,8 @@ class TradingConfig:
     test_mode: bool = True
     real_trading_confirmed: bool = False
     runtime_environment: str = "dev"
+    order_confirm_timeout_seconds: float = 5.0
+    order_confirm_poll_interval_seconds: float = 0.25
 
     VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
     LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
@@ -148,6 +150,15 @@ class TradingConfig:
             errors.append(f"交易周期 {self.cycle_minutes} 必须大于0")
         if self.random_offset_range < 0:
             errors.append(f"随机偏移范围 {self.random_offset_range} 不能为负数")
+        if self.order_confirm_timeout_seconds <= 0:
+            errors.append("订单确认超时必须大于0")
+        if self.order_confirm_poll_interval_seconds <= 0:
+            errors.append("订单确认轮询间隔必须大于0")
+        if (
+            self.order_confirm_poll_interval_seconds
+            > self.order_confirm_timeout_seconds
+        ):
+            errors.append("订单确认轮询间隔不能大于确认超时")
 
         if self.runtime_environment not in self.VALID_RUNTIME_ENVIRONMENTS:
             errors.append(
@@ -462,6 +473,12 @@ class Config:
                 runtime_environment=os.getenv(
                     "RUNTIME_ENVIRONMENT", os.getenv("RUNTIME_ENV", "dev")
                 ).lower(),
+                order_confirm_timeout_seconds=float(
+                    os.getenv("ORDER_CONFIRM_TIMEOUT_SECONDS", "5")
+                ),
+                order_confirm_poll_interval_seconds=float(
+                    os.getenv("ORDER_CONFIRM_POLL_INTERVAL_SECONDS", "0.25")
+                ),
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(

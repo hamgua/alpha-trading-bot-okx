@@ -221,6 +221,12 @@ class AdaptiveTradingBot:
                 allow_short_selling=self.config.trading.allow_short_selling,
                 test_mode=self.config.trading.test_mode,
                 max_position_usage=self.config.exchange.max_position_usage,
+                order_confirm_timeout_seconds=(
+                    self.config.trading.order_confirm_timeout_seconds
+                ),
+                order_confirm_poll_interval_seconds=(
+                    self.config.trading.order_confirm_poll_interval_seconds
+                ),
             )
             await self._exchange.initialize()
             await self._exchange.set_leverage(self.config.exchange.leverage)
