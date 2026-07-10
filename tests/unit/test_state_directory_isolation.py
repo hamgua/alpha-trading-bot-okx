@@ -1,7 +1,12 @@
+import inspect
 from pathlib import Path
 
 from alpha_trading_bot.ai.adaptive.performance_tracker import PerformanceTracker
 from alpha_trading_bot.core.state_persistence import StatePersistence
+
+
+def test_performance_tracker_constructor_returns_none():
+    assert inspect.signature(PerformanceTracker.__init__).return_annotation is None
 
 
 def test_state_persistence_uses_environment_override(tmp_path, monkeypatch):

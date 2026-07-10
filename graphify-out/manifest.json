@@ -1,874 +1,802 @@
 {
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/main.py": {
-    "mtime": 1779253136.477599,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/main.py": {
+    "mtime": 1783680342.7845967,
     "hash": "9427b786549d58e7869d37b6a2419427"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/__init__.py": {
-    "mtime": 1774321626.5199344,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/__init__.py": {
+    "mtime": 1783680342.7039268,
     "hash": "3b273fca7d3f348bf404f417db597e7b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/main.py": {
-    "mtime": 1774321626.560102,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/main.py": {
+    "mtime": 1783680342.7563148,
     "hash": "94ab4b6503a664d65fdb50402eebc078"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/okx_raw.py": {
-    "mtime": 1781164784.612477,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/okx_raw.py": {
+    "mtime": 1783680342.7549715,
     "hash": "cbcba3b51acaf40ee49b0a7d4b2ff712"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/order_service.py": {
-    "mtime": 1783511455.9802403,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/order_service.py": {
+    "mtime": 1783680342.755297,
     "hash": "39dccfe86fbb1e9f85d195ee20b3d9f4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/client.py": {
-    "mtime": 1783511469.014086,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/client.py": {
+    "mtime": 1783680342.7524464,
     "hash": "964845b6fd65ec8ba6da77c763fa778e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/account_service.py": {
-    "mtime": 1782824091.9329844,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/account_service.py": {
+    "mtime": 1783680342.752062,
     "hash": "d4ce50f222998c5f7b371b4590e9d74d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/__init__.py": {
-    "mtime": 1774321626.5568492,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/__init__.py": {
+    "mtime": 1783680342.7517164,
     "hash": "bc4e69e9475cb8e2e92eb19f24264f28"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/market_data.py": {
-    "mtime": 1781161730.399408,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/market_data.py": {
+    "mtime": 1783680342.7532873,
     "hash": "2c77a88bf0819ba054e7029e1bb15bdc"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/raw_executor.py": {
-    "mtime": 1781169008.203807,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/raw_executor.py": {
+    "mtime": 1783680342.7557237,
     "hash": "a04864cfc60010228aee849ab698ff61"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/models/__init__.py": {
-    "mtime": 1774321626.5588813,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/models/__init__.py": {
+    "mtime": 1783680342.7536614,
     "hash": "997069c5aed824ec9448cd2f208e3c0e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/exchange/models/orders.py": {
-    "mtime": 1774321626.5591486,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/exchange/models/orders.py": {
+    "mtime": 1783680342.7541606,
     "hash": "0a4cdb8e230945ef25065bf6969c7209"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/stop_loss_manager.py": {
-    "mtime": 1779253136.4762223,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/stop_loss_manager.py": {
+    "mtime": 1783680342.7463436,
     "hash": "e8c00b5f2d06eb2dc778863d7f1cbab6"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/ml_optimization_task.py": {
-    "mtime": 1774321626.5522227,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/ml_optimization_task.py": {
+    "mtime": 1783680342.7427835,
     "hash": "c0a39799946a1efd21649a31043b0347"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/take_profit_calculator.py": {
-    "mtime": 1779253136.4767058,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/take_profit_calculator.py": {
+    "mtime": 1783680342.7503617,
     "hash": "76d1198d03547861dd205faddf5a95bc"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/strategy_weight_manager.py": {
-    "mtime": 1774321626.5555747,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/strategy_weight_manager.py": {
+    "mtime": 1783680342.748332,
     "hash": "112c6ddb1a28c66f3f847adad44a87b7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/trading_scheduler.py": {
-    "mtime": 1781169008.2030547,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/trading_scheduler.py": {
+    "mtime": 1783680342.7505972,
     "hash": "4e9f1597c5c6023b00273da9b370c4c7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_recovery.py": {
-    "mtime": 1782824091.9327557,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/position_recovery.py": {
+    "mtime": 1783680342.7451105,
     "hash": "fd2abea164501102d38fdb1f33764a4f"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/adaptive_stop_loss.py": {
-    "mtime": 1781697520.35163,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/adaptive_stop_loss.py": {
+    "mtime": 1783680342.7388074,
     "hash": "7371579e73ffed72e0089ee062f1d33d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/__init__.py": {
-    "mtime": 1774321626.54931,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/__init__.py": {
+    "mtime": 1783680342.7375689,
     "hash": "b5de52487d1b5ae955a257f52486b121"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/decision_engine.py": {
-    "mtime": 1783511441.859015,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/decision_engine.py": {
+    "mtime": 1783680342.7398467,
     "hash": "3398569c3d8d66bae2aa61d2ac9dc3aa"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_close_audit.py": {
-    "mtime": 1781169008.2022135,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/position_close_audit.py": {
+    "mtime": 1783680342.7438757,
     "hash": "235ab908ba52c73467c8c983880a0c2e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_manager.py": {
-    "mtime": 1783656974.4885685,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/position_manager.py": {
+    "mtime": 1783680342.7447371,
     "hash": "4bf8dc08502e500204b309550a83cf4e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/bot.py": {
-    "mtime": 1782824091.9325304,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/bot.py": {
+    "mtime": 1783680342.7391584,
     "hash": "ecc81424534952c1c8c119b9711e1fbd"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/signal_processor.py": {
-    "mtime": 1779253136.4757428,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/signal_processor.py": {
+    "mtime": 1783680342.7456448,
     "hash": "bccd9a86691c47cbf890af8c7d9e0075"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/cycle_timing.py": {
-    "mtime": 1781799454.8351452,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/cycle_timing.py": {
+    "mtime": 1783680342.7394922,
     "hash": "078e1b5981f7ed677f78db71c2068042"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/adaptive_bot.py": {
-    "mtime": 1783656965.324421,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/adaptive_bot.py": {
+    "mtime": 1783680342.7383654,
     "hash": "c934be1aab8b93fcbbc91e58b538b7bb"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/exceptions.py": {
-    "mtime": 1776075557.8557446,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/exceptions.py": {
+    "mtime": 1783680342.7403011,
     "hash": "e7edbeb9783092c9e75463c72bf4fd96"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/state_persistence.py": {
-    "mtime": 1783656859.4639137,
-    "hash": "5c6f85d0984b4b526b319b691b11ff6b"
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/state_persistence.py": {
+    "mtime": 1783680762.4577577,
+    "hash": "17af3f159ee5c03e336a22ff29a4a685"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/param_applier.py": {
-    "mtime": 1781170272.638149,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/param_applier.py": {
+    "mtime": 1783680342.7430806,
     "hash": "10e75f2a6047a086c6fe03271614c727"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/trading_state_machine.py": {
-    "mtime": 1781169008.2032418,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/trading_state_machine.py": {
+    "mtime": 1783680342.750973,
     "hash": "27c5effe946f954b764b5a37b5bcaa28"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/parameter_manager.py": {
-    "mtime": 1781170272.6364903,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/parameter_manager.py": {
+    "mtime": 1783680342.7412941,
     "hash": "d74c766da4a17b2ab87c75fb8f1b9ffe"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/market_regime_manager.py": {
-    "mtime": 1781170272.6361828,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/market_regime_manager.py": {
+    "mtime": 1783680342.7410462,
     "hash": "d2a460a0c6f8713eada97bf3c691af0d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/__init__.py": {
-    "mtime": 1776072332.3648567,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/__init__.py": {
+    "mtime": 1783680342.740568,
     "hash": "7fac16a44d9f978fa957b791a1890fc5"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/strategy_manager.py": {
-    "mtime": 1781170272.6376889,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/strategy_manager.py": {
+    "mtime": 1783680342.7423043,
     "hash": "cf047592ac69c6e88d664064bc2933aa"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/risk_manager.py": {
-    "mtime": 1781170369.5266135,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/risk_manager.py": {
+    "mtime": 1783680342.7416568,
     "hash": "5476379cbd50f1133890b70d05e94e8c"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/learning_manager.py": {
-    "mtime": 1781170272.6358123,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/core/managers/learning_manager.py": {
+    "mtime": 1783680342.740881,
     "hash": "405cd05470b6cb36f16cae5731c8d712"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/models.py": {
-    "mtime": 1783656956.3858633,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/config/models.py": {
+    "mtime": 1783680342.7350252,
     "hash": "44f2870211d5eae5d58eec6d251115d2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/thresholds.py": {
-    "mtime": 1781076461.5173614,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/config/thresholds.py": {
+    "mtime": 1783680342.7359264,
     "hash": "27d2fbbe9e85d66c9bec747550aec7ea"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/__init__.py": {
-    "mtime": 1774321626.5484233,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/config/__init__.py": {
+    "mtime": 1783680342.7346766,
     "hash": "1210dfe359103412edf0409d40493a8d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/formatters.py": {
-    "mtime": 1774321626.5610778,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/formatters.py": {
+    "mtime": 1783680342.757688,
     "hash": "0af0139f314b777017d6279145212270"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/technical.py": {
-    "mtime": 1774321626.5615685,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/technical.py": {
+    "mtime": 1783680342.7583764,
     "hash": "8cf37661345e97aec0ddffef4cb66957"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/__init__.py": {
-    "mtime": 1777004733.6276903,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/__init__.py": {
+    "mtime": 1783680342.7568066,
     "hash": "6e3f3b2a2895e63eec5b18c536903895"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/observability.py": {
-    "mtime": 1777003812.8052087,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/observability.py": {
+    "mtime": 1783680342.7580101,
     "hash": "33fe3aa7a367dd8f35a7106afe19cee3"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/technical/trend.py": {
-    "mtime": 1774321626.5629385,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/technical/trend.py": {
+    "mtime": 1783680342.7594664,
     "hash": "3ee861a5cf18fd606bbbe378f64c3da3"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/technical/__init__.py": {
-    "mtime": 1774961633.380552,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/technical/__init__.py": {
+    "mtime": 1783680342.7587347,
     "hash": "826f7a687e3f2e60e62b1dbc8cee64d2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/technical/momentum.py": {
-    "mtime": 1774321626.5626793,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/technical/momentum.py": {
+    "mtime": 1783680342.7589226,
     "hash": "22dcac137314740736e63445d3731784"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/utils/technical/volatility.py": {
-    "mtime": 1780834851.7988586,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/utils/technical/volatility.py": {
+    "mtime": 1783680342.7599363,
     "hash": "1f61f493ccdbcaffb36ecf6181c75b35"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/sustained_decline_detector.py": {
-    "mtime": 1781173598.4950361,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/sustained_decline_detector.py": {
+    "mtime": 1783680342.7333233,
     "hash": "12ef14b315bf02772bb25c80c2206983"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive_buy_condition.py": {
-    "mtime": 1781170369.18598,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive_buy_condition.py": {
+    "mtime": 1783680342.7092507,
     "hash": "053a57d5285787d65467ddaa4ae434b1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/integrator.py": {
-    "mtime": 1783509233.007837,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/integrator.py": {
+    "mtime": 1783680342.7174413,
     "hash": "c453cf714f4d32af66ef630f848aa604"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/prompt_context.py": {
-    "mtime": 1774321626.544942,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/prompt_context.py": {
+    "mtime": 1783680342.7271461,
     "hash": "f57f325190db3c84897960e40668fce1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/config_manager.py": {
-    "mtime": 1780980849.7037601,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/config_manager.py": {
+    "mtime": 1783680342.7124918,
     "hash": "023b6f8607e6fae37c22486864ae1754"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/prompt_builder.py": {
-    "mtime": 1780980849.7061477,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/prompt_builder.py": {
+    "mtime": 1783680342.7263107,
     "hash": "a1b87091c102a4b20bed0e12b7fff733"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/signal_optimizer.py": {
-    "mtime": 1781170272.633456,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/signal_optimizer.py": {
+    "mtime": 1783680342.732511,
     "hash": "6fc7c45567e37d9908349927ee86938e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/client.py": {
-    "mtime": 1782811543.0940356,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/client.py": {
+    "mtime": 1783680342.7121923,
     "hash": "e0a2510ee0f226d0679d66bdc5812c8f"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/backtest_validator.py": {
-    "mtime": 1774321626.527536,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/backtest_validator.py": {
+    "mtime": 1783680342.709998,
     "hash": "2887fce625ab68472d7934e9582a1551"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/__init__.py": {
-    "mtime": 1774321626.5208035,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/__init__.py": {
+    "mtime": 1783680342.7044554,
     "hash": "6b20be5bbe4dcfb00708bfc435645c75"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/prompt_optimizer.py": {
-    "mtime": 1774321626.5452864,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/prompt_optimizer.py": {
+    "mtime": 1783680342.729389,
     "hash": "d880db726047ed85545820d01f45ad75"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/risk_reward_calculator.py": {
-    "mtime": 1780293442.1244092,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/risk_reward_calculator.py": {
+    "mtime": 1783680342.7322214,
     "hash": "06da8f635a2177f6bd55f2f8d4cbac17"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/high_price_buy_optimizer.py": {
-    "mtime": 1781170369.2527025,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/high_price_buy_optimizer.py": {
+    "mtime": 1783680342.716956,
     "hash": "e5a0ad87cb21ea68b9b36a59813cc801"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/providers.py": {
-    "mtime": 1779158982.0877955,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/providers.py": {
+    "mtime": 1783680342.730759,
     "hash": "5635372f8cb01763f157e61fc3ff6f26"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/integrator_config.py": {
-    "mtime": 1780283993.0013041,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/integrator_config.py": {
+    "mtime": 1783680342.7182603,
     "hash": "e22f732861f56c9e1a548fa8a975fa6d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/dynamic_sell_condition.py": {
-    "mtime": 1780980849.7041223,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/dynamic_sell_condition.py": {
+    "mtime": 1783680342.7129688,
     "hash": "5ebda666cf8aee87c6505aefea3efa99"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/provider_utils.py": {
-    "mtime": 1776850917.4176295,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/provider_utils.py": {
+    "mtime": 1783680342.7302876,
     "hash": "cd2896156c7fa0fb2f25a7fe65e0b39d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/trend_reversal_detector.py": {
-    "mtime": 1780979514.3829758,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/trend_reversal_detector.py": {
+    "mtime": 1783680342.7336838,
     "hash": "beab823ab796aeeb0c5649fc5907f7a3"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/response_parser.py": {
-    "mtime": 1779697139.038051,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/response_parser.py": {
+    "mtime": 1783680342.731177,
     "hash": "6332c0d6212daa87ee4d7279f40fd95a"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/market_structure.py": {
-    "mtime": 1781170369.5022595,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/market_structure.py": {
+    "mtime": 1783680342.718729,
     "hash": "9e289d87c807ef4f8e4a8ab70ccdf428"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/btc_price_detector.py": {
-    "mtime": 1774321626.5284147,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/btc_price_detector.py": {
+    "mtime": 1783680342.711339,
     "hash": "1cf5f127c0bcede4cf189f404e115ee0"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/weighted.py": {
-    "mtime": 1776851388.8547537,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/weighted.py": {
+    "mtime": 1783680342.7165997,
     "hash": "b7a0228048e3da57788cc702371db7c7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/confidence.py": {
-    "mtime": 1776840162.8274102,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/confidence.py": {
+    "mtime": 1783680342.715123,
     "hash": "35011c9286c71725473d2e8d255aa1c9"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/__init__.py": {
-    "mtime": 1774321626.5311217,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/__init__.py": {
+    "mtime": 1783680342.7140923,
     "hash": "eadac4bcc3a28f2b7d20c2526a17c956"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/majority.py": {
-    "mtime": 1776917046.3399122,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/majority.py": {
+    "mtime": 1783680342.716051,
     "hash": "1ee2ea1230670f6d21a698e138b4675b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/consensus.py": {
-    "mtime": 1776841393.5604193,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/consensus.py": {
+    "mtime": 1783680342.715485,
     "hash": "ca9fe24eb18218888f1c4fcfab268a0e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/consensus_boosted.py": {
-    "mtime": 1780995867.4909306,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/consensus_boosted.py": {
+    "mtime": 1783680342.715769,
     "hash": "cb930e56c84206a98d2ea0e30905f9bb"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/fusion/base.py": {
-    "mtime": 1776840064.596012,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/fusion/base.py": {
+    "mtime": 1783680342.7143881,
     "hash": "320a564f5ce52d84e988a50428b67ddf"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/optimizer/bayesian_optimizer.py": {
-    "mtime": 1776849866.5371418,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/optimizer/bayesian_optimizer.py": {
+    "mtime": 1783680342.7256842,
     "hash": "aa52bcfa3c7ca658b18d44528c748d4b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/optimizer/__init__.py": {
-    "mtime": 1774321626.5426304,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/optimizer/__init__.py": {
+    "mtime": 1783680342.725014,
     "hash": "f5175c6d72563076379fca22a556f1d0"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/optimizer/backtest_engine.py": {
-    "mtime": 1774321626.5429575,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/optimizer/backtest_engine.py": {
+    "mtime": 1783680342.7252667,
     "hash": "f638f8aecf7a617147513a34fd54d9f8"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/optimizer/config_updater.py": {
-    "mtime": 1777020715.9843364,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/optimizer/config_updater.py": {
+    "mtime": 1783680342.7259624,
     "hash": "2965e792cae66442a737161e034f3011"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/ab_test_framework.py": {
-    "mtime": 1777020656.1426768,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/ab_test_framework.py": {
+    "mtime": 1783680342.7198284,
     "hash": "95c4502da8526b8c2074a61fe8ebdbdc"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/monitoring_dashboard.py": {
-    "mtime": 1777021833.5279408,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/monitoring_dashboard.py": {
+    "mtime": 1783680342.7222953,
     "hash": "dfa47d41aa4d5674ba9089011ce82df7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/adaptive_weight_optimizer.py": {
-    "mtime": 1776852410.5020518,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/adaptive_weight_optimizer.py": {
+    "mtime": 1783680342.720887,
     "hash": "5dfa4c678e98d847e504ee8d90afa2ba"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/learning_integrator.py": {
-    "mtime": 1776852556.4771934,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/learning_integrator.py": {
+    "mtime": 1783680342.7214475,
     "hash": "9c6d4a93d986cfefd2df15da7805c340"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/signal_backtest.py": {
-    "mtime": 1776852500.991099,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/signal_backtest.py": {
+    "mtime": 1783680342.723014,
     "hash": "61689e72624e27e988bc6c52d81fe6c2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/__init__.py": {
-    "mtime": 1774321626.5368273,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/__init__.py": {
+    "mtime": 1783680342.7190979,
     "hash": "23ca20282285a34a78e2901322a16a31"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/weight_optimizer.py": {
-    "mtime": 1777020703.953204,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/weight_optimizer.py": {
+    "mtime": 1783680342.7244868,
     "hash": "5b405939cf57438e3476fb2ee9015c3e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/trend_detector.py": {
-    "mtime": 1774321626.5418022,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/trend_detector.py": {
+    "mtime": 1783680342.7238386,
     "hash": "7ae0443c373953f6a4a4c755d5c66b6d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/performance_tracker.py": {
-    "mtime": 1781094653.1281078,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/performance_tracker.py": {
+    "mtime": 1783680342.7227035,
     "hash": "c69d76dbcd0c2dd1a1fc8d9313af2b0d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/adaptive_fusion.py": {
-    "mtime": 1776849727.924763,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/adaptive_fusion.py": {
+    "mtime": 1783680342.7203343,
     "hash": "50f8f11f6f7c561eeb2d26a962d46955"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/ml/ml_data_manager.py": {
-    "mtime": 1776852452.3225317,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/ml/ml_data_manager.py": {
+    "mtime": 1783680342.7219293,
     "hash": "81e6858ae9ed16b1d4b415efbdfbdfe1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/market_regime.py": {
-    "mtime": 1780979514.3791454,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/market_regime.py": {
+    "mtime": 1783680342.7059226,
     "hash": "feb3e36532b8d1cb00cf7e0c2783ac53"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/strategy_library.py": {
-    "mtime": 1780979514.3800747,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/strategy_library.py": {
+    "mtime": 1783680342.7083452,
     "hash": "3017e0f7fdb4e00589b9bc97937b2fff"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/parameter_manager.py": {
-    "mtime": 1781170272.6290307,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/parameter_manager.py": {
+    "mtime": 1783680342.7067258,
     "hash": "669ac78eef29bfbb691cb3b41bee43ab"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/__init__.py": {
-    "mtime": 1774321626.521712,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/__init__.py": {
+    "mtime": 1783680342.7053592,
     "hash": "b346e72be4020fca2f26b4e941f9796a"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/rules_engine.py": {
-    "mtime": 1782811543.093746,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/rules_engine.py": {
+    "mtime": 1783680342.7079709,
     "hash": "0d1b2f5279743829abf49cc228e976c0"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/performance_tracker.py": {
-    "mtime": 1774321626.524076,
-    "hash": "acb37700f521a787a6debcec09c8bcec"
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/performance_tracker.py": {
+    "mtime": 1783681257.6505258,
+    "hash": "d421bdac107c42632f2c6558a3b72c35"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/risk_manager.py": {
-    "mtime": 1783511448.2905602,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/risk_manager.py": {
+    "mtime": 1783680342.7073526,
     "hash": "fbeb93944512ec383c20b12d20386be1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/strategy_selector.py": {
-    "mtime": 1781170272.6299524,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/alpha_trading_bot/ai/adaptive/strategy_selector.py": {
+    "mtime": 1783680342.7086809,
     "hash": "8efc62924629c7191e0a3e68f7769c55"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/conftest.py": {
-    "mtime": 1774322185.4955795,
-    "hash": "bcff3050efb4b282c749c448c9fa2079"
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/conftest.py": {
+    "mtime": 1783680762.4590805,
+    "hash": "12b51af5e1f1d6f6992824ae5d9ce660"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/__init__.py": {
-    "mtime": 1774322185.495441,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/__init__.py": {
+    "mtime": 1783680342.8151705,
     "hash": "aa33e342e5ac16f2ef370424f4cee5ce"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_exchange_raw_endpoints.py": {
-    "mtime": 1783511380.4936528,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_exchange_raw_endpoints.py": {
+    "mtime": 1783680342.8224533,
     "hash": "2b04672df7e2526596a8ddf3ae9529d8"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_stop_loss_protection.py": {
-    "mtime": 1779157556.281961,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_stop_loss_protection.py": {
+    "mtime": 1783680342.8298345,
     "hash": "87fb6ac8236a5bb00b786319bfd57951"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_control_manager.py": {
-    "mtime": 1779253136.4783,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_risk_control_manager.py": {
+    "mtime": 1783680342.824542,
     "hash": "21f1bf19b3d87a8bb8404c9e09e33bde"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_hold_override.py": {
-    "mtime": 1783511344.9284523,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_decision_engine_hold_override.py": {
+    "mtime": 1783680342.8200474,
     "hash": "daa8612c5fb6f1a3a7047c41fdf79cf2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_zero_behavior_golden.py": {
-    "mtime": 1783656821.9365227,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_zero_behavior_golden.py": {
+    "mtime": 1783680342.831654,
     "hash": "dab34b531df3be5aad6e3cd1a388b546"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_tree_full.py": {
-    "mtime": 1781164060.6293385,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_decision_tree_full.py": {
+    "mtime": 1783680342.8206887,
     "hash": "6382994aee94bc59819a5e4f183839cb"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_rules_engine_volatility.py": {
-    "mtime": 1782811543.1052582,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_rules_engine_volatility.py": {
+    "mtime": 1783680342.8273354,
     "hash": "ed1cb9b17307fe2292dedc8a88d8cc02"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_market_structure.py": {
-    "mtime": 1779253142.6940234,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_market_structure.py": {
+    "mtime": 1783680342.8238697,
     "hash": "d596d89ecc9e74092e5b20084a51495b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_smart_stop_loss.py": {
-    "mtime": 1781067272.9059677,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_smart_stop_loss.py": {
+    "mtime": 1783680342.8279867,
     "hash": "480304398bad25b7f9a182c25379e5b4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_reward_calculator.py": {
-    "mtime": 1779253142.6944294,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_risk_reward_calculator.py": {
+    "mtime": 1783680342.8260746,
     "hash": "0e6799d2349218dea91d5ca10b560d43"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_rules_engine_params.py": {
-    "mtime": 1782223517.7835748,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_rules_engine_params.py": {
+    "mtime": 1783680342.8267229,
     "hash": "5574516eecbc3f97eb2641fa7823782f"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_cycle_timing.py": {
-    "mtime": 1781799454.8431122,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_cycle_timing.py": {
+    "mtime": 1783680342.81969,
     "hash": "321eb6c25ba3a6732dbb74b560e469dc"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_gemini_integration.py": {
-    "mtime": 1781163580.524508,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_gemini_integration.py": {
+    "mtime": 1783680342.8227556,
     "hash": "9b4c8fc23327b67534ac75f5c5917569"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_stop_loss_all_paths.py": {
-    "mtime": 1781067186.27966,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_stop_loss_all_paths.py": {
+    "mtime": 1783680342.8284183,
     "hash": "8a122388bc7ab2f01f40883523d091d7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/__init__.py": {
-    "mtime": 1774322185.495768,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/__init__.py": {
+    "mtime": 1783680342.8157647,
     "hash": "ac55021ca3dfca2a6bc7dd80e407c73d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_buy_new_modes.py": {
-    "mtime": 1779253142.6932044,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_adaptive_buy_new_modes.py": {
+    "mtime": 1783680342.8171885,
     "hash": "0c17b86fa899fc5ae2e4db5116d5ce7e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_execution_safety.py": {
-    "mtime": 1783656689.5383372,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_adaptive_execution_safety.py": {
+    "mtime": 1783680342.8174248,
     "hash": "be6801617f41a0d9c8696906892f3083"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_bot_position_sync.py": {
-    "mtime": 1782824091.9453497,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_adaptive_bot_position_sync.py": {
+    "mtime": 1783680342.8165781,
     "hash": "5fd1871c0a4549d769ac040ff32d6564"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_dependency_metadata.py": {
-    "mtime": 1781155390.356257,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_dependency_metadata.py": {
+    "mtime": 1783680342.8216503,
     "hash": "ff38672ddf380289499b1818ee452c7f"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_bot_cooldown.py": {
-    "mtime": 1781165095.9908676,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_adaptive_bot_cooldown.py": {
+    "mtime": 1783680342.8162405,
     "hash": "ede7829a9a0ca21093da4b5e3d19c4d1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_traditional_stop_loss.py": {
-    "mtime": 1783509139.712017,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_traditional_stop_loss.py": {
+    "mtime": 1783680342.831349,
     "hash": "2bf0af8c5b45e745a407d44dd75f3f11"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_manager_p3_full.py": {
-    "mtime": 1783511354.3559427,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_risk_manager_p3_full.py": {
+    "mtime": 1783680342.8250773,
     "hash": "d3e5373e61d81d8b0aba7edd5d0bafdf"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_config_updater_weights.py": {
-    "mtime": 1776841150.1108248,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_config_updater_weights.py": {
+    "mtime": 1783680342.8181856,
     "hash": "88aafe75c821023b88c31174f16445a0"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_stop_loss_posside_fix.py": {
-    "mtime": 1781694630.25898,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_stop_loss_posside_fix.py": {
+    "mtime": 1783680342.829157,
     "hash": "ac84c45e1725c475154757d8fc17d608"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_ml_dynamic_weights.py": {
-    "mtime": 1781094773.758899,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_ml_dynamic_weights.py": {
+    "mtime": 1783680342.8241363,
     "hash": "cb00ccc6942f3c670a8f15c208b8f4f8"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_params.py": {
-    "mtime": 1779253136.47867,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_risk_params.py": {
+    "mtime": 1783680342.8256538,
     "hash": "44f50068c2d7db43b9ac52dedb0f11ed"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_live_trading_guard.py": {
-    "mtime": 1781096001.636795,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_live_trading_guard.py": {
+    "mtime": 1783680342.8231657,
     "hash": "e656d7753833fb2eea09539408feb6d8"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_cycle_log_optimization.py": {
-    "mtime": 1782116624.8002927,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_cycle_log_optimization.py": {
+    "mtime": 1783680342.8189058,
     "hash": "5a76a27da2c077aa2e991da0be579fb2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_rr.py": {
-    "mtime": 1780283993.0048866,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_decision_engine_rr.py": {
+    "mtime": 1783680342.8203228,
     "hash": "c903a6c8b43a8f0e74da4bc2d204418b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_strategy_execution_manager.py": {
-    "mtime": 1781170369.5504084,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_strategy_execution_manager.py": {
+    "mtime": 1783680342.8303134,
     "hash": "dd6e817ed268ca00f8a40afee3d11677"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_exchange_leverage.py": {
-    "mtime": 1781161820.4407976,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_state_directory_isolation.py": {
+    "mtime": 1783681248.1338377,
+    "hash": "8802f5e39b542b54583018a46ae756d5"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_exchange_leverage.py": {
+    "mtime": 1783680342.8219974,
     "hash": "e6468c86ff36b538f309626dc9cb0344"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_sustained_decline_detector.py": {
-    "mtime": 1781173578.689223,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_sustained_decline_detector.py": {
+    "mtime": 1783680342.83093,
     "hash": "7a1fadfb79943bfd12ddf4b276d34e2d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_stop_loss_retry.py": {
-    "mtime": 1781697520.3598316,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_adaptive_stop_loss_retry.py": {
+    "mtime": 1783680342.81794,
     "hash": "1755cda6905111c649eafe38407cf1df"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_market_data_ticker.py": {
-    "mtime": 1781161914.306163,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_market_data_ticker.py": {
+    "mtime": 1783680342.8234987,
     "hash": "8d5c28bb95eeeeb453fec086527ce24b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_deepseek_response_parse.py": {
-    "mtime": 1779698729.7878838,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/tests/unit/test_deepseek_response_parse.py": {
+    "mtime": 1783680342.8211768,
     "hash": "19510d1543d7146bff06cf52bf1c14e2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/examples/basic_usage.py": {
-    "mtime": 1774322185.4775493,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/examples/basic_usage.py": {
+    "mtime": 1783680342.7638757,
     "hash": "e23101698c1c046d26ffb16e0d1c0dac"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/examples/config_example.py": {
-    "mtime": 1774322185.4780483,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/examples/config_example.py": {
+    "mtime": 1783680342.7642312,
     "hash": "9a5e75ca9c23cdb6f452ef7e2d6eeeac"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/examples/advanced_usage.py": {
-    "mtime": 1774322185.477256,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/examples/advanced_usage.py": {
+    "mtime": 1783680342.7634683,
     "hash": "3045ba172519ebd7eac9160cba9d15fe"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/requirements.txt": {
-    "mtime": 1781155267.192753,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/requirements.txt": {
+    "mtime": 1783680342.8132205,
     "hash": "a77e5788ee656d9efbdca9968dfe37d4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/README.md": {
-    "mtime": 1782798410.3886688,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/README.md": {
+    "mtime": 1783680342.702863,
     "hash": "9d19a7bfb9d1b58996a9916972d265b2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/docker-compose.yml": {
-    "mtime": 1774322185.476861,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/docker-compose.yml": {
+    "mtime": 1783680342.761243,
     "hash": "8917572e4c632e9eb4a3cd38bb58a1aa"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/AGENTS.md": {
-    "mtime": 1782798410.3866043,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/AGENTS.md": {
+    "mtime": 1783680342.7012308,
     "hash": "74e430f3d9e7dd2ebccacfdb721fe334"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/config/prompt_optimizer.yaml": {
-    "mtime": 1774322185.4766195,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/config/prompt_optimizer.yaml": {
+    "mtime": 1783680342.7604513,
     "hash": "fec2d9d3dd0fe93772579da0485947a8"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/SYSTEM_SIMPLIFICATION_ANALYSIS.md": {
-    "mtime": 1774322185.490025,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/SYSTEM_SIMPLIFICATION_ANALYSIS.md": {
+    "mtime": 1783680342.805826,
     "hash": "c6daa2682f40548f3a1e6f9063effb1a"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/CRASH_PROTECTION_ANALYSIS.md": {
-    "mtime": 1774322185.483736,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/CRASH_PROTECTION_ANALYSIS.md": {
+    "mtime": 1783680342.7970452,
     "hash": "a631c15c5fb0e94f3d75fd5624a0e1e1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/TRADING_SYSTEM_OPTIMIZATION_GUIDE.md": {
-    "mtime": 1774322185.491299,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/TRADING_SYSTEM_OPTIMIZATION_GUIDE.md": {
+    "mtime": 1783680342.8081956,
     "hash": "c1876c8914960116e3c6251b0955175e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/trading_analysis_report.md": {
-    "mtime": 1774322185.4920516,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/trading_analysis_report.md": {
+    "mtime": 1783680342.8095615,
     "hash": "93d35c6634f61680885557d270d82c87"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/INITIALIZATION_FIX_SUMMARY.md": {
-    "mtime": 1774322185.486245,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/INITIALIZATION_FIX_SUMMARY.md": {
+    "mtime": 1783680342.7999105,
     "hash": "d9cc4def80340ee4e6fad0b075141df9"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/STARTUP_FIX_SUMMARY.md": {
-    "mtime": 1774322185.489537,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/STARTUP_FIX_SUMMARY.md": {
+    "mtime": 1783680342.8053756,
     "hash": "ae0dfb8e0418fd52af177e933f0a0cc7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/DATA_MANAGER_ISSUE_ANALYSIS.md": {
-    "mtime": 1774322185.4844112,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/DATA_MANAGER_ISSUE_ANALYSIS.md": {
+    "mtime": 1783680342.7976499,
     "hash": "b22905416f75fbcda394dc72c3076d7d"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/ADAPTIVE_STOP_LOSS_GUIDE.md": {
-    "mtime": 1774322185.4788914,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/ADAPTIVE_STOP_LOSS_GUIDE.md": {
+    "mtime": 1783680342.790381,
     "hash": "0fd8340eb66692994df6a7eee54cf21c"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/COMPOSITE_PRICE_FACTOR_GUIDE.md": {
-    "mtime": 1774322185.4827132,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/COMPOSITE_PRICE_FACTOR_GUIDE.md": {
+    "mtime": 1783680342.7957785,
     "hash": "7648f4e5ea7f8654fff738b6e3988b5f"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/\u98ce\u63a7\u7cfb\u7edf\u4f18\u5316\u65b9\u6848.md": {
-    "mtime": 1774322185.4936478,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/\u98ce\u63a7\u7cfb\u7edf\u4f18\u5316\u65b9\u6848.md": {
+    "mtime": 1783680342.8116672,
     "hash": "26d636b53998227acd10826dce96e8f3"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/TP_SL_CONFIGURABLE_SUMMARY.md": {
-    "mtime": 1774322185.4903603,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/TP_SL_CONFIGURABLE_SUMMARY.md": {
+    "mtime": 1783680342.8070357,
     "hash": "4877ca08aa74f0370da24c69b4ab6e25"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/\u89d2\u8272\u5316AI\u51b3\u7b56\u7cfb\u7edf\u8bbe\u8ba1\u65b9\u6848.md": {
-    "mtime": 1774322185.493381,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/\u89d2\u8272\u5316AI\u51b3\u7b56\u7cfb\u7edf\u8bbe\u8ba1\u65b9\u6848.md": {
+    "mtime": 1783680342.81137,
     "hash": "a97d86c98177a2a6a603b582f4f80ad2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI_OPTIMIZATION_SUMMARY.md": {
-    "mtime": 1774322185.4791334,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI_OPTIMIZATION_SUMMARY.md": {
+    "mtime": 1783680342.7906892,
     "hash": "bc4a8b690ad498a0eb95145dbed9c868"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/TP_SL_FIXES_SUMMARY.md": {
-    "mtime": 1774322185.490539,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/TP_SL_FIXES_SUMMARY.md": {
+    "mtime": 1783680342.8072176,
     "hash": "e3b98641871ea38ce14d3a7fe3426431"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/TP_SL_PRICE_UNIFICATION.md": {
-    "mtime": 1774322185.490926,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/TP_SL_PRICE_UNIFICATION.md": {
+    "mtime": 1783680342.8077126,
     "hash": "4a9779d25fe980526674167d3e65c1c1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/PRICE_POSITION_SCALING_GUIDE.md": {
-    "mtime": 1774322185.4891155,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/PRICE_POSITION_SCALING_GUIDE.md": {
+    "mtime": 1783680342.804062,
     "hash": "8a3be34d3454ff4f496b35cdfae24855"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/24H_PRICE_FACTOR_GUIDE.md": {
-    "mtime": 1774322185.4786484,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/24H_PRICE_FACTOR_GUIDE.md": {
+    "mtime": 1783680342.7897067,
     "hash": "6655064f023d63861458e51ecea85e24"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI\u6a21\u578b\u9009\u62e9\u5efa\u8bae.md": {
-    "mtime": 1774322185.4809618,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI\u6a21\u578b\u9009\u62e9\u5efa\u8bae.md": {
+    "mtime": 1783680342.7923155,
     "hash": "36772d158bf0511dec45d4dda849c0f4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/CRASH_PROTECTION_IMPROVEMENTS.md": {
-    "mtime": 1774322185.4840095,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/CRASH_PROTECTION_IMPROVEMENTS.md": {
+    "mtime": 1783680342.7972724,
     "hash": "16fefebae5b44e3467ced43d5a668137"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/RELEASE_READINESS_REPORT_GEMINI_HARNESS.md": {
-    "mtime": 1777004849.7021186,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/RELEASE_READINESS_REPORT_GEMINI_HARNESS.md": {
+    "mtime": 1783680342.8046062,
     "hash": "1c888162fa44b8d853c044de47c2435c"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/CONFIG_CONTROL_RELATIONSHIP.md": {
-    "mtime": 1774322185.482948,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/CONFIG_CONTROL_RELATIONSHIP.md": {
+    "mtime": 1783680342.7962182,
     "hash": "aa113fdece229bf4cb00c2b705f383b1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/SECURITY_REMEDIATION_LEDGER.md": {
-    "mtime": 1777021908.183991,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/SECURITY_REMEDIATION_LEDGER.md": {
+    "mtime": 1783680342.8050885,
     "hash": "39de69ea693197d62a41b8c39f0c1f9e"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/LORA_TRAINING_GUIDE.md": {
-    "mtime": 1774322185.4878185,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/LORA_TRAINING_GUIDE.md": {
+    "mtime": 1783680342.8022163,
     "hash": "434e74cbad838da693bfda1675422d46"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/DEPLOYMENT_GUIDE.md": {
-    "mtime": 1774322185.4851224,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/DEPLOYMENT_GUIDE.md": {
+    "mtime": 1783680342.798306,
     "hash": "70feb4471282f3f107ba633f1b8799e6"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/\u52a0\u5bc6\u8d27\u5e01\u4ea4\u6613\u673a\u5668\u4eba\u67b6\u6784\u8c03\u7814\u62a5\u544a.md": {
-    "mtime": 1774322185.493101,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/\u52a0\u5bc6\u8d27\u5e01\u4ea4\u6613\u673a\u5668\u4eba\u67b6\u6784\u8c03\u7814\u62a5\u544a.md": {
+    "mtime": 1783680342.8109825,
     "hash": "ec984e090f73f10ee88ee495f7ca632c"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI_SIGNAL_ANALYSIS_REPORT.md": {
-    "mtime": 1774322185.4801607,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI_SIGNAL_ANALYSIS_REPORT.md": {
+    "mtime": 1783680342.7917106,
     "hash": "afac3d876894f2e57f070931c3856aa1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/LEVERAGE_DEBUG_SUMMARY.md": {
-    "mtime": 1774322185.4866643,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/LEVERAGE_DEBUG_SUMMARY.md": {
+    "mtime": 1783680342.8006704,
     "hash": "239ac1a5d0605ebdef4fcf01108675c7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/LEVERAGE_FIX_SUMMARY.md": {
-    "mtime": 1774322185.4868777,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/LEVERAGE_FIX_SUMMARY.md": {
+    "mtime": 1783680342.801056,
     "hash": "2fa837b2e241568a305cc7500e0a6af6"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/SECURITY_KEY_ROTATION_RUNBOOK.md": {
-    "mtime": 1776851613.5467896,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/SECURITY_KEY_ROTATION_RUNBOOK.md": {
+    "mtime": 1783680342.8048728,
     "hash": "77f7960072a94162748de85add20f1ec"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/OKX_FIXES_SUMMARY.md": {
-    "mtime": 1774322185.4886394,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/OKX_FIXES_SUMMARY.md": {
+    "mtime": 1783680342.8031778,
     "hash": "062870997b7801e888daa39ca38a3ef3"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/DOCKER_DEPENDENCY_FIX.md": {
-    "mtime": 1774322185.4857264,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/DOCKER_DEPENDENCY_FIX.md": {
+    "mtime": 1783680342.7993276,
     "hash": "d8c1b0c250ee049ff45a3da60686db80"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/BTC_TRADING_REALTIME_OPTIMIZATION.md": {
-    "mtime": 1774322185.4824677,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/BTC_TRADING_REALTIME_OPTIMIZATION.md": {
+    "mtime": 1783680342.795105,
     "hash": "c3c948e52419f221a2062bfd7cff66d4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/ML_INTEGRATION_GUIDE.md": {
-    "mtime": 1774322185.4884927,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/ML_INTEGRATION_GUIDE.md": {
+    "mtime": 1783680342.8028483,
     "hash": "c5dd5abbfac546155adf10ec766c2049"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/DOCKERFILE_OPTIMIZATION.md": {
-    "mtime": 1774322185.485369,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/DOCKERFILE_OPTIMIZATION.md": {
+    "mtime": 1783680342.7988005,
     "hash": "54e8d1c60787e84df9e5b85961f653f6"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/\u4f18\u5316\u603b\u7ed3_\u5206\u7ea7\u98ce\u63a7\u548cAI\u63d0\u793a\u8bcd.md": {
-    "mtime": 1774322185.4926178,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/\u4f18\u5316\u603b\u7ed3_\u5206\u7ea7\u98ce\u63a7\u548cAI\u63d0\u793a\u8bcd.md": {
+    "mtime": 1783680342.810229,
     "hash": "bbcd7173de0252b89c6f77ab53152562"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/ORDER_MANAGEMENT_ANALYSIS.md": {
-    "mtime": 1774322185.4887643,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/ORDER_MANAGEMENT_ANALYSIS.md": {
+    "mtime": 1783680342.8034413,
     "hash": "f3bfbdc784191956814a25e0cc56bbd2"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI_PROMPTS.md": {
-    "mtime": 1774322185.4793708,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI_PROMPTS.md": {
+    "mtime": 1783680342.7910287,
     "hash": "9983179ff9f614750b983bead2b1f612"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/CRASH_DETECTION_MONITORING.md": {
-    "mtime": 1774322185.483307,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/CRASH_DETECTION_MONITORING.md": {
+    "mtime": 1783680342.7965755,
     "hash": "b0c3c7f43b2210b162232b5f08fb9b68"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/CRASH_DETECTION_STATUS.md": {
-    "mtime": 1774322185.4835248,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/CRASH_DETECTION_STATUS.md": {
+    "mtime": 1783680342.7967904,
     "hash": "af80aa41af5a0fed4859d6b9a771a75c"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/btc_\u4ea4\u6613\u4e2d_qwen_deep_seek_kimi_\u7684_ai_\u51b3\u7b56\u4f18\u52a3\u52bf\u5206\u6790.md": {
-    "mtime": 1774322185.49171,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/btc_\u4ea4\u6613\u4e2d_qwen_deep_seek_kimi_\u7684_ai_\u51b3\u7b56\u4f18\u52a3\u52bf\u5206\u6790.md": {
+    "mtime": 1783680342.8087847,
     "hash": "1155e4b407606f7732da20b7c0f0fac4"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/ARCHITECTURE_ANALYSIS.md": {
-    "mtime": 1774322185.4818823,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/ARCHITECTURE_ANALYSIS.md": {
+    "mtime": 1783680342.7941215,
     "hash": "3d753104c0c14ee63aeb91815aff4042"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/IMMEDIATE_DEPLOYMENT.md": {
-    "mtime": 1774322185.4860013,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/IMMEDIATE_DEPLOYMENT.md": {
+    "mtime": 1783680342.7995834,
     "hash": "5d0915f6d4adf17c11b422f929d0c850"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI_PROMPTS_UPDATED.md": {
-    "mtime": 1774322185.4795547,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI_PROMPTS_UPDATED.md": {
+    "mtime": 1783680342.7914264,
     "hash": "62d28a4d9c59e850b88f5d71fe07c482"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/DEPENDENCY_OPTIMIZATION.md": {
-    "mtime": 1774322185.4848642,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/DEPENDENCY_OPTIMIZATION.md": {
+    "mtime": 1783680342.7978833,
     "hash": "bfd10a244d5530f28753510edb386244"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/LOG_ISSUES_FIXES.md": {
-    "mtime": 1774322185.487099,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/LOG_ISSUES_FIXES.md": {
+    "mtime": 1783680342.8014884,
     "hash": "8d7bc642087dfbadbd44a19e15e57bc9"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/STARTUP_GUIDE.md": {
-    "mtime": 1774322185.489731,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/STARTUP_GUIDE.md": {
+    "mtime": 1783680342.8055494,
     "hash": "0e9ed55890c4dbf5e15c40fad374b000"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/QUICK_FIX_GUIDE.md": {
-    "mtime": 1774322185.489335,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/QUICK_FIX_GUIDE.md": {
+    "mtime": 1783680342.8043895,
     "hash": "69cd4066d4dbfba503d62520479ab174"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/MIXED_TP_SL_STRATEGY.md": {
-    "mtime": 1774322185.4881039,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/MIXED_TP_SL_STRATEGY.md": {
+    "mtime": 1783680342.8025987,
     "hash": "d8db0b087afec4c62a31fe90ff5e9a93"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/AI_SIGNAL_ANALYSIS_REPORT_V2.md": {
-    "mtime": 1774322185.4804933,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/AI_SIGNAL_ANALYSIS_REPORT_V2.md": {
+    "mtime": 1783680342.791985,
     "hash": "a3955876414a42ae28b92bdda669371b"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/markdown/ALPHAPULSE_ARCHITECTURE.md": {
-    "mtime": 1774322185.4816008,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/markdown/ALPHAPULSE_ARCHITECTURE.md": {
+    "mtime": 1783680342.7929409,
     "hash": "5da01df12746396a1ac327c538a386a1"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/config.yaml": {
-    "mtime": 1776070842.2931933,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/docs/superpowers/plans/2026-07-10-execution-correctness.md": {
+    "mtime": 1783680342.7625012,
+    "hash": "a8b6dc0790e3b848d1d247cc66e4466b"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/docs/superpowers/specs/2026-07-10-execution-correctness-design.md": {
+    "mtime": 1783680342.7631285,
+    "hash": "5ddb3498db13a7c223f2de38d1a183dd"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/openspec/config.yaml": {
+    "mtime": 1783680342.8122375,
     "hash": "9e3e7672b387a282583011181ab35f9a"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/specs/gemini-provider-integration/spec.md": {
-    "mtime": 1779157556.281457,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/openspec/specs/gemini-provider-integration/spec.md": {
+    "mtime": 1783680342.81283,
     "hash": "91ddf4be2be2615b84a0f9957c7af2f7"
   },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/specs/engineering-quality-gates/spec.md": {
-    "mtime": 1779157556.2810755,
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/execution-correctness/openspec/specs/engineering-quality-gates/spec.md": {
+    "mtime": 1783680342.812564,
     "hash": "5fa91716844300b6bda9eeb1a9ec32f1"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/tasks.md": {
-    "mtime": 1777004880.3715727,
-    "hash": "5b3d6cf0fdd84762dd6ac53101c13a94"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/design.md": {
-    "mtime": 1777002476.528314,
-    "hash": "2ace19e55baf0436b59fd6d7967e3586"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/proposal.md": {
-    "mtime": 1777001468.4157512,
-    "hash": "2b0fef40bce237f33a2e970f51ebd146"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/specs/security-audit-remediation/spec.md": {
-    "mtime": 1777002506.9771345,
-    "hash": "df629153e9da12b0150160e299730bf8"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/specs/gemini-provider-integration/spec.md": {
-    "mtime": 1777001601.2843688,
-    "hash": "33ca543a67d689981708bdef03570b78"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-gemini-provider-harness-security-hardening/specs/engineering-quality-gates/spec.md": {
-    "mtime": 1777002513.0675025,
-    "hash": "acd6d30ff42f548868f8ad3b91dca4be"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/tasks.md": {
-    "mtime": 1776076310.1082425,
-    "hash": "91c996c07de652e7016d200fac31174e"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/design.md": {
-    "mtime": 1776071237.8365455,
-    "hash": "488da9ecfaad733d1f7f6513f8fb283e"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/proposal.md": {
-    "mtime": 1776071207.3110082,
-    "hash": "47616f5b229d59cc95daeb45af329ec3"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/specs/interface-abstract/spec.md": {
-    "mtime": 1776071280.489968,
-    "hash": "dcbf4e6cc9ffc3d9015f759893056be3"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/specs/adaptive-bot-split/spec.md": {
-    "mtime": 1776071269.2333753,
-    "hash": "5554458bc40fff3f68153b4b89137b40"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-13-architecture-refactor-v1/specs/exception-standard/spec.md": {
-    "mtime": 1776071292.2156339,
-    "hash": "013dee4d431c3f3d300ea2e5b2fcec03"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-add-gemini-provider-security-gates/tasks.md": {
-    "mtime": 1776850989.2874193,
-    "hash": "5c9d396c28f0a3fce847d901bb36d5df"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-add-gemini-provider-security-gates/design.md": {
-    "mtime": 1776794426.3415098,
-    "hash": "015f047bce7fa23d97c60082eab63c91"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-add-gemini-provider-security-gates/proposal.md": {
-    "mtime": 1776794239.3449807,
-    "hash": "ed9153011e8a802a430ee7df06c87eed"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-add-gemini-provider-security-gates/specs/gemini-provider-integration/spec.md": {
-    "mtime": 1776794361.8211114,
-    "hash": "2f52129b46cdf463623485c195f91319"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-24-add-gemini-provider-security-gates/specs/engineering-quality-gates/spec.md": {
-    "mtime": 1776794384.90404,
-    "hash": "5ab01d11f1fff52a8f0c65790fca3dbe"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-16-fix-log-analysis-issues/tasks.md": {
-    "mtime": 1776325254.9301388,
-    "hash": "2885894a64251c20a8d2e2aa22965f71"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-16-fix-log-analysis-issues/design.md": {
-    "mtime": 1776324361.4985065,
-    "hash": "53561145938d75a43db8bf4cf842fa61"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-16-fix-log-analysis-issues/proposal.md": {
-    "mtime": 1776324290.732503,
-    "hash": "5db12a7f6f1a523ca8a7014127db74bc"
-  },
-  "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/changes/archive/2026-04-16-fix-log-analysis-issues/specs/signal-optimizer-fix/spec.md": {
-    "mtime": 1776324412.116912,
-    "hash": "370287f133ae7dbdd7fb6eaea0e0f3e4"
   }
 }

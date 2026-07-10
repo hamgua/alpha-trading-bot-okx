@@ -79,7 +79,7 @@ class PerformanceTracker:
         self,
         max_trades: int = 500,
         data_dir: Optional[str] = None,
-    ):
+    ) -> None:
         """
         初始化追踪器
 
