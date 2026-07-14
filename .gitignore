@@ -168,6 +168,7 @@ cache/
 .codex
 .worktrees/
 .superpowers/
+.codegraph/daemon.pid
 
 # .opencode
 .opencode
