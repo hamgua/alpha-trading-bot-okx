@@ -760,3 +760,32 @@ class TestAdaptiveBotCooldownMetrics:
         assert metrics["cooldown_allow_opposite"] == 1
         assert metrics["cooldown_full_cooldown"] == 6
         assert metrics["cooldown_short_cooldown"] == 1
+
+
+class TestAdaptiveBotRuleThresholdPropagation:
+    """规则阈值应进入最终决策门禁。"""
+
+    def test_rule_fusion_threshold_sets_min_trade_confidence(self):
+        """低波动规则给出的融合阈值应写入 market_data。"""
+        import os
+
+        os.environ.setdefault("OKX_API_KEY", "test")
+        os.environ.setdefault("OKX_SECRET", "test")
+        os.environ.setdefault("OKX_PASSWORD", "test")
+        os.environ.setdefault("DEEPSEEK_API_KEY", "test")
+        os.environ.setdefault("TEST_MODE", "true")
+
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = AdaptiveTradingBot()
+        market_data = {}
+        rule_result = {
+            "adjustments": {
+                "fusion_threshold": 0.40,
+                "stop_loss_percent": 0.008,
+            }
+        }
+
+        bot._apply_rule_threshold_to_market_data(market_data, rule_result)
+
+        assert market_data["min_trade_confidence"] == pytest.approx(0.40)

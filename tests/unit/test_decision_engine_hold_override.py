@@ -506,6 +506,25 @@ class TestHoldStrategySellOverride:
 
         assert result["action"] == "skip"
 
+    def test_hold_strategy_sell_excellent_short_rr_overrides_without_confirmation(self):
+        """高质量短 R/R + 策略 SELL 可轻量覆盖 AI-HOLD 做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "has_position": False,
+            "short_risk_reward_ratio": 3.2,
+            "market_structure_direction": "short",
+            "market_structure": "bearish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.80,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "mean_reversion_short_rr_override"
+
     def test_hold_strategy_sell_does_not_reuse_long_rr_for_short(self):
         """长方向 R/R 很高但短方向未确认时，SELL 不应开空。"""
         engine = DecisionEngine(self.config)
@@ -669,6 +688,29 @@ class TestHoldBothHold:
         result = engine.make_decision("HOLD", selected, market_data)
 
         assert result["action"] == "skip"
+
+    def test_bearish_structure_short_overrides_ai_hold_with_marginal_rr(self):
+        """下跌结构 + 可接受短 R/R + 趋势确认时允许小仓位做空。"""
+        engine = DecisionEngine(self.config)
+        selected = MagicMock()
+        selected.signal = "HOLD"
+        selected.confidence = 0.72
+        selected.strategy_type = "trend_following"
+        selected.reasons = []
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 48, "trend_strength": 0.08},
+            "has_position": False,
+            "short_risk_reward_ratio": 1.25,
+            "market_structure": "bearish",
+            "market_structure_direction": "none",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.72,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "bearish_structure_short"
 
 
 class TestHoldBuyConfidenceGate:

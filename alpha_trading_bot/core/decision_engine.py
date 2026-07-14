@@ -52,6 +52,8 @@ HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
 HOLD_STRATEGY_SELL_MIN_CONFIDENCE = 0.75
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
+BEARISH_STRUCTURE_SHORT_MIN_RR = 1.2
+BEARISH_STRUCTURE_SHORT_MIN_TREND = 0.05
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
@@ -411,6 +413,7 @@ class DecisionEngine:
             market_structure_direction = market_data.get(
                 "market_structure_direction", "none"
             )
+            market_structure = market_data.get("market_structure", "sideways")
             rr_ratio = self._get_short_rr(market_data)
             trend_strength = technical.get("trend_strength", 0)
             if (
@@ -433,6 +436,29 @@ class DecisionEngine:
                     "confidence": 0.75,
                     "strategy": "market_structure_short",
                     "position_advice": f"R/R={rr_ratio:.2f}优秀，市场结构做空",
+                }
+            if (
+                market_structure == "bearish"
+                and rr_ratio >= BEARISH_STRUCTURE_SHORT_MIN_RR
+                and trend_strength >= BEARISH_STRUCTURE_SHORT_MIN_TREND
+                and atr_percent < MAX_TRADE_ATR_PERCENT
+                and rsi > SHORT_RSI_OVERSOLD_BLOCK
+                and not has_position
+                and self._config.trading.allow_short_selling
+            ):
+                confidence_block = self._confidence_gate("short", selected, market_data)
+                if confidence_block:
+                    return confidence_block
+                logger.info(
+                    f"[决策] 下跌结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD"
+                )
+                self._conflict_metrics["market_structure_short_executed"] += 1
+                return {
+                    "action": "sell",
+                    "reason": f"下跌结构做空(R/R={rr_ratio:.2f})覆盖AI-HOLD",
+                    "confidence": min(max(selected.confidence, 0.70), 0.75),
+                    "strategy": "bearish_structure_short",
+                    "position_advice": f"短R/R={rr_ratio:.2f}，下跌结构轻仓做空",
                 }
             return {
                 "action": "skip",
@@ -588,6 +614,35 @@ class DecisionEngine:
                     "strategy": selected.strategy_type,
                 }
             # 无持仓时执行做空（需满足做空安全门禁）
+            if (
+                self._config.trading.allow_short_selling
+                and short_rr_ratio >= GOOD_RR_RATIO
+                and atr_percent < MAX_TRADE_ATR_PERCENT
+                and rsi > SHORT_RSI_OVERSOLD_BLOCK
+                and (
+                    market_structure == "bearish"
+                    or market_data.get("market_structure_direction") == "short"
+                )
+            ):
+                confidence_block = self._confidence_gate(
+                    "short", selected, market_data
+                )
+                if confidence_block:
+                    return confidence_block
+                logger.info(
+                    f"[决策] 策略SELL高质量短R/R({short_rr_ratio:.2f})"
+                    "覆盖AI-HOLD, 做空开仓"
+                )
+                return {
+                    "action": "sell",
+                    "reason": (
+                        f"策略SELL高质量短R/R覆盖AI-HOLD"
+                        f"(置信度{selected.confidence:.0%}, 短R/R={short_rr_ratio:.2f})"
+                    ),
+                    "confidence": selected.confidence * 0.75,
+                    "strategy": "mean_reversion_short_rr_override",
+                    "position_advice": f"短R/R={short_rr_ratio:.2f}优秀，轻仓做空",
+                }
             if (
                 self._config.trading.allow_short_selling
                 and short_rr_ratio >= relaxed_short_min_rr

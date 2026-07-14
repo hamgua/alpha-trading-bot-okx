@@ -23,6 +23,7 @@ from .position_close_audit import (
     PositionCloseAuditor,
     extract_float,
 )
+from .opportunity_audit import OpportunityAuditor
 from ..config.models import Config
 from ..utils.observability import record_live_guard_block
 
@@ -85,6 +86,7 @@ class AdaptiveTradingBot:
         self._position_close_auditor = PositionCloseAuditor(
             self._position_close_audit_context
         )
+        self._opportunity_auditor = OpportunityAuditor()
 
         # === 方向冷却指标 ===
         self._cooldown_metrics: Dict[str, int] = {
@@ -439,6 +441,7 @@ class AdaptiveTradingBot:
                     f"[规则] 将应用 {len(rule_result['triggered_rules'])} 个规则: "
                     f"{rule_result['triggered_rules']}"
                 )
+            self._apply_rule_threshold_to_market_data(market_data, rule_result)
 
             # 将 has_position 传入 market_data 供决策使用
             market_data["has_position"] = has_position
@@ -519,6 +522,13 @@ class AdaptiveTradingBot:
                     )
 
             if final_signal["action"] == "skip":
+                self._opportunity_auditor.log_skip(
+                    ai_signal=ai_signal,
+                    selected=selected,
+                    decision=final_signal,
+                    market_data=market_data,
+                    has_position=has_position,
+                )
                 if has_position and not is_short_to_close:
                     await self._update_stop_loss(
                         current_price, position_data, market_data
@@ -679,6 +689,16 @@ class AdaptiveTradingBot:
                 "strategy": "none",
             }
         return self._decision_engine.make_decision(ai_signal, selected, market_data)
+
+    def _apply_rule_threshold_to_market_data(
+        self, market_data: Dict[str, Any], rule_result: Dict[str, Any]
+    ) -> None:
+        """将规则引擎阈值写入本周期最终决策门禁。"""
+        adjustments = rule_result.get("adjustments", {}) if rule_result else {}
+        fusion_threshold = adjustments.get("fusion_threshold")
+        if isinstance(fusion_threshold, (int, float)):
+            market_data["min_trade_confidence"] = float(fusion_threshold)
+            logger.info(f"[规则] 本周期交易置信度门禁: {fusion_threshold:.0%}")
 
     async def _execute_trade(
         self,
