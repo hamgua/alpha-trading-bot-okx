@@ -5,9 +5,10 @@
 
 import asyncio
 import logging
+from dataclasses import replace
 from typing import Any, Dict, Optional
 
-from .models.orders import OrderResult, OrderStatus, StopOrderResult
+from .models.orders import OrderIntent, OrderResult, OrderStatus, StopOrderResult
 from .okx_raw import (
     ensure_okx_success,
     first_data,
@@ -100,10 +101,12 @@ class OrderService:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> str:
         """创建订单（向后兼容，返回order_id）"""
         result = await self.create_order_with_status(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
         )
         return result.order_id
 
@@ -114,6 +117,8 @@ class OrderService:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> OrderResult:
         """
         创建订单并返回完整状态
@@ -141,7 +146,14 @@ class OrderService:
                 order = await asyncio.get_event_loop().run_in_executor(
                     None,
                     lambda: self._create_order_direct(
-                        method, symbol, side, amount, price, order_type
+                        method,
+                        symbol,
+                        side,
+                        amount,
+                        price,
+                        order_type,
+                        intent,
+                        position_side,
                     ),
                 )
             else:
@@ -182,6 +194,82 @@ class OrderService:
                 error_message=str(e),
             )
 
+    @staticmethod
+    def _preserve_observed_fill(
+        previous: OrderResult, observed: OrderResult
+    ) -> OrderResult:
+        """在后续查询缺少成交字段时保留已确认成交。"""
+        if not observed.order_id:
+            return previous
+
+        requested_amount = observed.requested_amount or previous.requested_amount
+        if observed.filled_amount >= previous.filled_amount:
+            average_price = observed.average_price or previous.average_price
+            return replace(
+                observed,
+                requested_amount=requested_amount,
+                average_price=average_price,
+            )
+
+        return replace(
+            observed,
+            requested_amount=requested_amount,
+            filled_amount=previous.filled_amount,
+            remaining_amount=max(observed.remaining_amount, previous.remaining_amount),
+            average_price=previous.average_price,
+        )
+
+    async def create_confirmed_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        intent: OrderIntent,
+        position_side: str,
+        timeout_seconds: float,
+        poll_interval_seconds: float,
+    ) -> OrderResult:
+        """提交一次市价单，并轮询到终态或撤销超时剩余数量。"""
+        result = await self.create_order_with_status(
+            symbol=symbol,
+            side=side,
+            amount=amount,
+            order_type="market",
+            intent=intent,
+            position_side=position_side,
+        )
+        if not result.order_id or result.is_rejected or result.is_terminal:
+            return result
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        latest = result
+
+        # 市价单只能提交一次；确认阶段仅查询同一订单，超时后尝试撤销剩余数量。
+        while True:
+            observed = await self.get_order_status(result.order_id, symbol)
+            latest = self._preserve_observed_fill(latest, observed)
+            if latest.is_terminal:
+                return latest
+
+            remaining_seconds = deadline - loop.time()
+            if remaining_seconds <= 0:
+                break
+            await asyncio.sleep(min(poll_interval_seconds, remaining_seconds))
+
+        try:
+            await self.cancel_order(result.order_id, symbol)
+        except Exception as e:
+            logger.error(f"[订单确认] 超时撤单失败: ID={result.order_id}, 错误={e}")
+
+        try:
+            final = await self.get_order_status(result.order_id, symbol)
+        except Exception as e:
+            logger.error(f"[订单确认] 撤单后查询失败: ID={result.order_id}, 错误={e}")
+            return latest
+
+        return self._preserve_observed_fill(latest, final)
+
     def _create_order_direct(
         self,
         method,
@@ -190,6 +278,8 @@ class OrderService:
         amount: float,
         price: Optional[float],
         order_type: str,
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> Dict[str, Any]:
         """绕过 ccxt load_markets，直接调用 OKX 普通下单接口。"""
         params = {
@@ -201,6 +291,16 @@ class OrderService:
         }
         if order_type != "market" and price is not None:
             params["px"] = format_okx_number(price)
+
+        pos_mode = self._detect_pos_mode()
+        if pos_mode == self.POS_MODE_HEDGE:
+            if position_side not in {"long", "short"}:
+                raise ValueError("position_side is required in hedge mode")
+            params["posSide"] = position_side
+        if intent in {OrderIntent.CLOSE, OrderIntent.REDUCE}:
+            params["reduceOnly"] = "true"
+            if pos_mode != self.POS_MODE_HEDGE:
+                params["posSide"] = "net"
 
         response = method(params)
         self._ensure_okx_order_item_success(response, "place order")

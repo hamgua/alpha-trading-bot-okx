@@ -18,6 +18,14 @@ class OrderStatus(Enum):
     UNKNOWN = "unknown"
 
 
+class OrderIntent(Enum):
+    """订单意图。"""
+
+    OPEN = "open"
+    CLOSE = "close"
+    REDUCE = "reduce"
+
+
 @dataclass
 class OrderResult:
     """订单执行结果"""
@@ -51,6 +59,21 @@ class OrderResult:
             and self.remaining_amount > 0
             and self.filled_amount < self.requested_amount
         )
+
+    @property
+    def has_fill(self) -> bool:
+        """是否至少成交。"""
+        return self.filled_amount > 0
+
+    @property
+    def is_terminal(self) -> bool:
+        """订单是否已进入终态。"""
+        return self.status in {
+            OrderStatus.CLOSED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        }
 
     @property
     def is_rejected(self) -> bool:

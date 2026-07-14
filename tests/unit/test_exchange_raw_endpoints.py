@@ -2,6 +2,7 @@
 
 import sys
 import types
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -196,6 +197,106 @@ async def test_order_service_uses_raw_order_endpoints(
         ("cancel", {"instId": "BTC-USDT-SWAP", "ordId": "ord-1"}),
         ("status", {"instId": "BTC-USDT-SWAP", "ordId": "ord-1"}),
     ]
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_forwards_order_intent_and_position_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.client import ExchangeClient
+    from alpha_trading_bot.exchange.models.orders import (
+        OrderIntent,
+        OrderResult,
+        OrderStatus,
+    )
+
+    client = ExchangeClient(test_mode=False)
+    client._order_service = AsyncMock(
+        create_order_with_status=AsyncMock(
+            return_value=OrderResult(
+                order_id="close-1",
+                status=OrderStatus.CLOSED,
+                symbol="BTC/USDT:USDT",
+                side="sell",
+                order_type="market",
+                requested_amount=0.01,
+                filled_amount=0.01,
+                remaining_amount=0.0,
+                average_price=100000.0,
+            )
+        )
+    )
+
+    await client.create_order_with_status(
+        "BTC/USDT:USDT",
+        "sell",
+        0.01,
+        intent=OrderIntent.CLOSE,
+        position_side="long",
+    )
+
+    client._order_service.create_order_with_status.assert_awaited_once_with(
+        "BTC/USDT:USDT",
+        "sell",
+        0.01,
+        None,
+        "market",
+        OrderIntent.CLOSE,
+        "long",
+    )
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_forwards_confirmation_settings_to_order_service(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange.client import ExchangeClient
+    from alpha_trading_bot.exchange.models.orders import (
+        OrderIntent,
+        OrderResult,
+        OrderStatus,
+    )
+
+    client = ExchangeClient(
+        test_mode=False,
+        order_confirm_timeout_seconds=7.5,
+        order_confirm_poll_interval_seconds=0.4,
+    )
+    client._order_service = AsyncMock(
+        create_confirmed_market_order=AsyncMock(
+            return_value=OrderResult(
+                order_id="open-1",
+                status=OrderStatus.CLOSED,
+                symbol="BTC/USDT:USDT",
+                side="buy",
+                order_type="market",
+                requested_amount=0.01,
+                filled_amount=0.01,
+                remaining_amount=0.0,
+                average_price=100000.0,
+            )
+        )
+    )
+
+    await client.create_confirmed_market_order(
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        OrderIntent.OPEN,
+        "long",
+    )
+
+    client._order_service.create_confirmed_market_order.assert_awaited_once_with(
+        "BTC/USDT:USDT",
+        "buy",
+        0.01,
+        OrderIntent.OPEN,
+        "long",
+        7.5,
+        0.4,
+    )
 
 
 @pytest.mark.asyncio
@@ -394,4 +495,62 @@ async def test_exchange_client_uses_raw_algo_order_history(
             "algoId": "algo-stop-1",
             "limit": "20",
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_exchange_client_loads_instrument_metadata_for_order_arithmetic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_ccxt(monkeypatch)
+    from alpha_trading_bot.exchange import client as client_module
+    from alpha_trading_bot.exchange.client import ExchangeClient
+
+    calls = []
+
+    class _Exchange:
+        def set_sandbox_mode(self, enabled):
+            calls.append(("sandbox", enabled))
+
+        def fetch_time(self):
+            calls.append(("time", None))
+            return 0
+
+        def public_get_public_instruments(self, params):
+            calls.append(("instruments", params))
+            return {
+                "code": "0",
+                "data": [
+                    {
+                        "instId": "BTC-USDT-SWAP",
+                        "instType": "SWAP",
+                        "settleCcy": "USDT",
+                        "ctVal": "0.01",
+                        "ctMult": "1",
+                        "ctValCcy": "BTC",
+                        "minSz": "0.01",
+                        "lotSz": "0.01",
+                        "tickSz": "0.1",
+                    }
+                ],
+            }
+
+    exchange = _Exchange()
+    monkeypatch.setattr(client_module.ccxt, "okx", lambda config: exchange)
+
+    client = ExchangeClient(symbol="BTC/USDT:USDT")
+    await client.initialize()
+
+    assert client.instrument_spec.inst_id == "BTC-USDT-SWAP"
+    assert client.normalize_order_size(0.019) == pytest.approx(0.01)
+    assert client.normalize_trigger_price(99999.96, "long") == pytest.approx(99999.9)
+    assert client.normalize_trigger_price(99999.96, "short") == pytest.approx(100000.0)
+    assert client.calculate_notional_usdt(2.0, 100000.0) == pytest.approx(2000.0)
+    assert calls == [
+        ("sandbox", True),
+        (
+            "instruments",
+            {"instType": "SWAP", "instId": "BTC-USDT-SWAP"},
+        ),
+        ("time", None),
     ]

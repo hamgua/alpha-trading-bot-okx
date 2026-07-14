@@ -4,14 +4,17 @@
 """
 
 import asyncio
-import ccxt
 import logging
 import time
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
+import ccxt
 
 from .account_service import AccountService, create_account_service
+from .instrument_service import InstrumentService
 from .market_data import MarketDataService, create_market_data_service
-from .models.orders import OrderResult, OrderStatus
+from .models.instruments import InstrumentSpec
+from .models.orders import OrderIntent, OrderResult, OrderStatus
 from .okx_raw import (
     ensure_okx_success,
     get_callable,
@@ -39,6 +42,8 @@ class ExchangeClient:
         allow_short_selling: bool = True,
         test_mode: bool = True,
         max_position_usage: float = 0.30,
+        order_confirm_timeout_seconds: float = 5.0,
+        order_confirm_poll_interval_seconds: float = 0.25,
     ):
         self.api_key = api_key
         self.secret = secret
@@ -47,6 +52,8 @@ class ExchangeClient:
         self.allow_short_selling = allow_short_selling
         self.test_mode = test_mode
         self._max_position_usage = max_position_usage
+        self._order_confirm_timeout_seconds = order_confirm_timeout_seconds
+        self._order_confirm_poll_interval_seconds = order_confirm_poll_interval_seconds
         self.exchange: Optional[ccxt.okx] = None
 
         # 组合服务
@@ -54,6 +61,8 @@ class ExchangeClient:
         self._market_data_service: Optional[MarketDataService] = None
         self._order_service: Optional[OrderService] = None
         self._raw_executor: Optional[OkxRawExecutor] = None
+        self._instrument_service: Optional[InstrumentService] = None
+        self._instrument_spec: Optional[InstrumentSpec] = None
 
     async def initialize(self) -> None:
         """初始化"""
@@ -83,11 +92,33 @@ class ExchangeClient:
         )
         self._order_service = create_order_service(self.exchange, self.symbol)
         self._raw_executor = OkxRawExecutor(self.exchange)
+        self._instrument_service = InstrumentService(self.exchange, self.symbol)
+        self._instrument_spec = await self._instrument_service.load()
 
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: self.exchange.fetch_time()
         )
         logger.info("交易所客户端初始化完成")
+
+    @property
+    def instrument_spec(self) -> InstrumentSpec:
+        """返回已初始化的 OKX 合约规格。"""
+        if self._instrument_spec is None:
+            raise RuntimeError("instrument metadata is not initialized")
+        return self._instrument_spec
+
+    def normalize_order_size(self, amount: float) -> float:
+        """按合约规格向下归一化下单数量。"""
+        return self.instrument_spec.normalize_size(amount)
+
+    def normalize_trigger_price(self, price: float, position_side: str) -> float:
+        """按持仓方向归一化触发价格。"""
+        rounding = "up" if position_side == "short" else "down"
+        return self.instrument_spec.normalize_price(price, rounding)
+
+    def calculate_notional_usdt(self, amount: float, price: float) -> float:
+        """根据合约规格计算 USDT 名义价值。"""
+        return self.instrument_spec.notional_usdt(amount, price)
 
     async def set_leverage(self, leverage: int, symbol: Optional[str] = None) -> None:
         if leverage is None or not isinstance(leverage, int) or leverage < 1:
@@ -194,6 +225,8 @@ class ExchangeClient:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> str:
         """创建订单"""
         if self.test_mode:
@@ -205,7 +238,7 @@ class ExchangeClient:
             return simulated_id
 
         return await self._order_service.create_order(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
         )
 
     async def create_order_with_status(
@@ -215,6 +248,8 @@ class ExchangeClient:
         amount: float,
         price: Optional[float] = None,
         order_type: str = "market",
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> OrderResult:
         """创建订单并返回状态。"""
         if self.test_mode:
@@ -236,7 +271,39 @@ class ExchangeClient:
             )
 
         return await self._order_service.create_order_with_status(
-            symbol, side, amount, price, order_type
+            symbol, side, amount, price, order_type, intent, position_side
+        )
+
+    async def create_confirmed_market_order(
+        self,
+        symbol: str,
+        side: str,
+        amount: float,
+        intent: OrderIntent,
+        position_side: str,
+    ) -> OrderResult:
+        """提交市价单并等待交易所确认成交或终态。"""
+        if self.test_mode:
+            return await self.create_order_with_status(
+                symbol=symbol,
+                side=side,
+                amount=amount,
+                order_type="market",
+                intent=intent,
+                position_side=position_side,
+            )
+
+        if self._order_service is None:
+            raise RuntimeError("Order service is not initialized")
+
+        return await self._order_service.create_confirmed_market_order(
+            symbol,
+            side,
+            amount,
+            intent,
+            position_side,
+            self._order_confirm_timeout_seconds,
+            self._order_confirm_poll_interval_seconds,
         )
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderResult:
