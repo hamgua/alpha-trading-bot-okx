@@ -172,6 +172,7 @@ cache/
 
 # .opencode
 .opencode
+opencode.jsonc
 
 # openspec
 # /openspec/  # 变更规范纳入版本管理
