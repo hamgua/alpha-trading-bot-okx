@@ -224,8 +224,8 @@
     "hash": "023b6f8607e6fae37c22486864ae1754"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/prompt_builder.py": {
-    "mtime": 1780980849.7061477,
-    "hash": "a1b87091c102a4b20bed0e12b7fff733"
+    "mtime": 1784259656.334112,
+    "hash": "e848e00d1980a7647f44841b5f63d613"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/signal_optimizer.py": {
     "mtime": 1781170272.633456,
@@ -562,6 +562,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_sustained_decline_detector.py": {
     "mtime": 1781173578.689223,
     "hash": "7a1fadfb79943bfd12ddf4b276d34e2d"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_prompt_builder.py": {
+    "mtime": 1784259656.332928,
+    "hash": "15f231497b98722f3c3eb22d2165ed1a"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_stop_loss_retry.py": {
     "mtime": 1781697520.3598316,

@@ -142,11 +142,14 @@ class PromptBuilder:
         health = position_info.get("health", "none") if position_info else "none"
         highest_price = position_info.get("highest_price", 0) if position_info else 0
         lowest_price = position_info.get("lowest_price", 0) if position_info else 0
+        if pos_side == "none" and market_data.get("has_position"):
+            pos_side = str(market_data.get("position_side", "none") or "none")
 
         # 获取市场结构信息（由 integrator 附加到 market_data）
         mkt_structure = market_data.get("market_structure", "")
         mkt_direction = market_data.get("market_structure_direction", "")
         mkt_rr = market_data.get("risk_reward_ratio", 0)
+        mkt_short_rr = market_data.get("short_risk_reward_ratio", 0)
         mkt_support = market_data.get("nearest_support", 0)
         mkt_resistance = market_data.get("nearest_resistance", 0)
         mkt_pos_factor = market_data.get("position_size_factor", 0)
@@ -221,6 +224,7 @@ class PromptBuilder:
             mkt_structure=mkt_structure,
             mkt_direction=mkt_direction,
             mkt_rr=mkt_rr,
+            mkt_short_rr=mkt_short_rr,
             mkt_support=mkt_support,
             mkt_resistance=mkt_resistance,
             mkt_pos_factor=mkt_pos_factor,
@@ -259,6 +263,7 @@ class PromptBuilder:
         mkt_structure: str = "",
         mkt_direction: str = "",
         mkt_rr: float = 0.0,
+        mkt_short_rr: float = 0.0,
         mkt_support: float = 0.0,
         mkt_resistance: float = 0.0,
         mkt_pos_factor: float = 0.0,
@@ -305,7 +310,8 @@ class PromptBuilder:
 - 建议方向: {mkt_direction}（long=做多, short=做空, none=观望）
 - 支撑位: {mkt_support:.2f}
 - 阻力位: {mkt_resistance:.2f}
-- 风险收益比(R/R): {mkt_rr:.2f}（>2.0为良好，>3.0为优质）
+- 做多风险收益比(long R/R): {mkt_rr:.2f}（>2.0为良好，>3.0为优质）
+- 做空风险收益比(short R/R): {mkt_short_rr:.2f}（>1.2可观察，>2.0为良好）
 - 建议仓位系数: {mkt_pos_factor:.2f}
 """
 
@@ -358,6 +364,14 @@ class PromptBuilder:
    - SELL（卖出）：持仓风险增加或结构破位，平仓离场
    - SHORT（做空）：确认下跌结构+合理R/R比，做空开仓
    - HOLD（观望）：趋势不明朗或R/R比不足，耐心等待
+
+⚠️ 持仓方向语义（必须遵守）：
+   - 当前无持仓时：BUY 表示开多，SHORT 表示开空，SELL 仅在强烈看空时等价为开空建议
+   - 当前持有空单时：SELL/SHORT 表示同向看空或继续持有，不是平仓
+   - 当前持有空单时：BUY 表示平空
+   - 当前为多仓时：BUY 表示同向看多或继续持有，不是重复开仓
+   - 当前为多仓时：SELL/SHORT 表示平多
+   - 如果同向持仓仍健康，优先 HOLD，并在 position_action 标记 continue_long/continue_short
 
 ⚠️ 交易员决策优先级（必须按此顺序思考）：
    1. 先看市场结构 → 判断是上涨结构(HH+HL)、下跌结构(LH+LL)还是震荡
@@ -483,19 +497,20 @@ class PromptBuilder:
 - 暴跌期间（1h跌幅 > -2%）仍禁止开仓
 
 【强制输出要求】
-⚠️ 你必须先在内心完成推理，然后只输出最终结果，不要输出任何推理过程！
+⚠️ 你必须先在内心完成推理，然后只输出一个 JSON 对象，不要输出任何前缀、解释、Markdown 或代码块。
 
-最终输出格式（只输出这一行，不要有任何前缀或解释）：
-buy | confidence: 75%
+JSON 格式必须完全符合：
+{{"signal": "short", "confidence": 75, "position_action": "continue_short", "reason": "short_rr良好且下跌结构延续", "long_score": 20, "short_score": 75, "close_score": 25, "hold_reason": ""}}
 
-或：
-hold | confidence: 70%
-
-或：
-sell | confidence: 80%
-
-或：
-short | confidence: 75%
+字段说明：
+- signal: 只能是 buy / sell / short / hold
+- confidence: 0-100 的整数
+- position_action: 只能是 open_long / open_short / close_long / close_short / continue_long / continue_short / wait
+- reason: 20字以内，说明最主要原因
+- long_score / short_score / close_score: 0-100 的整数，用于表达三个方向的机会质量
+- hold_reason: signal=hold 时必须填写；非 hold 时可为空字符串
+- HOLD 置信度必须在 25-65；只有熔断、暴跌保护、极高波动或明显指标冲突时，HOLD 才能高于60
+- 如果 long_score 或 short_score >= 70 且对应 R/R 达标，不允许输出高置信度 HOLD
 
 【置信度计算指引】（用于内心推理参考，不要输出）
 根据以下因素加权调整：
