@@ -1301,12 +1301,46 @@ class AdaptiveTradingBot:
             if entry_price > 0:
                 price_vs_entry_percent = (current_price - entry_price) / entry_price
                 if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
-                    logger.info(
-                        f"[止损-智能] 当前价与建仓价差值"
-                        f"({price_vs_entry_percent * 100:.4f}%) < "
-                        f"容错({price_vs_entry_tolerance * 100}%)，跳过止损更新"
+                    old_stop = (
+                        exchange_stop_price
+                        if exchange_stop_price
+                        else self.position_manager.last_stop_price
                     )
-                    return
+                    if not existing_stop_id:
+                        logger.info(
+                            f"[止损-智能] 当前价与建仓价差值"
+                            f"({price_vs_entry_percent * 100:.4f}%) < "
+                            f"容错({price_vs_entry_tolerance * 100}%)，"
+                            "但缺少交易所止损单，补建基础止损"
+                        )
+                        stop_order_id = await self._create_stop_loss_with_retry(
+                            amount=amount,
+                            stop_price=new_stop_price,
+                            current_price=current_price,
+                            position_side=position_side,
+                            max_retries=3,
+                        )
+                        if stop_order_id:
+                            self.position_manager.set_stop_order(
+                                stop_order_id, new_stop_price
+                            )
+                        return
+                    if old_stop > 0 and new_stop_price > old_stop:
+                        logger.info(
+                            f"[止损-智能] 当前价与建仓价差值"
+                            f"({price_vs_entry_percent * 100:.4f}%) < "
+                            f"容错({price_vs_entry_tolerance * 100}%)，"
+                            f"但旧止损{old_stop:.1f}偏松，允许收紧至"
+                            f"{new_stop_price:.1f}"
+                        )
+                    else:
+                        logger.info(
+                            f"[止损-智能] 当前价与建仓价差值"
+                            f"({price_vs_entry_percent * 100:.4f}%) < "
+                            f"容错({price_vs_entry_tolerance * 100}%)，"
+                            "且现有止损不偏松，跳过止损更新"
+                        )
+                        return
 
             # 首次创建止损单
             if not existing_stop_id:

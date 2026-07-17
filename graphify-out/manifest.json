@@ -112,8 +112,8 @@
     "hash": "078e1b5981f7ed677f78db71c2068042"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/adaptive_bot.py": {
-    "mtime": 1784258282.3827991,
-    "hash": "b5f8b109fc420af50ca92bce101e0a76"
+    "mtime": 1784271531.4322011,
+    "hash": "782948d85a3865667a93480ec9be8041"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/exceptions.py": {
     "mtime": 1776075557.8557446,
@@ -500,8 +500,8 @@
     "hash": "ede7829a9a0ca21093da4b5e3d19c4d1"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_traditional_stop_loss.py": {
-    "mtime": 1783509139.712017,
-    "hash": "2bf0af8c5b45e745a407d44dd75f3f11"
+    "mtime": 1784271500.2735248,
+    "hash": "a9a8c67041756704334f19e8b13d1481"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_manager_p3_full.py": {
     "mtime": 1783511354.3559427,

@@ -183,3 +183,89 @@ class TestTraditionalATRStopLoss:
         bot.position_manager.set_stop_order.assert_called_with(
             "recovered-stop", 61460.0
         )
+
+    @pytest.mark.asyncio
+    async def test_smart_stop_tightens_loose_existing_stop_inside_entry_tolerance(self):
+        """接近建仓价时，如果交易所旧止损偏松，仍应主动收紧。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.config.stop_loss.stop_loss_percent = 0.005
+        bot.config.stop_loss.price_vs_entry_tolerance_percent = 0.001
+        bot.position_manager.calculate_stop_price.return_value = 63050.165
+        bot._get_existing_stop_order_id = AsyncMock(
+            return_value=("loose-stop", 62842.7)
+        )
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="tight-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=63376.6,
+            position_data={"side": "long", "entry_price": 63367.0, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.0051}},
+        )
+
+        bot._exchange.cancel_algo_order.assert_awaited_once_with(
+            "loose-stop", "BTC/USDT:USDT"
+        )
+        bot._create_stop_loss_with_retry.assert_awaited_once()
+        used_stop = bot._create_stop_loss_with_retry.await_args.kwargs["stop_price"]
+        assert used_stop == pytest.approx(63050.165)
+        bot.position_manager.set_stop_order.assert_called_with(
+            "tight-stop", pytest.approx(63050.165)
+        )
+
+    @pytest.mark.asyncio
+    async def test_smart_stop_keeps_tight_existing_stop_inside_entry_tolerance(self):
+        """接近建仓价时，如果旧止损已足够紧，不应撤单重建。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.config.stop_loss.stop_loss_percent = 0.005
+        bot.config.stop_loss.price_vs_entry_tolerance_percent = 0.001
+        bot.position_manager.calculate_stop_price.return_value = 63050.165
+        bot._get_existing_stop_order_id = AsyncMock(
+            return_value=("tight-stop", 63055.0)
+        )
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="new-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=63376.6,
+            position_data={"side": "long", "entry_price": 63367.0, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.0051}},
+        )
+
+        bot._exchange.cancel_algo_order.assert_not_awaited()
+        bot._create_stop_loss_with_retry.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_smart_stop_creates_missing_stop_inside_entry_tolerance(self):
+        """接近建仓价但没有交易所止损单时，应补建基础止损。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = True
+        bot.config.stop_loss.stop_loss_percent = 0.005
+        bot.config.stop_loss.price_vs_entry_tolerance_percent = 0.001
+        bot.position_manager.calculate_stop_price.return_value = 63050.165
+        bot._get_existing_stop_order_id = AsyncMock(return_value=(None, None))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="new-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=63376.6,
+            position_data={"side": "long", "entry_price": 63367.0, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.0051}},
+        )
+
+        bot._create_stop_loss_with_retry.assert_awaited_once()
+        used_stop = bot._create_stop_loss_with_retry.await_args.kwargs["stop_price"]
+        assert used_stop == pytest.approx(63050.165)
+        bot.position_manager.set_stop_order.assert_called_with(
+            "new-stop", pytest.approx(63050.165)
+        )
