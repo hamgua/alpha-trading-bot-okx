@@ -13,6 +13,7 @@ ML 数据管理器
 
 import logging
 import sqlite3
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from dataclasses import dataclass
@@ -67,7 +68,25 @@ class MLDataManager:
 
     def get_connection(self) -> sqlite3.Connection:
         """获取数据库连接"""
+        db_dir = Path(self.db_path).parent
+        if str(db_dir) not in {"", "."}:
+            db_dir.mkdir(parents=True, exist_ok=True)
         return sqlite3.connect(self.db_path)
+
+    @staticmethod
+    def _ensure_model_weights_table(conn: sqlite3.Connection) -> None:
+        """确保模型权重表存在。"""
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS model_weights (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                provider TEXT NOT NULL,
+                weight REAL NOT NULL,
+                source TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
 
     def get_historical_trades(
         self, symbol: Optional[str] = None, days: int = 30, status: str = "closed"
@@ -383,6 +402,7 @@ class MLDataManager:
         """
         try:
             with self.get_connection() as conn:
+                self._ensure_model_weights_table(conn)
                 cursor = conn.cursor()
 
                 for provider, weight in weights.items():

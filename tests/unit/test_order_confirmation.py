@@ -336,6 +336,54 @@ async def test_exchange_client_confirmation_requires_initialized_order_service()
 
 
 @pytest.mark.asyncio
+async def test_adaptive_bot_uses_exchange_confirmed_market_order() -> None:
+    config = Config(
+        exchange=ExchangeConfig(api_key="key", secret="secret", password="password"),
+        trading=TradingConfig(test_mode=True),
+    )
+    bot = AdaptiveTradingBot(config)
+    exchange = AsyncMock()
+    exchange.create_confirmed_market_order = AsyncMock(
+        return_value=OrderResult(
+            order_id="open-short-1",
+            status=OrderStatus.CLOSED,
+            symbol=SYMBOL,
+            side="sell",
+            order_type="market",
+            requested_amount=0.01,
+            filled_amount=0.01,
+            remaining_amount=0.0,
+            average_price=64500.0,
+        )
+    )
+    exchange.create_order_with_status = AsyncMock()
+    bot._exchange = exchange
+
+    fill = await bot._create_confirmed_market_order(
+        symbol=SYMBOL,
+        side="sell",
+        amount=0.01,
+        current_price=64600.0,
+        intent=OrderIntent.OPEN,
+        position_side="short",
+    )
+
+    assert fill == {
+        "order_id": "open-short-1",
+        "amount": 0.01,
+        "average_price": 64500.0,
+    }
+    exchange.create_confirmed_market_order.assert_awaited_once_with(
+        SYMBOL,
+        "sell",
+        0.01,
+        OrderIntent.OPEN,
+        "short",
+    )
+    exchange.create_order_with_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("bot_class", [AdaptiveTradingBot, TradingBot])
 async def test_bot_initialization_passes_confirmation_settings_to_exchange_client(
     bot_class: Any, monkeypatch: pytest.MonkeyPatch

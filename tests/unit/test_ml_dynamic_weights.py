@@ -1,6 +1,7 @@
 """ML 动态权重去硬编码回归测试。"""
 
 import os
+import sqlite3
 from typing import Dict
 
 import pytest
@@ -36,6 +37,20 @@ def test_ml_data_manager_default_weights_include_gemini() -> None:
     weights = manager._default_weights()
     assert set(weights.keys()) == {"deepseek", "kimi", "gemini"}
     assert abs(sum(weights.values()) - 1.0) < 1e-6
+
+
+def test_ml_data_manager_creates_model_weights_table(tmp_path) -> None:
+    db_path = tmp_path / "trading_data.db"
+    manager = MLDataManager(db_path=str(db_path))
+
+    assert manager.save_model_weights({"deepseek": 0.6, "kimi": 0.4}) is True
+
+    with sqlite3.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT provider, weight, source FROM model_weights ORDER BY provider"
+        ).fetchall()
+
+    assert rows == [("deepseek", 0.6, "ml"), ("kimi", 0.4, "ml")]
 
 
 def test_adaptive_weight_optimizer_default_weights_include_gemini() -> None:

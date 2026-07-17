@@ -173,6 +173,58 @@ class DecisionEngine:
                 return float(rr_ratio)
         return 0.0
 
+    @staticmethod
+    def _position_side(market_data: Dict[str, Any]) -> str:
+        """返回标准化持仓方向。"""
+        side = str(market_data.get("position_side", "") or "").lower()
+        if side in {"long", "short"}:
+            return side
+        return ""
+
+    def _position_aware_signal_decision(
+        self, signal: str, selected: Any, market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """已有持仓时按持仓方向解释交易信号。"""
+        if not market_data.get("has_position", False):
+            return {}
+
+        position_side = self._position_side(market_data)
+        if not position_side:
+            return {}
+
+        normalized_signal = signal.upper()
+        if normalized_signal == "BUY":
+            if position_side == "short":
+                return {
+                    "action": "close",
+                    "reason": "BUY信号与空仓反向，平空",
+                    "confidence": selected.confidence,
+                    "strategy": selected.strategy_type,
+                }
+            return {
+                "action": "skip",
+                "reason": "多仓同向BUY，继续持有",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        if normalized_signal in {"SELL", "SHORT"}:
+            if position_side == "long":
+                return {
+                    "action": "close",
+                    "reason": f"{normalized_signal}信号与多仓反向，平多",
+                    "confidence": selected.confidence,
+                    "strategy": selected.strategy_type,
+                }
+            return {
+                "action": "skip",
+                "reason": f"空仓同向{normalized_signal}，继续持有",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        return {}
+
     def _has_mean_reversion_confirmation(
         self, side: str, market_data: Dict[str, Any], technical: Dict[str, Any]
     ) -> bool:
@@ -333,6 +385,12 @@ class DecisionEngine:
         has_position: bool,
     ) -> Dict[str, Any]:
         """处理 SHORT 信号分支。"""
+        position_decision = self._position_aware_signal_decision(
+            "SHORT", selected, market_data
+        )
+        if position_decision:
+            return position_decision
+
         confidence_block = self._confidence_gate("short", selected, market_data)
         if confidence_block:
             return confidence_block
@@ -466,6 +524,12 @@ class DecisionEngine:
                 "confidence": selected.confidence,
                 "strategy": selected.strategy_type,
             }
+
+        position_decision = self._position_aware_signal_decision(
+            selected.signal, selected, market_data
+        )
+        if position_decision:
+            return position_decision
 
         market_structure = market_data.get("market_structure", "sideways")
         rr_ratio = market_data.get("risk_reward_ratio", 0)
@@ -713,6 +777,11 @@ class DecisionEngine:
 
         # BUY 信号处理
         if signal == "BUY":
+            position_decision = self._position_aware_signal_decision(
+                signal, selected, market_data
+            )
+            if position_decision:
+                return position_decision
             return self._make_buy_decision(selected, market_data, atr_percent)
 
         # SHORT 信号处理
@@ -723,6 +792,11 @@ class DecisionEngine:
 
         # SELL 信号处理
         if signal == "SELL":
+            position_decision = self._position_aware_signal_decision(
+                signal, selected, market_data
+            )
+            if position_decision:
+                return position_decision
             if not has_position:
                 return {
                     "action": "skip",

@@ -17,6 +17,120 @@ import pytest
 from alpha_trading_bot.core.decision_engine import DecisionEngine
 
 
+def _config() -> MagicMock:
+    config = MagicMock()
+    config.trading.allow_short_selling = True
+    return config
+
+
+def _selected(
+    signal: str, confidence: float = 0.80, strategy_type: str = "mean_reversion"
+) -> MagicMock:
+    selected = MagicMock()
+    selected.signal = signal
+    selected.confidence = confidence
+    selected.strategy_type = strategy_type
+    selected.reasons = []
+    return selected
+
+
+class TestPositionAwareSignalSemantics:
+    """已有持仓时按持仓方向解释 BUY/SELL 信号。"""
+
+    def test_hold_strategy_sell_keeps_existing_short_position(self) -> None:
+        engine = DecisionEngine(_config())
+        market_data = {
+            "technical": {
+                "atr_percent": 0.35,
+                "rsi": 74,
+                "rsi_falling": True,
+                "price_below_short_ma": True,
+            },
+            "has_position": True,
+            "position_side": "short",
+            "short_risk_reward_ratio": 2.5,
+            "risk_reward_ratio": 0.4,
+            "market_structure": "bearish",
+            "min_trade_confidence": 0.40,
+            "ai_final_confidence": 0.75,
+        }
+
+        result = engine.make_decision("HOLD", _selected("SELL"), market_data)
+
+        assert result["action"] == "skip"
+        assert "空仓同向SELL" in result["reason"]
+
+    def test_hold_strategy_buy_closes_existing_short_position(self) -> None:
+        engine = DecisionEngine(_config())
+        market_data = {
+            "technical": {
+                "atr_percent": 0.20,
+                "rsi": 28,
+                "reversal_confirmed": True,
+            },
+            "has_position": True,
+            "position_side": "short",
+            "risk_reward_ratio": 1.2,
+            "market_structure": "sideways",
+            "min_trade_confidence": 0.40,
+            "ai_final_confidence": 0.82,
+        }
+
+        result = engine.make_decision("HOLD", _selected("BUY"), market_data)
+
+        assert result["action"] == "close"
+        assert "平空" in result["reason"]
+
+    def test_hold_strategy_buy_keeps_existing_long_position(self) -> None:
+        engine = DecisionEngine(_config())
+        market_data = {
+            "technical": {"atr_percent": 0.20, "rsi": 52},
+            "has_position": True,
+            "position_side": "long",
+            "risk_reward_ratio": 1.4,
+            "market_structure": "bullish",
+            "min_trade_confidence": 0.40,
+            "ai_final_confidence": 0.82,
+        }
+
+        result = engine.make_decision(
+            "HOLD", _selected("BUY", strategy_type="trend_following"), market_data
+        )
+
+        assert result["action"] == "skip"
+        assert "多仓同向BUY" in result["reason"]
+
+    def test_ai_sell_keeps_existing_short_position(self) -> None:
+        engine = DecisionEngine(_config())
+        market_data = {
+            "technical": {"atr_percent": 0.20, "rsi": 58},
+            "has_position": True,
+            "position_side": "short",
+            "risk_reward_ratio": 0.0,
+            "market_structure": "bearish",
+        }
+
+        result = engine.make_decision("SELL", _selected("SELL"), market_data)
+
+        assert result["action"] == "skip"
+        assert "空仓同向SELL" in result["reason"]
+
+    def test_ai_buy_closes_existing_short_position(self) -> None:
+        engine = DecisionEngine(_config())
+        market_data = {
+            "technical": {"atr_percent": 0.20, "rsi": 45},
+            "has_position": True,
+            "position_side": "short",
+            "risk_reward_ratio": 1.2,
+            "market_structure": "sideways",
+        }
+
+        result = engine.make_decision("BUY", _selected("BUY"), market_data)
+
+        assert result["action"] == "close"
+        assert "平空" in result["reason"]
+
+
 class TestHoldOversoldOverride:
     """均值回归超卖反弹覆盖 AI-HOLD 测试"""
 

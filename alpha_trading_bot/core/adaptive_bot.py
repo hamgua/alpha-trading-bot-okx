@@ -11,6 +11,7 @@
 """
 
 import asyncio
+import inspect
 import logging
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timezone
@@ -25,6 +26,7 @@ from .position_close_audit import (
 )
 from .opportunity_audit import OpportunityAuditor
 from ..config.models import Config
+from ..exchange.models.orders import OrderIntent
 from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
@@ -45,6 +47,19 @@ def _normalize_stop_price_for_order(
     if position_side != "short" and stop_price >= current_price:
         return current_price - margin
     return stop_price
+
+
+def _supports_order_intent(method: Any) -> bool:
+    """判断下单方法是否支持订单意图参数。"""
+    try:
+        parameters = inspect.signature(method).parameters.values()
+    except (TypeError, ValueError):
+        return True
+    return any(
+        parameter.kind == inspect.Parameter.VAR_KEYWORD
+        or parameter.name in {"intent", "position_side"}
+        for parameter in parameters
+    )
 
 
 class AdaptiveTradingBot:
@@ -451,6 +466,7 @@ class AdaptiveTradingBot:
 
             # 将 has_position 传入 market_data 供决策使用
             market_data["has_position"] = has_position
+            market_data["position_side"] = position_side
 
             # 10. 方向冷却检查：止损后避免立即同向开仓
             # 如果冷却期仍在，先检查最终信号方向后再决定是否跳过
@@ -855,6 +871,8 @@ class AdaptiveTradingBot:
                 side=order_side,
                 amount=amount,
                 current_price=current_price,
+                intent=OrderIntent.OPEN,
+                position_side=position_side,
             )
 
             # P0: 验证订单是否创建成功
@@ -977,6 +995,8 @@ class AdaptiveTradingBot:
                 side=close_side,
                 amount=amount,
                 current_price=current_price,
+                intent=OrderIntent.CLOSE,
+                position_side=position_side,
             )
             # P0: 验证订单是否创建成功
             if not fill:
@@ -1011,36 +1031,57 @@ class AdaptiveTradingBot:
         side: str,
         amount: float,
         current_price: float,
+        intent: OrderIntent = OrderIntent.OPEN,
+        position_side: str = "",
     ) -> Optional[Dict[str, Any]]:
         """提交市价单并确认真实成交数量和均价。"""
         assert self._exchange is not None, "Exchange client not initialized"
         result = None
-        create_with_status = getattr(self._exchange, "create_order_with_status", None)
-        if callable(create_with_status):
-            result = await create_with_status(
-                symbol=symbol,
-                side=side,
-                amount=amount,
-                order_type="market",
+        create_confirmed = getattr(self._exchange, "create_confirmed_market_order", None)
+        if callable(create_confirmed):
+            result = await create_confirmed(
+                symbol,
+                side,
+                amount,
+                intent,
+                position_side,
             )
         else:
-            order_id = await self._exchange.create_order(
-                symbol=symbol,
-                side=side,
-                amount=amount,
-                order_type="market",
-            )
-            if not order_id:
-                return None
-            get_status = getattr(self._exchange, "get_order_status", None)
-            if callable(get_status):
-                result = await get_status(order_id, symbol)
-            else:
-                return {
-                    "order_id": str(order_id),
+            create_with_status = getattr(self._exchange, "create_order_with_status", None)
+            if callable(create_with_status):
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
                     "amount": amount,
-                    "average_price": current_price,
+                    "order_type": "market",
                 }
+                if _supports_order_intent(create_with_status):
+                    kwargs["intent"] = intent
+                    kwargs["position_side"] = position_side
+                result = await create_with_status(**kwargs)
+            else:
+                create_order = self._exchange.create_order
+                kwargs = {
+                    "symbol": symbol,
+                    "side": side,
+                    "amount": amount,
+                    "order_type": "market",
+                }
+                if _supports_order_intent(create_order):
+                    kwargs["intent"] = intent
+                    kwargs["position_side"] = position_side
+                order_id = await create_order(**kwargs)
+                if not order_id:
+                    return None
+                get_status = getattr(self._exchange, "get_order_status", None)
+                if callable(get_status):
+                    result = await get_status(order_id, symbol)
+                else:
+                    return {
+                        "order_id": str(order_id),
+                        "amount": amount,
+                        "average_price": current_price,
+                    }
 
         order_id = str(getattr(result, "order_id", "") or "")
         if order_id and not getattr(result, "is_success", False):
@@ -1148,6 +1189,8 @@ class AdaptiveTradingBot:
             side=close_side,
             amount=amount,
             current_price=current_price,
+            intent=OrderIntent.CLOSE,
+            position_side=position_side,
         )
         if fill:
             self.position_manager.clear_position()
