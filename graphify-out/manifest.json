@@ -64,8 +64,8 @@
     "hash": "c0a39799946a1efd21649a31043b0347"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/take_profit_calculator.py": {
-    "mtime": 1784529751.5803597,
-    "hash": "9990b154639ce77b6af79b1b3c142c84"
+    "mtime": 1784531197.676679,
+    "hash": "f1bbdd130388379d4cc3a440ae9395e1"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/strategy_weight_manager.py": {
     "mtime": 1774321626.5555747,
@@ -112,8 +112,8 @@
     "hash": "078e1b5981f7ed677f78db71c2068042"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/adaptive_bot.py": {
-    "mtime": 1784529876.2753623,
-    "hash": "f14b33409d7db2d85c8a9cedcb817621"
+    "mtime": 1784531104.659752,
+    "hash": "93b91861be19af1ded18b713becf1965"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/exceptions.py": {
     "mtime": 1776075557.8557446,
@@ -160,8 +160,8 @@
     "hash": "405cd05470b6cb36f16cae5731c8d712"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/models.py": {
-    "mtime": 1784529741.997544,
-    "hash": "b789e4352e7a73b69cacd23b61f8c5a3"
+    "mtime": 1784531066.2398207,
+    "hash": "9c679ecc757f519fcde64b473010d8c1"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/thresholds.py": {
     "mtime": 1781076461.5173614,
@@ -452,8 +452,8 @@
     "hash": "d596d89ecc9e74092e5b20084a51495b"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_smart_stop_loss.py": {
-    "mtime": 1784529782.3001478,
-    "hash": "c70a8afe3e97271b2cc7a148dcc71bb0"
+    "mtime": 1784530991.6773617,
+    "hash": "bf4c0dca0c4d885bede3bc92df02f4ff"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_reward_calculator.py": {
     "mtime": 1779253142.6944294,
@@ -488,8 +488,8 @@
     "hash": "0c17b86fa899fc5ae2e4db5116d5ce7e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_execution_safety.py": {
-    "mtime": 1784530018.3382862,
-    "hash": "700df653d891cf21ca348309252741f5"
+    "mtime": 1784531012.6552844,
+    "hash": "5d19c3ce2a61214221732b756352dd09"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_bot_position_sync.py": {
     "mtime": 1782824091.9453497,
@@ -819,6 +819,10 @@
     "mtime": 1783676559.445828,
     "hash": "a8b6dc0790e3b848d1d247cc66e4466b"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/plans/2026-07-20-adaptive-take-profit.md": {
+    "mtime": 1784530954.9736943,
+    "hash": "bd779665770570f6f623eb7ba3a4f93b"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/plans/2026-07-20-stability-first-trading-adjustments.md": {
     "mtime": 1784530063.0903807,
     "hash": "f2fcdae16cb2f77c53b5db7237eb0856"
@@ -834,6 +838,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-20-stability-first-trading-adjustments-design.md": {
     "mtime": 1784528284.7770503,
     "hash": "4a6fd1e87c805b8b920ea38722f699b2"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-20-adaptive-take-profit-design.md": {
+    "mtime": 1784530919.7046654,
+    "hash": "1050577d06fd93b6682cdd8b70bdf832"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-10-execution-correctness-design.md": {
     "mtime": 1783675089.3216298,

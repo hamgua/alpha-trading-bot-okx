@@ -460,6 +460,75 @@ async def test_open_creates_take_profit_when_notional_reaches_threshold(
 
 
 @pytest.mark.asyncio
+async def test_open_creates_adaptive_take_profit_from_market_structure(
+    tmp_path: Any,
+) -> None:
+    """开仓后的止盈价应优先使用本周期市场结构，而不是固定百分比。"""
+    config = _live_config(StopLossConfig(take_profit_min_notional=1.0))
+    bot = AdaptiveTradingBot(config)
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        def __init__(self) -> None:
+            self.take_profit_calls: List[Dict[str, Any]] = []
+
+        async def create_order_with_status(
+            self, symbol: str, side: str, amount: float, order_type: str = "market"
+        ) -> OrderResult:
+            return OrderResult(
+                order_id="ord-1",
+                status=OrderStatus.CLOSED,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                requested_amount=amount,
+                filled_amount=amount,
+                remaining_amount=0.0,
+                average_price=100.0,
+            )
+
+        async def create_take_profit(
+            self, symbol: str, side: str, amount: float, take_profit_price: float
+        ) -> str:
+            self.take_profit_calls.append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "amount": amount,
+                    "take_profit_price": take_profit_price,
+                }
+            )
+            return "tp-1"
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+
+    await bot._execute_trade(
+        action="open",
+        current_price=100.0,
+        has_position=False,
+        position_data={},
+        market_data={
+            "nearest_resistance": 101.2,
+            "technical": {"atr_percent": 0.02},
+        },
+        selected_strategy=None,
+        cached_rule_result={"adjustments": {"position_multiplier": 1.0}},
+    )
+
+    assert exchange.take_profit_calls == [
+        {
+            "symbol": "BTC/USDT:USDT",
+            "side": "sell",
+            "amount": 0.01,
+            "take_profit_price": pytest.approx(101.0988),
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_close_uses_confirmed_fill_and_clears_position(tmp_path: Any) -> None:
     """平仓必须确认成交后再清理本地仓位。"""
     bot = AdaptiveTradingBot(_live_config())

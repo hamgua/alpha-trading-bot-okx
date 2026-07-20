@@ -940,6 +940,7 @@ class AdaptiveTradingBot:
                         amount=filled_amount,
                         entry_price=entry_price,
                         symbol=symbol,
+                        market_data=market_data,
                     )
                 else:
                     logger.warning("[执行] 止损单创建失败")
@@ -1114,6 +1115,7 @@ class AdaptiveTradingBot:
         amount: float,
         entry_price: float,
         symbol: str,
+        market_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         """按最小名义金额门槛创建止盈单。"""
         if self._exchange is None or self._take_profit_calculator is None:
@@ -1129,7 +1131,7 @@ class AdaptiveTradingBot:
             return
 
         take_profit_price = self._take_profit_calculator.calculate(
-            entry_price, position_side
+            entry_price, position_side, market_data
         )
         if take_profit_price <= 0:
             logger.warning("[止盈保护] 止盈价无效，跳过止盈单")

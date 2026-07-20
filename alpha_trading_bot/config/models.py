@@ -358,6 +358,11 @@ class StopLossConfig:
     take_profit_min_notional: float = (
         0.0  # 启用止盈单的最小名义金额，0 表示不限制
     )
+    take_profit_mode: str = "adaptive"  # adaptive=ATR/支撑阻力止盈, fixed=固定比例
+    take_profit_atr_multiplier: float = 1.5  # 自适应止盈 ATR 倍数
+    take_profit_min_percent: float = 0.004  # 自适应止盈最小距离
+    take_profit_max_percent: float = 0.02  # 自适应止盈最大距离
+    take_profit_structure_buffer_percent: float = 0.001  # 支撑/阻力前置缓冲
     min_profit_to_tighten_stop_percent: float = 0.003  # 收紧止损前的最小浮盈比例
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
@@ -381,6 +386,28 @@ class StopLossConfig:
         if self.take_profit_min_notional < 0:
             errors.append(
                 f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数"
+            )
+        if self.take_profit_mode not in ["adaptive", "fixed"]:
+            errors.append(
+                f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed"
+            )
+        if self.take_profit_atr_multiplier <= 0:
+            errors.append(
+                f"止盈ATR倍数 {self.take_profit_atr_multiplier} 必须大于0"
+            )
+        if self.take_profit_min_percent < 0:
+            errors.append(
+                f"止盈最小距离 {self.take_profit_min_percent} 不能为负数"
+            )
+        if self.take_profit_max_percent <= 0:
+            errors.append(
+                f"止盈最大距离 {self.take_profit_max_percent} 必须大于0"
+            )
+        if self.take_profit_max_percent < self.take_profit_min_percent:
+            errors.append("止盈最大距离不能小于最小距离")
+        if self.take_profit_structure_buffer_percent < 0:
+            errors.append(
+                f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数"
             )
         if self.min_profit_to_tighten_stop_percent < 0:
             errors.append(
@@ -495,6 +522,19 @@ class Config:
                 take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.008")),
                 take_profit_min_notional=float(
                     os.getenv("TAKE_PROFIT_MIN_NOTIONAL", "0")
+                ),
+                take_profit_mode=os.getenv("TAKE_PROFIT_MODE", "adaptive").lower(),
+                take_profit_atr_multiplier=float(
+                    os.getenv("TAKE_PROFIT_ATR_MULTIPLIER", "1.5")
+                ),
+                take_profit_min_percent=float(
+                    os.getenv("TAKE_PROFIT_MIN_PERCENT", "0.004")
+                ),
+                take_profit_max_percent=float(
+                    os.getenv("TAKE_PROFIT_MAX_PERCENT", "0.02")
+                ),
+                take_profit_structure_buffer_percent=float(
+                    os.getenv("TAKE_PROFIT_STRUCTURE_BUFFER_PERCENT", "0.001")
                 ),
                 min_profit_to_tighten_stop_percent=float(
                     os.getenv("MIN_PROFIT_TO_TIGHTEN_STOP_PERCENT", "0.003")

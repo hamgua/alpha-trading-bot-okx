@@ -18,6 +18,7 @@ def _make_config(
     stop_loss_profit_percent: float = 0.0002,
     stop_loss_entry_based: bool = True,
     price_vs_entry_tolerance_percent: float = 0.001,
+    take_profit_mode: str = "adaptive",
 ) -> Config:
     """创建测试配置"""
     return Config(
@@ -28,6 +29,7 @@ def _make_config(
             stop_loss_profit_percent=stop_loss_profit_percent,
             stop_loss_entry_based=stop_loss_entry_based,
             price_vs_entry_tolerance_percent=price_vs_entry_tolerance_percent,
+            take_profit_mode=take_profit_mode,
         ),
     )
 
@@ -268,6 +270,61 @@ class TestStopLossConfigValidation:
         calculator = TakeProfitCalculator()
         assert calculator.calculate(100000.0, "long") == pytest.approx(100800.0)
         assert calculator.calculate(100000.0, "short") == pytest.approx(99200.0)
+
+    def test_take_profit_calculator_uses_nearby_resistance_for_long(self):
+        """做多时，近阻力位优先于更远的 ATR 目标。"""
+        calculator = TakeProfitCalculator(_make_config())
+        market_data = {
+            "nearest_resistance": 101.2,
+            "technical": {"atr_percent": 0.02},
+        }
+
+        assert calculator.calculate(100.0, "long", market_data) == pytest.approx(
+            101.0988
+        )
+
+    def test_take_profit_calculator_uses_nearby_support_for_short(self):
+        """做空时，近支撑位优先于更远的 ATR 目标。"""
+        calculator = TakeProfitCalculator(_make_config())
+        market_data = {
+            "nearest_support": 98.8,
+            "technical": {"atr_percent": 0.02},
+        }
+
+        assert calculator.calculate(100.0, "short", market_data) == pytest.approx(
+            98.8988
+        )
+
+    def test_take_profit_calculator_uses_atr_when_structure_missing(self):
+        """缺少有效支撑阻力时，使用 ATR 倍数目标。"""
+        calculator = TakeProfitCalculator(_make_config())
+        market_data = {"technical": {"atr_percent": 0.004}}
+
+        assert calculator.calculate(100.0, "long", market_data) == pytest.approx(100.6)
+
+    def test_take_profit_calculator_clamps_adaptive_target_range(self):
+        """自适应目标不能过近或过远。"""
+        config = _make_config()
+        calculator = TakeProfitCalculator(config)
+
+        too_close = {
+            "nearest_resistance": 100.1,
+            "technical": {"atr_percent": 0.001},
+        }
+        too_far = {"technical": {"atr_percent": 0.05}}
+
+        assert calculator.calculate(100.0, "long", too_close) == pytest.approx(100.4)
+        assert calculator.calculate(100.0, "long", too_far) == pytest.approx(102.0)
+
+    def test_take_profit_calculator_fixed_mode_uses_percent_fallback(self):
+        """固定模式保留百分比止盈兜底。"""
+        calculator = TakeProfitCalculator(_make_config(take_profit_mode="fixed"))
+        market_data = {
+            "nearest_resistance": 101.2,
+            "technical": {"atr_percent": 0.02},
+        }
+
+        assert calculator.calculate(100.0, "long", market_data) == pytest.approx(100.8)
 
 
 # === 7. 传统模式回归测试 ===
