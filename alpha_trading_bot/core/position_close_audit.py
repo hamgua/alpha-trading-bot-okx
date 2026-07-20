@@ -25,6 +25,8 @@ class PositionCloseAuditContext:
     unrealized_pnl: float = 0.0
     stop_order_id: str = ""
     stop_price: float = 0.0
+    active_close_confirmed: bool = False
+    active_close_order_id: str = ""
 
     def remember(
         self,
@@ -42,6 +44,13 @@ class PositionCloseAuditContext:
         self.unrealized_pnl = extract_float(unrealized_pnl)
         self.stop_order_id = stop_order_id or ""
         self.stop_price = extract_float(stop_price)
+        self.active_close_confirmed = False
+        self.active_close_order_id = ""
+
+    def mark_active_close(self, order_id: str = "") -> None:
+        """标记最近持仓已由本系统主动平仓。"""
+        self.active_close_confirmed = True
+        self.active_close_order_id = order_id or ""
 
 
 class PositionCloseAuditor:
@@ -56,6 +65,14 @@ class PositionCloseAuditor:
         symbol: str,
     ) -> None:
         """查询算法单历史并记录平仓事件。"""
+        if self.context.active_close_confirmed:
+            logger.info(
+                "[平仓审计] 主动平仓已确认，跳过算法单触发审计: "
+                f"order_id={self.context.active_close_order_id or 'unknown'}, "
+                f"side={self.context.side}, entry={self.context.entry_price}"
+            )
+            return
+
         if exchange is None:
             self.log_inferred_position_close_event("exchange_not_initialized")
             return
@@ -112,9 +129,31 @@ class PositionCloseAuditor:
             algo_id = str(order.get("id") or info.get("algoId") or "")
             if self.context.stop_order_id and algo_id != self.context.stop_order_id:
                 continue
-            if info.get("slTriggerPx") or info.get("tpTriggerPx"):
+            if self._has_close_trigger_field(info) and self._has_trigger_evidence(
+                info
+            ):
                 return order
         return None
+
+    @staticmethod
+    def _has_close_trigger_field(info: Dict[str, Any]) -> bool:
+        """判断算法单历史是否属于止损/止盈单。"""
+        return bool(
+            info.get("slTriggerPx")
+            or info.get("stopLossPrice")
+            or info.get("tpTriggerPx")
+            or info.get("takeProfitPrice")
+        )
+
+    @staticmethod
+    def _has_trigger_evidence(info: Dict[str, Any]) -> bool:
+        """判断算法单历史是否包含实际触发或成交证据。"""
+        return bool(
+            info.get("actualPx")
+            or info.get("avgPx")
+            or info.get("triggerTime")
+            or info.get("ordId")
+        )
 
     def log_inferred_position_close_event(self, reason: str) -> None:
         """算法单历史暂不可用时，至少记录一条可追踪的推断平仓日志。"""

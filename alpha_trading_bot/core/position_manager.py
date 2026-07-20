@@ -120,6 +120,16 @@ class PositionManager:
         return self._last_stop_price
 
     @property
+    def take_profit_order_id(self) -> Optional[str]:
+        """获取止盈单ID"""
+        return self._take_profit_order_id
+
+    @property
+    def last_take_profit_price(self) -> float:
+        """获取上次设置的止盈价"""
+        return self._last_take_profit_price
+
+    @property
     def highest_price_since_entry(self) -> float:
         """获取做多时追踪的最高价"""
         return self._highest_price_since_entry
@@ -287,8 +297,8 @@ class PositionManager:
         当 stop_loss_entry_based=True (智能止损模式):
         1. 首次建仓/亏损状态(当前价 <= 建仓价): 止损价 = 建仓价 × 99.95%
         2. 盈利状态(当前价 > 建仓价):
-           - 价差 >= 容错(0.1%): 止损价 = 建仓价 × 99.98% (收紧止损)
-           - 价差 < 容错(0.1%): 止损价 = 建仓价 × 99.95% (不更新)
+           - 价差 >= 容错且浮盈 >= 收紧门槛: 止损价 = 建仓价 × 99.98% (收紧止损)
+           - 价差未达门槛: 止损价 = 建仓价 × 99.95% (不更新)
 
         当 stop_loss_entry_based=False (传统模式):
         1. 新建仓/亏损状态: 止损价 = 当前价格 × (1 - stop_loss_percent)
@@ -318,25 +328,29 @@ class PositionManager:
 
         业务逻辑:
         - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 0.05%) = 建仓价 × 99.95%
-        - 盈利且价差 >= 容错:
+        - 盈利且价差 >= 容错且浮盈 >= 收紧门槛:
             - 若最高价 > 建仓价: 止损 = max(建仓价×99.98%, 最高价×99.98%) 实现追踪止损
             - 否则: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
-        - 盈利但价差 < 容错: 止损 = 建仓价 × 99.95% (视为未明显盈利)
+        - 盈利但价差未达门槛: 止损 = 建仓价 × 99.95% (视为未明显盈利)
         """
         entry_price = self._entry_price
         tolerance = self.config.stop_loss.price_vs_entry_tolerance_percent
+        min_profit_to_tighten = (
+            self.config.stop_loss.min_profit_to_tighten_stop_percent
+        )
 
         # 计算当前价与建仓价的偏差
         price_vs_entry_percent = (
             (current_price - entry_price) / entry_price if entry_price > 0 else 0
         )
+        tighten_threshold = max(tolerance, min_profit_to_tighten)
 
         if current_price <= entry_price:
             # 亏损/首次建仓: 止损 = 建仓价 × 99.95%
             stop_percent = self.config.stop_loss.stop_loss_percent
             stop_price = entry_price * (1 - stop_percent)
             return stop_price
-        elif price_vs_entry_percent >= tolerance:
+        elif price_vs_entry_percent >= tighten_threshold:
             # 盈利且价差 >= 容错: 使用最高价追踪止损
             stop_percent = self.config.stop_loss.stop_loss_profit_percent
             base_stop = entry_price * (1 - stop_percent)
@@ -366,7 +380,23 @@ class PositionManager:
             )
             return stop_price
         else:
-            stop_percent = self.config.stop_loss.stop_loss_profit_percent
+            profit_percent = (
+                (current_price - self._entry_price) / self._entry_price
+                if self._entry_price > 0
+                else 0.0
+            )
+            min_profit_to_tighten = (
+                self.config.stop_loss.min_profit_to_tighten_stop_percent
+            )
+            if profit_percent < min_profit_to_tighten:
+                stop_percent = self.config.stop_loss.stop_loss_percent
+                logger.debug(
+                    f"[止损计算-做多-传统] 浮盈({profit_percent * 100:.4f}%) < "
+                    f"收紧门槛({min_profit_to_tighten * 100}%)，"
+                    f"使用基础止损比例:{stop_percent * 100}%"
+                )
+            else:
+                stop_percent = self.config.stop_loss.stop_loss_profit_percent
             stop_price = current_price * (1 - stop_percent)
             logger.debug(
                 f"[止损计算-做多-传统] 盈利状态: 当前价({current_price}) > 入场价({self._entry_price}), "
@@ -508,7 +538,9 @@ class PositionManager:
                     f"盈利={pnl:.2f}%, 止损价={new_stop}"
                 )
 
-    def set_stop_order(self, stop_order_id: str, stop_price: float = 0.0) -> None:
+    def set_stop_order(
+        self, stop_order_id: Optional[str], stop_price: float = 0.0
+    ) -> None:
         """设置止损单ID（并持久化）"""
         self._stop_order_id = stop_order_id
         if stop_price > 0:
@@ -532,7 +564,7 @@ class PositionManager:
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
 
     def set_take_profit_order(
-        self, take_profit_order_id: str, take_profit_price: float = 0.0
+        self, take_profit_order_id: Optional[str], take_profit_price: float = 0.0
     ) -> None:
         """设置止盈单ID（并持久化）"""
         self._take_profit_order_id = take_profit_order_id
@@ -557,6 +589,29 @@ class PositionManager:
         logger.debug(
             f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}"
         )
+
+    def clear_protection_orders(self) -> None:
+        """清理本地止损/止盈保护单状态。"""
+        self._stop_order_id = None
+        self._last_stop_price = 0.0
+        self._take_profit_order_id = None
+        self._last_take_profit_price = 0.0
+
+        if self._position:
+            self._persistence.save_position(
+                symbol=self._position.symbol,
+                side=self._position.side,
+                amount=self._position.amount,
+                entry_price=self._entry_price,
+                stop_order_id=self._stop_order_id,
+                last_stop_price=self._last_stop_price,
+                take_profit_order_id=self._take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
+                highest_price_since_entry=self._highest_price_since_entry,
+                lowest_price_since_entry=self._lowest_price_since_entry,
+            )
+
+        logger.debug("[保护单] 已清理本地止损/止盈状态")
 
     def needs_stop_order_recovery(self) -> bool:
         """检查是否需要恢复止损单（有持仓但无止损单ID）"""
@@ -592,8 +647,7 @@ class PositionManager:
         self._position = None
         self._entry_price = 0.0
         self._entry_time = None
-        self._stop_order_id = None
-        self._last_stop_price = 0.0
+        self.clear_protection_orders()
         self._highest_price_since_entry = 0.0
         self._lowest_price_since_entry = 0.0
 

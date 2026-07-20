@@ -1006,6 +1006,7 @@ class AdaptiveTradingBot:
                 await self._verify_and_recover_position()
                 return
             order_id = fill["order_id"]
+            self._position_close_audit_context.mark_active_close(str(order_id))
             self.position_manager.clear_position()
             logger.info(f"[执行] 平仓订单已提交: {order_id}")
 
@@ -1193,6 +1194,9 @@ class AdaptiveTradingBot:
             position_side=position_side,
         )
         if fill:
+            self._position_close_audit_context.mark_active_close(
+                str(fill["order_id"])
+            )
             self.position_manager.clear_position()
             logger.warning(
                 f"[止损保护] 裸仓保护性平仓已确认: {fill['order_id']}"
@@ -1254,8 +1258,14 @@ class AdaptiveTradingBot:
     async def _cancel_stop_loss_before_close(
         self, position_data: Dict[str, Any]
     ) -> None:
-        """平仓前取消现有止损单"""
+        """平仓前取消现有止损/止盈保护单。"""
         if self._position_recovery is None:
+            return
+        cancel_protection = getattr(
+            self._position_recovery, "cancel_protection_orders_before_close", None
+        )
+        if callable(cancel_protection):
+            await cancel_protection()
             return
         await self._position_recovery.cancel_stop_loss_before_close()
 
@@ -1440,9 +1450,20 @@ class AdaptiveTradingBot:
         )
 
         # === P3: 计算新的止损价格 ===
+        min_profit_to_tighten = self.config.stop_loss.min_profit_to_tighten_stop_percent
         if position_side == "long":
+            profit_percent = (
+                (current_price - entry_price) / entry_price if entry_price > 0 else 0
+            )
             highest_price = self.position_manager.highest_price_since_entry
-            if highest_price > 0:
+            if profit_percent < min_profit_to_tighten:
+                new_stop_price = entry_price * (1 - atr_adjusted_stop_pct)
+                logger.info(
+                    f"[止损计算] 做多: 浮盈={profit_percent * 100:.4f}% < "
+                    f"收紧门槛={min_profit_to_tighten * 100:.2f}%，"
+                    f"使用基础止损={new_stop_price:.1f}"
+                )
+            elif highest_price > 0:
                 new_stop_price = highest_price * (1 - atr_adjusted_profit_pct)
             else:
                 new_stop_price = entry_price * (1 - atr_adjusted_stop_pct)
@@ -1450,8 +1471,18 @@ class AdaptiveTradingBot:
                 f"[止损计算] 做多: 最高价={highest_price}, 止损={new_stop_price:.1f}"
             )
         else:
+            profit_percent = (
+                (entry_price - current_price) / entry_price if entry_price > 0 else 0
+            )
             lowest_price = self.position_manager.lowest_price_since_entry
-            if lowest_price > 0:
+            if profit_percent < min_profit_to_tighten:
+                new_stop_price = entry_price * (1 + atr_adjusted_stop_pct)
+                logger.info(
+                    f"[止损计算] 做空: 浮盈={profit_percent * 100:.4f}% < "
+                    f"收紧门槛={min_profit_to_tighten * 100:.2f}%，"
+                    f"使用基础止损={new_stop_price:.1f}"
+                )
+            elif lowest_price > 0:
                 new_stop_price = lowest_price * (1 + atr_adjusted_profit_pct)
             else:
                 new_stop_price = entry_price * (1 + atr_adjusted_stop_pct)

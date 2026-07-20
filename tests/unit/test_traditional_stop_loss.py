@@ -269,3 +269,31 @@ class TestTraditionalATRStopLoss:
         bot.position_manager.set_stop_order.assert_called_with(
             "new-stop", pytest.approx(63050.165)
         )
+
+    @pytest.mark.asyncio
+    async def test_traditional_long_waits_for_min_profit_before_tightening(self):
+        """传统ATR模式下，轻微浮盈未达门槛时不撤单重建更紧止损。"""
+        from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
+
+        bot = _make_bot()
+        bot.config.stop_loss.stop_loss_entry_based = False
+        bot.param_manager = MagicMock()
+        bot.param_manager.get_parameters.return_value = {
+            "stop_loss_percent": 0.005,
+            "stop_loss_profit_percent": 0.002,
+        }
+        bot.position_manager.highest_price_since_entry = 100200.0
+        bot.position_manager.last_stop_price = 99500.0
+        bot._get_existing_stop_order_id = AsyncMock(return_value=("old-stop", 99500.0))
+        bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
+        bot._create_stop_loss_with_retry = AsyncMock(return_value="new-stop")
+
+        await AdaptiveTradingBot._update_stop_loss(
+            bot,
+            current_price=100200.0,
+            position_data={"side": "long", "entry_price": 100000.0, "amount": 0.01},
+            market_data={"technical": {"atr_percent": 0.0}},
+        )
+
+        bot._exchange.cancel_algo_order.assert_not_awaited()
+        bot._create_stop_loss_with_retry.assert_not_awaited()

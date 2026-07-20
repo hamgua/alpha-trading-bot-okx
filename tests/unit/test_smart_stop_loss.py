@@ -10,6 +10,7 @@ from alpha_trading_bot.config.models import (
     TradingConfig,
 )
 from alpha_trading_bot.core.position_manager import PositionManager
+from alpha_trading_bot.core.take_profit_calculator import TakeProfitCalculator
 
 
 def _make_config(
@@ -59,9 +60,17 @@ class TestEntryBasedStopLossNormal:
         assert stop_price == pytest.approx(expected, rel=1e-6)
 
     def test_profit_state_above_tolerance(self):
-        """做多盈利且价差 >= 0.1%: 止损 = 建仓价 × 99.98%"""
+        """做多浮盈未达收紧门槛: 止损仍为建仓价 × 99.95%"""
         pm = _make_position_manager(entry_price=100000.0, side="long")
         current_price = 100200.0
+        stop_price = pm.calculate_stop_price(current_price)
+        expected = 100000.0 * 0.9995
+        assert stop_price == pytest.approx(expected, rel=1e-6)
+
+    def test_profit_state_reaches_min_profit_gate(self):
+        """做多浮盈达到 0.3% 收紧门槛后: 止损 = 建仓价 × 99.98%"""
+        pm = _make_position_manager(entry_price=100000.0, side="long")
+        current_price = 100400.0
         stop_price = pm.calculate_stop_price(current_price)
         expected = 100000.0 * 0.9998
         assert stop_price == pytest.approx(expected, rel=1e-6)
@@ -146,11 +155,11 @@ class TestBoundaryConditions:
     """边界条件测试"""
 
     def test_exact_tolerance_boundary(self):
-        """价差恰好等于 0.1%: 止损 = 建仓价 × 99.98%"""
+        """价差恰好等于 0.1% 但未达收紧门槛: 止损 = 建仓价 × 99.95%"""
         pm = _make_position_manager(entry_price=100000.0, side="long")
         current_price = 100100.0
         stop_price = pm.calculate_stop_price(current_price)
-        expected = 100000.0 * 0.9998
+        expected = 100000.0 * 0.9995
         assert stop_price == pytest.approx(expected, rel=1e-6)
 
     def test_price_equals_entry_price(self):
@@ -177,11 +186,11 @@ class TestBoundaryConditions:
         assert stop_price == pytest.approx(expected, rel=1e-6)
 
     def test_slightly_above_tolerance(self):
-        """价差刚超过 0.1%: 止损 = 建仓价 × 99.98%"""
+        """价差刚超过 0.1% 但未达收紧门槛: 止损 = 建仓价 × 99.95%"""
         pm = _make_position_manager(entry_price=100000.0, side="long")
         current_price = 100101.0
         stop_price = pm.calculate_stop_price(current_price)
-        expected = 100000.0 * 0.9998
+        expected = 100000.0 * 0.9995
         assert stop_price == pytest.approx(expected, rel=1e-6)
 
 
@@ -243,8 +252,22 @@ class TestStopLossConfigValidation:
         assert config.stop_loss_percent == 0.0005
         assert config.stop_loss_profit_percent == 0.0002
         assert config.stop_loss_tolerance_percent == 0.001
+        assert config.take_profit_percent == pytest.approx(0.008)
+        assert config.min_profit_to_tighten_stop_percent == pytest.approx(0.003)
         assert config.stop_loss_entry_based is True
         assert config.price_vs_entry_tolerance_percent == 0.001
+
+    def test_negative_min_profit_to_tighten_stop(self):
+        """负数止损收紧门槛验证返回错误"""
+        config = StopLossConfig(min_profit_to_tighten_stop_percent=-0.001)
+        errors = config.validate()
+        assert any("止损收紧最小盈利比例" in e for e in errors)
+
+    def test_take_profit_calculator_default_uses_low_volatility_target(self):
+        """止盈计算器无配置时默认使用 0.8% 目标。"""
+        calculator = TakeProfitCalculator()
+        assert calculator.calculate(100000.0, "long") == pytest.approx(100800.0)
+        assert calculator.calculate(100000.0, "short") == pytest.approx(99200.0)
 
 
 # === 7. 传统模式回归测试 ===
@@ -269,4 +292,13 @@ class TestTraditionalMode:
         current_price = 101000.0
         stop_price = pm.calculate_stop_price(current_price)
         expected = 101000.0 * (1 - 0.0002)
+        assert stop_price == pytest.approx(expected, rel=1e-6)
+
+    def test_small_profit_uses_base_stop_percent(self):
+        """轻微浮盈未达收紧门槛时，传统模式仍使用基础止损比例。"""
+        config = _make_config(stop_loss_entry_based=False)
+        pm = _make_position_manager(entry_price=100000.0, side="long", config=config)
+        current_price = 100200.0
+        stop_price = pm.calculate_stop_price(current_price)
+        expected = current_price * (1 - 0.0005)
         assert stop_price == pytest.approx(expected, rel=1e-6)

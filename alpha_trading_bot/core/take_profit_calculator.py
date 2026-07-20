@@ -16,7 +16,7 @@ class TakeProfitCalculator:
 
     def __init__(self, config: Any = None):
         self._config = config
-        self._take_profit_percent = 0.06
+        self._take_profit_percent = 0.008
         if config and hasattr(config, "stop_loss"):
             self._take_profit_percent = config.stop_loss.take_profit_percent
 

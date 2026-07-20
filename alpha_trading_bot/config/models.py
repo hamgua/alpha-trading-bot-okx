@@ -354,10 +354,11 @@ class StopLossConfig:
     stop_loss_tolerance_percent: float = (
         0.001  # 止损价容错比例 (如 0.001 = 0.1%)
     )
-    take_profit_percent: float = 0.06  # 止盈比例 (如 0.06 = 6%)
+    take_profit_percent: float = 0.008  # 止盈比例 (如 0.008 = 0.8%)
     take_profit_min_notional: float = (
         0.0  # 启用止盈单的最小名义金额，0 表示不限制
     )
+    min_profit_to_tighten_stop_percent: float = 0.003  # 收紧止损前的最小浮盈比例
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
     price_vs_entry_tolerance_percent: float = (
@@ -370,7 +371,7 @@ class StopLossConfig:
         if self.stop_loss_percent <= 0 or self.stop_loss_percent > 1:
             errors.append(f"止损比例 {self.stop_loss_percent} 不在有效范围 (0-1)")
         if self.stop_loss_profit_percent <= 0 or self.stop_loss_profit_percent > 1:
-            errors.append(  
+            errors.append(
                 f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)"
             )
         if self.stop_loss_tolerance_percent < 0:
@@ -380,6 +381,11 @@ class StopLossConfig:
         if self.take_profit_min_notional < 0:
             errors.append(
                 f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数"
+            )
+        if self.min_profit_to_tighten_stop_percent < 0:
+            errors.append(
+                "止损收紧最小盈利比例 "
+                f"{self.min_profit_to_tighten_stop_percent} 不能为负数"
             )
         if self.price_vs_entry_tolerance_percent < 0:
             errors.append(
@@ -486,9 +492,12 @@ class Config:
                 stop_loss_profit_percent=float(
                     os.getenv("STOP_LOSS_PROFIT_PERCENT", "0.0002")
                 ),
-                take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.06")),
+                take_profit_percent=float(os.getenv("TAKE_PROFIT_PERCENT", "0.008")),
                 take_profit_min_notional=float(
                     os.getenv("TAKE_PROFIT_MIN_NOTIONAL", "0")
+                ),
+                min_profit_to_tighten_stop_percent=float(
+                    os.getenv("MIN_PROFIT_TO_TIGHTEN_STOP_PERCENT", "0.003")
                 ),
                 stop_loss_entry_based=os.getenv(
                     "STOP_LOSS_ENTRY_BASED", "true"

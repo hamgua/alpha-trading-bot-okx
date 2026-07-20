@@ -1,7 +1,7 @@
 """AdaptiveBot 执行安全回归测试。"""
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pytest
 
@@ -13,6 +13,7 @@ from alpha_trading_bot.config.models import (
 )
 from alpha_trading_bot.core.adaptive_bot import AdaptiveTradingBot
 from alpha_trading_bot.core.position_manager import PositionManager
+from alpha_trading_bot.core.position_recovery import PositionRecoveryManager
 from alpha_trading_bot.exchange.models.orders import OrderResult, OrderStatus
 
 
@@ -42,12 +43,12 @@ class _RiskAllows:
             "stop_loss_percent": 0.005,
         }
 
-    def can_open_position(self, *args: Any, **kwargs: Any) -> tuple[bool, str]:
+    def can_open_position(self, *args: Any, **kwargs: Any) -> Tuple[bool, str]:
         return True, "ok"
 
 
 class _RiskBlocks(_RiskAllows):
-    def can_open_position(self, *args: Any, **kwargs: Any) -> tuple[bool, str]:
+    def can_open_position(self, *args: Any, **kwargs: Any) -> Tuple[bool, str]:
         return False, "risk_blocked"
 
 
@@ -64,7 +65,7 @@ class _RiskBlocksLargePlan(_RiskAllows):
 
     def can_open_position(
         self, market_data: Dict[str, Any], position_data: Dict[str, Any]
-    ) -> tuple[bool, str]:
+    ) -> Tuple[bool, str]:
         self.seen_position_percent = position_data.get("position_percent", 0.0)
         if self.seen_position_percent > 0.1:
             return False, "planned_position_too_large"
@@ -140,6 +141,21 @@ def _wire_execution_deps(
     bot.rules_engine = _RulesEngine()
     bot._adaptive_stop_loss = _StopLoss()
     return tracker
+
+
+def test_clear_position_clears_take_profit_state(tmp_path: Any) -> None:
+    """清仓时必须同时清理止损和止盈本地状态。"""
+    position_manager = PositionManager(_live_config(), data_dir=tmp_path)
+    position_manager.update_position(0.01, 100.0, "BTC/USDT:USDT", "long")
+    position_manager.set_stop_order("sl-1", 99.0)
+    position_manager.set_take_profit_order("tp-1", 100.8)
+
+    position_manager.clear_position()
+
+    assert position_manager.stop_order_id is None
+    assert position_manager.last_stop_price == 0.0
+    assert position_manager.take_profit_order_id is None
+    assert position_manager.last_take_profit_price == 0.0
 
 
 @pytest.mark.asyncio
@@ -489,3 +505,80 @@ async def test_close_uses_confirmed_fill_and_clears_position(tmp_path: Any) -> N
 
     assert orders == ["buy"]
     assert bot.position_manager.position is None
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_stop_loss_and_take_profit_before_market_close(
+    tmp_path: Any,
+) -> None:
+    """主动平仓前必须取消本地和交易所中的止损/止盈保护单。"""
+    bot = AdaptiveTradingBot(_live_config())
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+    bot.position_manager.update_position(0.01, 100.0, "BTC/USDT:USDT", "long")
+    bot.position_manager.set_stop_order("sl-local", 99.5)
+    bot.position_manager.set_take_profit_order("tp-local", 100.8)
+    canceled: List[str] = []
+    orders: List[str] = []
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        async def get_algo_orders(self, symbol: str) -> List[Dict[str, Any]]:
+            assert symbol == "BTC/USDT:USDT"
+            return [
+                {
+                    "id": "sl-exchange",
+                    "info": {"algoId": "sl-exchange", "slTriggerPx": "99.5"},
+                },
+                {
+                    "id": "tp-exchange",
+                    "info": {"algoId": "tp-exchange", "tpTriggerPx": "100.8"},
+                },
+            ]
+
+        async def cancel_algo_order(
+            self, algo_id: str, symbol: str
+        ) -> Tuple[bool, str]:
+            assert symbol == "BTC/USDT:USDT"
+            canceled.append(algo_id)
+            return True, "ok"
+
+        async def create_order_with_status(
+            self, symbol: str, side: str, amount: float, order_type: str = "market"
+        ) -> OrderResult:
+            orders.append(side)
+            return OrderResult(
+                order_id="close-1",
+                status=OrderStatus.CLOSED,
+                symbol=symbol,
+                side=side,
+                order_type=order_type,
+                requested_amount=amount,
+                filled_amount=amount,
+                remaining_amount=0.0,
+                average_price=100.2,
+            )
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+    bot._position_recovery = PositionRecoveryManager(exchange, bot.position_manager)
+
+    await bot._execute_trade(
+        action="close",
+        current_price=100.2,
+        has_position=True,
+        position_data={
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "amount": 0.01,
+            "entry_price": 100.0,
+        },
+        market_data={"technical": {}},
+        selected_strategy=None,
+        cached_rule_result={"adjustments": {"position_multiplier": 1.0}},
+    )
+
+    assert set(canceled) == {"sl-local", "tp-local", "sl-exchange", "tp-exchange"}
+    assert orders == ["sell"]
+    assert bot.position_manager.stop_order_id is None
+    assert bot.position_manager.take_profit_order_id is None

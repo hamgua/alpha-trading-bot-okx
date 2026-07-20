@@ -309,8 +309,8 @@ def test_position_and_state_persistence_golden_outputs(tmp_path) -> None:
 
     assert manager.calculate_stop_price_unified(100500.0) == 99980.0
     assert short_manager.calculate_short_stop_price(100000.0) == 100050.0
-    assert manager.calculate_take_profit_price(100000.0) == 106000.0
-    assert short_manager.calculate_short_take_profit_price(100000.0) == 94000.0
+    assert manager.calculate_take_profit_price(100000.0) == 100800.0
+    assert short_manager.calculate_short_take_profit_price(100000.0) == 99200.0
     assert manager.stop_order_id == "sl-1"
     assert manager.last_stop_price == 99950.0
 
