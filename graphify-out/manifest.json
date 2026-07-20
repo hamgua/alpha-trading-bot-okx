@@ -88,16 +88,16 @@
     "hash": "b5de52487d1b5ae955a257f52486b121"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/decision_engine.py": {
-    "mtime": 1784258103.092245,
-    "hash": "2cb09907f9340add09300efe66c6c001"
+    "mtime": 1784534665.8309023,
+    "hash": "dc1c16dc30708363759977c3aec83010"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_close_audit.py": {
     "mtime": 1784529635.0089138,
     "hash": "a21649567ec8f51e4fdd1511f5de6f9b"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_manager.py": {
-    "mtime": 1784529801.743498,
-    "hash": "0aae79695ba52878eae842b2fe912595"
+    "mtime": 1784534815.1712444,
+    "hash": "2eccadf7559bd51c900f7720aa77c157"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/bot.py": {
     "mtime": 1784013033.082357,
@@ -112,8 +112,8 @@
     "hash": "078e1b5981f7ed677f78db71c2068042"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/adaptive_bot.py": {
-    "mtime": 1784531104.659752,
-    "hash": "93b91861be19af1ded18b713becf1965"
+    "mtime": 1784535042.8720357,
+    "hash": "622ed8fae1851d3ce33add0d0b2e8d93"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/exceptions.py": {
     "mtime": 1776075557.8557446,
@@ -160,8 +160,8 @@
     "hash": "405cd05470b6cb36f16cae5731c8d712"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/models.py": {
-    "mtime": 1784531066.2398207,
-    "hash": "9c679ecc757f519fcde64b473010d8c1"
+    "mtime": 1784534801.8073144,
+    "hash": "bcb75b14c0552659058efe081c002f96"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/config/thresholds.py": {
     "mtime": 1781076461.5173614,
@@ -396,8 +396,8 @@
     "hash": "0d1b2f5279743829abf49cc228e976c0"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/performance_tracker.py": {
-    "mtime": 1784013033.0806682,
-    "hash": "d421bdac107c42632f2c6558a3b72c35"
+    "mtime": 1784534685.236627,
+    "hash": "95426f97445106f1e6a37bd73c857b10"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/risk_manager.py": {
     "mtime": 1783511448.2905602,
@@ -428,12 +428,12 @@
     "hash": "21f1bf19b3d87a8bb8404c9e09e33bde"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_hold_override.py": {
-    "mtime": 1784258060.776746,
-    "hash": "49ec38c520c265dd00ec896df3046b8b"
+    "mtime": 1784534626.3357182,
+    "hash": "bd57c4dc388806df668f315cb034b2d4"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_zero_behavior_golden.py": {
-    "mtime": 1784530101.4885547,
-    "hash": "352203e8456efa17d167dda217ca1558"
+    "mtime": 1784534950.883445,
+    "hash": "227aa34ae5d35ab6a048bde376c05cbd"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_tree_full.py": {
     "mtime": 1781164060.6293385,
@@ -452,8 +452,8 @@
     "hash": "d596d89ecc9e74092e5b20084a51495b"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_smart_stop_loss.py": {
-    "mtime": 1784530991.6773617,
-    "hash": "bf4c0dca0c4d885bede3bc92df02f4ff"
+    "mtime": 1784534767.868896,
+    "hash": "a0024d1f3d150ba09d28e10faa0eafcd"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_reward_calculator.py": {
     "mtime": 1779253142.6944294,
@@ -488,8 +488,8 @@
     "hash": "0c17b86fa899fc5ae2e4db5116d5ce7e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_execution_safety.py": {
-    "mtime": 1784531012.6552844,
-    "hash": "5d19c3ce2a61214221732b756352dd09"
+    "mtime": 1784534756.7601826,
+    "hash": "7fc97accdacbf5db8a4be5012b66ad83"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_bot_position_sync.py": {
     "mtime": 1782824091.9453497,
@@ -500,8 +500,8 @@
     "hash": "ff38672ddf380289499b1818ee452c7f"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_adaptive_bot_cooldown.py": {
-    "mtime": 1781165095.9908676,
-    "hash": "ede7829a9a0ca21093da4b5e3d19c4d1"
+    "mtime": 1784534434.3909874,
+    "hash": "0a2f4989b24c30fed7ba987d62fd6427"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_traditional_stop_loss.py": {
     "mtime": 1784529846.1881378,
@@ -562,6 +562,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_exchange_leverage.py": {
     "mtime": 1781161820.4407976,
     "hash": "e6468c86ff36b538f309626dc9cb0344"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_ai_hold_override_metrics.py": {
+    "mtime": 1784534572.0311084,
+    "hash": "2aa46bd4dfce02c36d25b1799d9cbc6e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_sustained_decline_detector.py": {
     "mtime": 1781173578.689223,
@@ -823,6 +827,10 @@
     "mtime": 1784530954.9736943,
     "hash": "bd779665770570f6f623eb7ba3a4f93b"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/plans/2026-07-20-opportunity-and-exit-completion.md": {
+    "mtime": 1784534995.3767319,
+    "hash": "896ef85afb05555df44b868f79aa930a"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/plans/2026-07-20-stability-first-trading-adjustments.md": {
     "mtime": 1784530063.0903807,
     "hash": "f2fcdae16cb2f77c53b5db7237eb0856"
@@ -842,6 +850,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-20-adaptive-take-profit-design.md": {
     "mtime": 1784530919.7046654,
     "hash": "1050577d06fd93b6682cdd8b70bdf832"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-20-opportunity-and-exit-completion-design.md": {
+    "mtime": 1784534376.6869678,
+    "hash": "21b38ee3b02370e61433debd81c89aad"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-07-10-execution-correctness-design.md": {
     "mtime": 1783675089.3216298,

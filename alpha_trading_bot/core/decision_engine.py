@@ -50,6 +50,10 @@ HOLD_STRATEGY_BUY_MIN_CONFIDENCE = 0.80
 HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
 # SELL覆盖AI-HOLD最低置信度（均值回归超买信号）
 HOLD_STRATEGY_SELL_MIN_CONFIDENCE = 0.75
+MARKET_STRUCTURE_LONG_MIN_CONFIDENCE = 0.72
+MARKET_STRUCTURE_LONG_MIN_RR = 2.0
+MARKET_STRUCTURE_LONG_MIN_TREND = 0.70
+MARKET_STRUCTURE_LONG_MAX_RSI = 68
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 BEARISH_STRUCTURE_SHORT_MIN_RR = 1.2
@@ -82,6 +86,7 @@ class DecisionEngine:
             "ai_hold_strategy_buy_conservative_skip": 0,
             "ai_hold_oversold_buy_executed": 0,
             "ai_hold_strategy_buy_executed": 0,
+            "market_structure_long_executed": 0,
             "market_structure_short_executed": 0,
         }
         self._oversold_metrics: Dict[str, int] = {
@@ -472,8 +477,33 @@ class DecisionEngine:
                 "market_structure_direction", "none"
             )
             market_structure = market_data.get("market_structure", "sideways")
+            long_rr_ratio = market_data.get("risk_reward_ratio", 0)
             rr_ratio = self._get_short_rr(market_data)
             trend_strength = technical.get("trend_strength", 0)
+            if (
+                market_structure_direction == "long"
+                and market_structure == "bullish"
+                and selected.confidence >= MARKET_STRUCTURE_LONG_MIN_CONFIDENCE
+                and long_rr_ratio >= MARKET_STRUCTURE_LONG_MIN_RR
+                and trend_strength >= MARKET_STRUCTURE_LONG_MIN_TREND
+                and atr_percent < MAX_TRADE_ATR_PERCENT
+                and rsi < MARKET_STRUCTURE_LONG_MAX_RSI
+                and not has_position
+            ):
+                confidence_block = self._confidence_gate("long", selected, market_data)
+                if confidence_block:
+                    return confidence_block
+                logger.info(
+                    f"[决策] 市场结构LONG(R/R={long_rr_ratio:.2f})覆盖AI-HOLD"
+                )
+                self._conflict_metrics["market_structure_long_executed"] += 1
+                return {
+                    "action": "open",
+                    "reason": f"市场结构做多(R/R={long_rr_ratio:.2f})覆盖AI-HOLD",
+                    "confidence": min(max(selected.confidence, 0.72), 0.78),
+                    "strategy": "market_structure_long",
+                    "position_advice": f"R/R={long_rr_ratio:.2f}优秀，市场结构做多",
+                }
             if (
                 market_structure_direction == "short"
                 and rr_ratio >= MARKET_STRUCTURE_SHORT_MIN_RR
@@ -820,9 +850,10 @@ class DecisionEngine:
 
         # HOLD 信号处理
         if signal == "HOLD":
-            return self._make_hold_decision(
+            decision = self._make_hold_decision(
                 selected, market_data, technical, atr_percent, rsi, has_position
             )
+            return self._mark_ai_hold_override(decision)
 
         # 未知信号 - 使用策略信号
         if selected.signal.upper() != "HOLD":
@@ -840,3 +871,17 @@ class DecisionEngine:
             "confidence": selected.confidence,
             "strategy": selected.strategy_type,
         }
+
+    @staticmethod
+    def _mark_ai_hold_override(decision: Dict[str, Any]) -> Dict[str, Any]:
+        """为 AI-HOLD 覆盖入场决策添加可统计 metadata。"""
+        action = decision.get("action")
+        reason = str(decision.get("reason", ""))
+        if action not in ["open", "sell"] or "覆盖AI-HOLD" not in reason:
+            return decision
+
+        metadata = dict(decision.get("metadata", {}))
+        metadata["ai_hold_override"] = True
+        metadata["ai_hold_override_type"] = str(decision.get("strategy", "unknown"))
+        decision["metadata"] = metadata
+        return decision

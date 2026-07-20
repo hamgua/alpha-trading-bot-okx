@@ -35,6 +35,7 @@ def test_loss_reentry_keeps_full_cooldown() -> None:
     """亏损平仓后，同向机会仍保持完整冷却。"""
     bot = _make_bot()
     bot._last_close_was_profitable = False
+    bot._last_close_pnl_percent = -0.01
 
     final_signal = {"action": "open", "confidence": 0.80}
     market_data = {
@@ -45,6 +46,54 @@ def test_loss_reentry_keeps_full_cooldown() -> None:
     assert (
         bot._get_direction_cooldown_seconds(final_signal, market_data, "long") == 1800
     )
+
+
+def test_small_loss_reentry_uses_medium_cooldown() -> None:
+    """小亏/接近保本后，高质量同向机会使用中等冷却。"""
+    bot = _make_bot()
+    bot._last_closed_side = "long"
+    bot._last_close_was_profitable = False
+    bot._last_close_pnl_percent = -0.0008
+
+    final_signal = {"action": "open", "confidence": 0.80}
+    market_data = {
+        "risk_reward_ratio": 3.0,
+        "is_high_risk": False,
+    }
+
+    assert bot._get_direction_cooldown_seconds(final_signal, market_data, "long") == 600
+
+
+def test_breakeven_reentry_uses_medium_cooldown() -> None:
+    """保本附近退出后，高质量同向机会使用中等冷却。"""
+    bot = _make_bot()
+    bot._last_closed_side = "long"
+    bot._last_close_was_profitable = False
+    bot._last_close_pnl_percent = 0.0002
+
+    final_signal = {"action": "open", "confidence": 0.80}
+    market_data = {
+        "risk_reward_ratio": 3.0,
+        "is_high_risk": False,
+    }
+
+    assert bot._get_direction_cooldown_seconds(final_signal, market_data, "long") == 600
+
+
+def test_high_quality_opposite_direction_uses_short_cooldown() -> None:
+    """高质量反方向机会使用短冷却。"""
+    bot = _make_bot()
+    bot._last_closed_side = "long"
+    bot._last_close_was_profitable = False
+    bot._last_close_pnl_percent = -0.01
+
+    final_signal = {"action": "sell", "confidence": 0.80}
+    market_data = {
+        "short_risk_reward_ratio": 3.0,
+        "is_high_risk": False,
+    }
+
+    assert bot._get_direction_cooldown_seconds(final_signal, market_data, "short") == 300
 
 
 def test_high_risk_long_reentry_keeps_full_cooldown() -> None:

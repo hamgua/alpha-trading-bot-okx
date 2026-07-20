@@ -638,6 +638,11 @@ class TestHoldStrategySellOverride:
 
         assert result["action"] == "sell"
         assert result["strategy"] == "mean_reversion_short_rr_override"
+        assert result["metadata"]["ai_hold_override"] is True
+        assert (
+            result["metadata"]["ai_hold_override_type"]
+            == "mean_reversion_short_rr_override"
+        )
 
     def test_hold_strategy_sell_does_not_reuse_long_rr_for_short(self):
         """长方向 R/R 很高但短方向未确认时，SELL 不应开空。"""
@@ -782,6 +787,31 @@ class TestHoldBothHold:
 
         assert result["action"] == "skip"
         assert "AI和策略都是HOLD" in result["reason"]
+
+    def test_high_quality_long_structure_overrides_ai_and_strategy_hold(self):
+        """AI和策略都HOLD时，高质量多头结构可轻量覆盖。"""
+        engine = DecisionEngine(self.config)
+        selected = MagicMock()
+        selected.signal = "HOLD"
+        selected.confidence = 0.74
+        selected.strategy_type = "trend_following"
+        selected.reasons = []
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 55, "trend_strength": 0.75},
+            "has_position": False,
+            "risk_reward_ratio": 2.4,
+            "market_structure_direction": "long",
+            "market_structure": "bullish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.74,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "open"
+        assert result["strategy"] == "market_structure_long"
+        assert result["metadata"]["ai_hold_override"] is True
+        assert result["metadata"]["ai_hold_override_type"] == "market_structure_long"
 
     def test_market_structure_short_uses_explicit_short_rr(self):
         """市场结构做空覆盖 AI-HOLD 必须使用短方向 R/R。"""

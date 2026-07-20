@@ -47,6 +47,7 @@ class TradeRecord:
     market_regime: str  # 当时的市场环境
     used_threshold: float  # 当时使用的融合阈值
     used_stop_loss: float  # 当时使用的止损比例
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -125,6 +126,7 @@ class PerformanceTracker:
         market_regime: str,
         used_threshold: float,
         used_stop_loss: float,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> TradeRecord:
         """记录开仓"""
         trade = TradeRecord(
@@ -141,6 +143,7 @@ class PerformanceTracker:
             market_regime=market_regime,
             used_threshold=used_threshold,
             used_stop_loss=used_stop_loss,
+            metadata=dict(metadata or {}),
         )
 
         self._open_position = trade
@@ -328,6 +331,57 @@ class PerformanceTracker:
 
         return regime_stats
 
+    def get_ai_hold_override_metrics(self) -> Dict[str, Any]:
+        """获取 AI-HOLD 覆盖交易的结果统计。"""
+        metrics: Dict[str, Any] = {
+            "total": 0,
+            "wins": 0,
+            "losses": 0,
+            "breakeven": 0,
+            "win_rate": 0.0,
+            "by_type": {},
+        }
+
+        for trade in self._trades:
+            if trade.outcome == TradeOutcome.PENDING:
+                continue
+            if not trade.metadata.get("ai_hold_override"):
+                continue
+
+            override_type = str(
+                trade.metadata.get("ai_hold_override_type") or "unknown"
+            )
+            by_type = metrics["by_type"].setdefault(
+                override_type,
+                {
+                    "total": 0,
+                    "wins": 0,
+                    "losses": 0,
+                    "breakeven": 0,
+                    "win_rate": 0.0,
+                },
+            )
+            metrics["total"] += 1
+            by_type["total"] += 1
+
+            if trade.outcome == TradeOutcome.WIN:
+                metrics["wins"] += 1
+                by_type["wins"] += 1
+            elif trade.outcome == TradeOutcome.LOSS:
+                metrics["losses"] += 1
+                by_type["losses"] += 1
+            elif trade.outcome == TradeOutcome.BREAKEVEN:
+                metrics["breakeven"] += 1
+                by_type["breakeven"] += 1
+
+        if metrics["total"] > 0:
+            metrics["win_rate"] = metrics["wins"] / metrics["total"]
+        for stats in metrics["by_type"].values():
+            if stats["total"] > 0:
+                stats["win_rate"] = stats["wins"] / stats["total"]
+
+        return metrics
+
     def _get_consecutive_wins(self) -> int:
         """获取连续盈利次数"""
         count = 0
@@ -375,6 +429,7 @@ class PerformanceTracker:
                     "market_regime": t.market_regime,
                     "used_threshold": t.used_threshold,
                     "used_stop_loss": t.used_stop_loss,
+                    "metadata": t.metadata,
                 }
                 for t in self._trades
             ],
@@ -410,6 +465,7 @@ class PerformanceTracker:
                     market_regime=t_data["market_regime"],
                     used_threshold=t_data["used_threshold"],
                     used_stop_loss=t_data["used_stop_loss"],
+                    metadata=t_data.get("metadata", {}),
                 )
                 self._trades.append(trade)
 

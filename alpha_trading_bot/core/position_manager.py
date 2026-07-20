@@ -240,16 +240,31 @@ class PositionManager:
         表示需要平仓的做空仓位，此处归一化为 "short" 以确保止损计算正常工作。
         """
         if position_data:
+            previous_amount = self._position.amount if self._position else 0.0
             side = position_data["side"]
             # short_to_close 归一化为 short，确保止损/止盈计算能正确处理
             if side == "short_to_close":
                 side = "short"
                 logger.info("[仓位更新] short_to_close 归一化为 short，用于止损计算")
 
+            live_amount = float(position_data["amount"])
+            if (
+                previous_amount > 0
+                and live_amount > 0
+                and live_amount < previous_amount
+                and self._take_profit_order_id
+            ):
+                logger.info(
+                    f"[仓位更新] 检测到仓位减少: {previous_amount} -> {live_amount}，"
+                    "清理已触发/失效的止盈单状态"
+                )
+                self._take_profit_order_id = None
+                self._last_take_profit_price = 0.0
+
             self._position = Position(
                 symbol=position_data["symbol"],
                 side=side,
-                amount=position_data["amount"],
+                amount=live_amount,
                 entry_price=position_data["entry_price"],
             )
             self._entry_price = position_data["entry_price"]

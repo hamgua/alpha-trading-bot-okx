@@ -112,6 +112,10 @@ def _config(
                 "confidence": 0.6400000000000001,
                 "strategy": "breakdown",
                 "position_advice": "短R/R=1.50，做空开仓",
+                "metadata": {
+                    "ai_hold_override": True,
+                    "ai_hold_override_type": "breakdown",
+                },
             },
         ),
         (

@@ -466,7 +466,7 @@ async def test_open_creates_adaptive_take_profit_from_market_structure(
     """开仓后的止盈价应优先使用本周期市场结构，而不是固定百分比。"""
     config = _live_config(StopLossConfig(take_profit_min_notional=1.0))
     bot = AdaptiveTradingBot(config)
-    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+    tracker = _wire_execution_deps(bot, tmp_path, _RiskAllows())
 
     class _Exchange:
         symbol = "BTC/USDT:USDT"
@@ -516,6 +516,10 @@ async def test_open_creates_adaptive_take_profit_from_market_structure(
         },
         selected_strategy=None,
         cached_rule_result={"adjustments": {"position_multiplier": 1.0}},
+        decision_metadata={
+            "ai_hold_override": True,
+            "ai_hold_override_type": "market_structure_long",
+        },
     )
 
     assert exchange.take_profit_calls == [
@@ -526,6 +530,89 @@ async def test_open_creates_adaptive_take_profit_from_market_structure(
             "take_profit_price": pytest.approx(101.0988),
         }
     ]
+    assert tracker.records[0]["metadata"] == {
+        "ai_hold_override": True,
+        "ai_hold_override_type": "market_structure_long",
+    }
+
+
+@pytest.mark.asyncio
+async def test_take_profit_order_uses_partial_amount_when_above_minimum(
+    tmp_path: Any,
+) -> None:
+    """仓位足够大时，第一止盈单只覆盖配置比例的仓位。"""
+    config = _live_config(StopLossConfig(take_profit_min_notional=1.0))
+    bot = AdaptiveTradingBot(config)
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        def __init__(self) -> None:
+            self.take_profit_calls: List[Dict[str, Any]] = []
+
+        async def create_take_profit(
+            self, symbol: str, side: str, amount: float, take_profit_price: float
+        ) -> str:
+            self.take_profit_calls.append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "amount": amount,
+                    "take_profit_price": take_profit_price,
+                }
+            )
+            return "tp-1"
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+    bot.position_manager.update_position(0.04, 100.0, "BTC/USDT:USDT", "long")
+
+    await bot._maybe_create_take_profit_order(
+        position_side="long",
+        amount=0.04,
+        entry_price=100.0,
+        symbol="BTC/USDT:USDT",
+        market_data={"technical": {"atr_percent": 0.01}},
+    )
+
+    assert exchange.take_profit_calls[0]["amount"] == pytest.approx(0.02)
+
+
+@pytest.mark.asyncio
+async def test_take_profit_order_falls_back_to_full_amount_below_minimum(
+    tmp_path: Any,
+) -> None:
+    """比例止盈数量小于最小交易量时，退回全仓 TP 以避免非法订单。"""
+    config = _live_config(StopLossConfig(take_profit_min_notional=1.0))
+    bot = AdaptiveTradingBot(config)
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        def __init__(self) -> None:
+            self.take_profit_calls: List[Dict[str, Any]] = []
+
+        async def create_take_profit(
+            self, symbol: str, side: str, amount: float, take_profit_price: float
+        ) -> str:
+            self.take_profit_calls.append({"amount": amount})
+            return "tp-1"
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+    bot.position_manager.update_position(0.01, 100.0, "BTC/USDT:USDT", "long")
+
+    await bot._maybe_create_take_profit_order(
+        position_side="long",
+        amount=0.01,
+        entry_price=100.0,
+        symbol="BTC/USDT:USDT",
+        market_data={"technical": {"atr_percent": 0.01}},
+    )
+
+    assert exchange.take_profit_calls[0]["amount"] == pytest.approx(0.01)
 
 
 @pytest.mark.asyncio

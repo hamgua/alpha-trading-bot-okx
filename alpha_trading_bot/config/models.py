@@ -363,6 +363,8 @@ class StopLossConfig:
     take_profit_min_percent: float = 0.004  # 自适应止盈最小距离
     take_profit_max_percent: float = 0.02  # 自适应止盈最大距离
     take_profit_structure_buffer_percent: float = 0.001  # 支撑/阻力前置缓冲
+    take_profit_partial_ratio: float = 0.5  # 第一止盈使用的仓位比例
+    take_profit_min_amount: float = 0.01  # 止盈单最小数量，低于时退回全仓
     min_profit_to_tighten_stop_percent: float = 0.003  # 收紧止损前的最小浮盈比例
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
@@ -409,6 +411,12 @@ class StopLossConfig:
             errors.append(
                 f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数"
             )
+        if self.take_profit_partial_ratio <= 0 or self.take_profit_partial_ratio > 1:
+            errors.append(
+                f"止盈分批比例 {self.take_profit_partial_ratio} 不在有效范围 (0-1]"
+            )
+        if self.take_profit_min_amount < 0:
+            errors.append(f"止盈最小数量 {self.take_profit_min_amount} 不能为负数")
         if self.min_profit_to_tighten_stop_percent < 0:
             errors.append(
                 "止损收紧最小盈利比例 "
@@ -535,6 +543,12 @@ class Config:
                 ),
                 take_profit_structure_buffer_percent=float(
                     os.getenv("TAKE_PROFIT_STRUCTURE_BUFFER_PERCENT", "0.001")
+                ),
+                take_profit_partial_ratio=float(
+                    os.getenv("TAKE_PROFIT_PARTIAL_RATIO", "0.5")
+                ),
+                take_profit_min_amount=float(
+                    os.getenv("TAKE_PROFIT_MIN_AMOUNT", "0.01")
                 ),
                 min_profit_to_tighten_stop_percent=float(
                     os.getenv("MIN_PROFIT_TO_TIGHTEN_STOP_PERCENT", "0.003")

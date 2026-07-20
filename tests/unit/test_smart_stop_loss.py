@@ -47,6 +47,28 @@ def _make_position_manager(
     return pm
 
 
+def test_partial_take_profit_sync_reduces_amount_and_clears_tp(tmp_path) -> None:
+    """交易所仓位减少时，本地同步剩余仓位并清理已触发的止盈单ID。"""
+    pm = PositionManager(_make_config(), data_dir=tmp_path)
+    pm.update_position(0.04, 100.0, "BTC/USDT:USDT", "long")
+    pm.set_stop_order("sl-1", 99.0)
+    pm.set_take_profit_order("tp-1", 101.0)
+
+    pm.update_from_exchange(
+        {
+            "symbol": "BTC/USDT:USDT",
+            "side": "long",
+            "amount": 0.02,
+            "entry_price": 100.0,
+        }
+    )
+
+    assert pm.position is not None
+    assert pm.position.amount == pytest.approx(0.02)
+    assert pm.stop_order_id == "sl-1"
+    assert pm.take_profit_order_id is None
+
+
 # === 1. 正常路径测试 ===
 
 

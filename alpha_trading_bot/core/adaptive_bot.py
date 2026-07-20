@@ -97,6 +97,7 @@ class AdaptiveTradingBot:
         )
         self._last_position_unrealized_pnl: float = 0.0
         self._last_close_was_profitable: bool = False
+        self._last_close_pnl_percent: float = 0.0
         self._position_close_audit_context = PositionCloseAuditContext()
         self._position_close_auditor = PositionCloseAuditor(
             self._position_close_audit_context
@@ -109,6 +110,7 @@ class AdaptiveTradingBot:
             "cooldown_high_quality_reentry": 0,  # 高质量信号短冷却再入场
             "cooldown_allow_opposite": 0,        # 反方向开仓被允许
             "cooldown_full_cooldown": 0,         # 完整冷却时间（1800s）返回
+            "cooldown_medium_cooldown": 0,       # 中等冷却时间（600s）返回
             "cooldown_short_cooldown": 0,        # 短冷却时间（300s）返回
         }
 
@@ -537,11 +539,26 @@ class AdaptiveTradingBot:
                             "reason": f"方向冷却({this_side})",
                         }
                 elif this_side and this_side != self._last_closed_side:
-                    self._cooldown_metrics["cooldown_allow_opposite"] += 1
-                    logger.info(
-                        f"[冷却] 冷却方向={self._last_closed_side}，本次方向={this_side}，"
-                        f"允许反方向开仓"
+                    cooldown_seconds = self._get_direction_cooldown_seconds(
+                        final_signal, market_data, this_side
                     )
+                    if cool_down_elapsed >= cooldown_seconds:
+                        self._cooldown_metrics["cooldown_allow_opposite"] += 1
+                        logger.info(
+                            f"[冷却] 冷却方向={self._last_closed_side}，"
+                            f"本次方向={this_side}，反方向冷却已满足 "
+                            f"({cool_down_elapsed:.0f}/{cooldown_seconds}s)"
+                        )
+                    else:
+                        self._cooldown_metrics["cooldown_triggered_skip"] += 1
+                        logger.info(
+                            f"[冷却] 反方向机会质量不足或冷却未满足({this_side})，"
+                            f"跳过{this_side}开仓"
+                        )
+                        final_signal = {
+                            "action": "skip",
+                            "reason": f"方向冷却({this_side})",
+                        }
 
             if final_signal["action"] == "skip":
                 self._opportunity_auditor.log_skip(
@@ -568,6 +585,7 @@ class AdaptiveTradingBot:
                 market_data,
                 selected_strategy=selected,
                 cached_rule_result=rule_result,
+                decision_metadata=final_signal.get("metadata"),
             )
             # 检测到空单平仓后，跳过后续所有交易，等待下一个周期
             if final_signal.get("action") == "close_short":
@@ -589,15 +607,27 @@ class AdaptiveTradingBot:
         self._position_close_time = time.time()
         self._last_closed_side = self._last_position_side
         self._last_close_was_profitable = self._last_position_unrealized_pnl > 0
+        self._last_close_pnl_percent = self._estimate_last_close_pnl_percent()
 
         await self._log_disappeared_position_close_event()
 
         logger.info(
             f"[持仓] 无持仓 (上次方向={self._last_position_side}, "
             f"浮动盈亏={self._last_position_unrealized_pnl:.4f}, "
+            f"收益率={self._last_close_pnl_percent:.4%}, "
             f"盈利={self._last_close_was_profitable})，方向冷却已启动"
         )
         self._last_position_side = ""
+
+    def _estimate_last_close_pnl_percent(self) -> float:
+        """根据最后持仓上下文估算上一笔平仓收益率。"""
+        entry_price = self._position_close_audit_context.entry_price
+        amount = self._position_close_audit_context.amount
+        if entry_price > 0 and amount > 0:
+            return self._last_position_unrealized_pnl / (entry_price * amount)
+        if abs(self._last_position_unrealized_pnl) <= 1:
+            return self._last_position_unrealized_pnl
+        return 0.0
 
     def _remember_position_close_audit_context(
         self,
@@ -665,11 +695,9 @@ class AdaptiveTradingBot:
     ) -> int:
         """按上一笔结果和本次机会质量计算同向冷却时间。"""
         full_cooldown_seconds = 1800
+        medium_cooldown_seconds = 600
         short_cooldown_seconds = 300
-
-        if not self._last_close_was_profitable:
-            self._cooldown_metrics["cooldown_full_cooldown"] += 1
-            return full_cooldown_seconds
+        breakeven_loss_threshold = -0.001
 
         if not final_signal:
             self._cooldown_metrics["cooldown_full_cooldown"] += 1
@@ -680,7 +708,11 @@ class AdaptiveTradingBot:
             return full_cooldown_seconds
 
         confidence = final_signal.get("confidence", 0)
-        risk_reward_ratio = market_data.get("risk_reward_ratio", 0)
+        risk_reward_ratio = (
+            market_data.get("short_risk_reward_ratio", 0)
+            if side == "short"
+            else market_data.get("risk_reward_ratio", 0)
+        )
         try:
             confidence_value = float(confidence)
             risk_reward_value = float(risk_reward_ratio)
@@ -689,6 +721,18 @@ class AdaptiveTradingBot:
             return full_cooldown_seconds
 
         is_high_quality = confidence_value >= 0.70 and risk_reward_value >= 2.0
+        is_opposite_direction = bool(self._last_closed_side and side != self._last_closed_side)
+        if is_opposite_direction and is_high_quality:
+            self._cooldown_metrics["cooldown_short_cooldown"] += 1
+            return short_cooldown_seconds
+
+        if not self._last_close_was_profitable:
+            if self._last_close_pnl_percent >= breakeven_loss_threshold and is_high_quality:
+                self._cooldown_metrics["cooldown_medium_cooldown"] += 1
+                return medium_cooldown_seconds
+            self._cooldown_metrics["cooldown_full_cooldown"] += 1
+            return full_cooldown_seconds
+
         if is_high_quality:
             self._cooldown_metrics["cooldown_short_cooldown"] += 1
             return short_cooldown_seconds
@@ -731,6 +775,7 @@ class AdaptiveTradingBot:
         market_data: Dict[str, Any],
         selected_strategy: Optional[Any] = None,
         cached_rule_result: Optional[Dict[str, Any]] = None,
+        decision_metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """执行交易"""
         logger.info(f"[执行] {action}: {current_price}")
@@ -899,6 +944,7 @@ class AdaptiveTradingBot:
                 market_regime=market_state.regime.value,
                 used_threshold=params.get("fusion_threshold", 0.5),
                 used_stop_loss=risk_params.get("stop_loss_percent", 0.005),
+                metadata=decision_metadata,
             )
             logger.info("[学习] 已记录开仓信号，用于后续学习")
 
@@ -967,6 +1013,9 @@ class AdaptiveTradingBot:
                 reason="signal_close",
             )
             if closed_trade:
+                if closed_trade.pnl_percent is not None:
+                    self._last_close_pnl_percent = float(closed_trade.pnl_percent)
+                    self._last_close_was_profitable = self._last_close_pnl_percent > 0
                 self._update_strategy_weights(closed_trade)
                 logger.info(
                     f"[学习] 平仓完成: 结果={closed_trade.outcome.value}, "
@@ -1121,7 +1170,8 @@ class AdaptiveTradingBot:
         if self._exchange is None or self._take_profit_calculator is None:
             return
 
-        notional = amount * entry_price
+        take_profit_amount = self._calculate_take_profit_order_amount(amount)
+        notional = take_profit_amount * entry_price
         min_notional = self.config.stop_loss.take_profit_min_notional
         if min_notional > 0 and notional < min_notional:
             logger.info(
@@ -1149,7 +1199,7 @@ class AdaptiveTradingBot:
             result = await create_take_profit(
                 symbol=symbol,
                 side=close_side,
-                amount=amount,
+                amount=take_profit_amount,
                 take_profit_price=take_profit_price,
             )
         except Exception as e:
@@ -1174,8 +1224,23 @@ class AdaptiveTradingBot:
         logger.info(
             f"[止盈保护] 止盈单已设置: id={order_id}, "
             f"price={take_profit_price:.4f}, "
+            f"amount={take_profit_amount:.4f}/{amount:.4f}, "
             f"notional={notional:.4f}"
         )
+
+    def _calculate_take_profit_order_amount(self, amount: float) -> float:
+        """计算第一止盈单数量，低于最小量时退回全仓。"""
+        ratio = self.config.stop_loss.take_profit_partial_ratio
+        min_amount = self.config.stop_loss.take_profit_min_amount
+        take_profit_amount = amount * ratio
+        if min_amount > 0 and take_profit_amount < min_amount <= amount:
+            logger.info(
+                "[止盈保护] 分批止盈数量低于最小交易量，改用全仓止盈: "
+                f"partial={take_profit_amount:.4f}, min={min_amount:.4f}, "
+                f"amount={amount:.4f}"
+            )
+            return amount
+        return take_profit_amount
 
     async def _close_position_without_stop_loss(
         self, position_side: str, amount: float, current_price: float
