@@ -1170,7 +1170,10 @@ class AdaptiveTradingBot:
         if self._exchange is None or self._take_profit_calculator is None:
             return
 
-        take_profit_amount = self._calculate_take_profit_order_amount(amount)
+        (
+            take_profit_amount,
+            full_amount_fallback,
+        ) = self._calculate_take_profit_order_amount(amount)
         notional = take_profit_amount * entry_price
         min_notional = self.config.stop_loss.take_profit_min_notional
         if min_notional > 0 and notional < min_notional:
@@ -1183,6 +1186,10 @@ class AdaptiveTradingBot:
         take_profit_price = self._take_profit_calculator.calculate(
             entry_price, position_side, market_data
         )
+        if full_amount_fallback:
+            take_profit_price = self._adjust_full_amount_take_profit_price(
+                entry_price, take_profit_price, position_side
+            )
         if take_profit_price <= 0:
             logger.warning("[止盈保护] 止盈价无效，跳过止盈单")
             return
@@ -1228,7 +1235,7 @@ class AdaptiveTradingBot:
             f"notional={notional:.4f}"
         )
 
-    def _calculate_take_profit_order_amount(self, amount: float) -> float:
+    def _calculate_take_profit_order_amount(self, amount: float) -> Tuple[float, bool]:
         """计算第一止盈单数量，低于最小量时退回全仓。"""
         ratio = self.config.stop_loss.take_profit_partial_ratio
         min_amount = self.config.stop_loss.take_profit_min_amount
@@ -1239,8 +1246,37 @@ class AdaptiveTradingBot:
                 f"partial={take_profit_amount:.4f}, min={min_amount:.4f}, "
                 f"amount={amount:.4f}"
             )
-            return amount
-        return take_profit_amount
+            return amount, True
+        return take_profit_amount, False
+
+    def _adjust_full_amount_take_profit_price(
+        self, entry_price: float, take_profit_price: float, position_side: str
+    ) -> float:
+        """全仓止盈时把目标拉近，替代无效的 0.005 分批止盈。"""
+        if entry_price <= 0 or take_profit_price <= 0:
+            return take_profit_price
+        ratio = self.config.stop_loss.take_profit_partial_ratio
+        ratio = min(max(ratio, 0.0), 1.0)
+        if ratio >= 1.0:
+            return take_profit_price
+
+        if position_side == "short":
+            distance = entry_price - take_profit_price
+            if distance <= 0:
+                return take_profit_price
+            adjusted_price = entry_price - distance * ratio
+        else:
+            distance = take_profit_price - entry_price
+            if distance <= 0:
+                return take_profit_price
+            adjusted_price = entry_price + distance * ratio
+
+        logger.info(
+            "[止盈保护] 全仓止盈目标提前: "
+            f"entry={entry_price:.4f}, original={take_profit_price:.4f}, "
+            f"adjusted={adjusted_price:.4f}, ratio={ratio:.2f}"
+        )
+        return adjusted_price
 
     async def _close_position_without_stop_loss(
         self, position_side: str, amount: float, current_price: float

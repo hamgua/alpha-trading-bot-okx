@@ -11,6 +11,7 @@ ML 数据管理器
 日期：2026-02-14
 """
 
+import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -420,6 +421,38 @@ class MLDataManager:
 
         except Exception as e:
             logger.error(f"[ML数据] 保存权重失败: {e}")
+            return self._save_model_weights_fallback(weights, source, e)
+
+    def _save_model_weights_fallback(
+        self, weights: Dict[str, float], source: str, error: Exception
+    ) -> bool:
+        """SQLite 写入失败时用 JSONL 兜底保存权重。"""
+        try:
+            db_dir = Path(self.db_path).parent
+            if str(db_dir) in {"", "."}:
+                db_dir = Path(".")
+            db_dir.mkdir(parents=True, exist_ok=True)
+            fallback_path = db_dir / "model_weights_fallback.jsonl"
+            timestamp = datetime.now().isoformat()
+            with fallback_path.open("a", encoding="utf-8") as fallback_file:
+                for provider, weight in weights.items():
+                    fallback_file.write(
+                        json.dumps(
+                            {
+                                "provider": provider,
+                                "weight": weight,
+                                "source": source,
+                                "timestamp": timestamp,
+                                "sqlite_error": str(error),
+                            },
+                            ensure_ascii=False,
+                        )
+                        + "\n"
+                    )
+            logger.warning(f"[ML数据] 权重已写入降级文件: {fallback_path}")
+            return True
+        except Exception as fallback_error:
+            logger.error(f"[ML数据] 降级保存权重失败: {fallback_error}")
             return False
 
     def get_optimized_weights(self, window_days: int = 30) -> Dict[str, float]:

@@ -22,6 +22,8 @@ from alpha_trading_bot.ai.adaptive_buy_condition import (
     AdaptiveBuyCondition,
     BuyConditions,
 )
+from alpha_trading_bot.ai.integrator import AISignalIntegrator
+from alpha_trading_bot.ai.integrator_config import IntegrationConfig
 
 
 class TestHoldSignalNoPenalty:
@@ -115,6 +117,36 @@ class TestHoldSignalNoPenalty:
             original_signal="HOLD",
         )
         assert result.adjusted_confidence == 0.40, "HOLD信号不应因趋势弱被惩罚"
+
+    def test_integrator_downgrades_suppressed_high_price_buy_to_hold(self):
+        """高位 BUY 被压到低置信后，应降级 HOLD 让策略 SELL 继续评估。"""
+        integrator = AISignalIntegrator(
+            IntegrationConfig(
+                enable_adaptive_buy=False,
+                enable_signal_optimizer=False,
+                enable_high_price_filter=True,
+                enable_btc_detector=False,
+                enable_sustained_decline_detector=False,
+            )
+        )
+        market_data = {
+            "price": 77000,
+            "technical": {
+                "price_position": 0.72,
+                "rsi": 78,
+                "trend_strength": 0.04,
+                "trend_direction": "sideways",
+            },
+        }
+
+        result = integrator.process(
+            market_data, original_signal="BUY", original_confidence=0.42
+        )
+
+        assert result.final_signal == "HOLD"
+        assert result.final_confidence == pytest.approx(0.35)
+        assert result.high_price_result["penalty_applied"] is True
+        assert any("降级HOLD" in item for item in result.adjustments_made)
 
     def test_sell_signal_still_penalized(self):
         """SELL信号在RSI>60时仍应被惩罚"""

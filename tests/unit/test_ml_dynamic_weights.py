@@ -53,6 +53,25 @@ def test_ml_data_manager_creates_model_weights_table(tmp_path) -> None:
     assert rows == [("deepseek", 0.6, "ml"), ("kimi", 0.4, "ml")]
 
 
+def test_ml_data_manager_falls_back_when_sqlite_write_fails(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db_path = tmp_path / "trading_data.db"
+    manager = MLDataManager(db_path=str(db_path))
+
+    def raise_disk_io_error(*args, **kwargs):
+        raise sqlite3.OperationalError("disk I/O error")
+
+    monkeypatch.setattr(sqlite3, "connect", raise_disk_io_error)
+
+    assert manager.save_model_weights({"deepseek": 0.7}, source="online") is True
+
+    fallback_path = tmp_path / "model_weights_fallback.jsonl"
+    assert fallback_path.exists()
+    assert '"provider": "deepseek"' in fallback_path.read_text(encoding="utf-8")
+    assert '"source": "online"' in fallback_path.read_text(encoding="utf-8")
+
+
 def test_adaptive_weight_optimizer_default_weights_include_gemini() -> None:
     optimizer = AdaptiveWeightOptimizer(db_path="/tmp/not-exist.db")
     weights = optimizer._default_weights()

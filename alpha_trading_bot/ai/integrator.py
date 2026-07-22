@@ -772,6 +772,7 @@ class AISignalIntegrator:
                     "should_buy": optimized.should_buy,
                     "price_level": optimized.price_level,
                     "adjustment_reason": optimized.adjustment_reason,
+                    "penalty_applied": optimized.penalty_applied,
                 }
 
                 # 如果优化器说不要买入，改为HOLD
@@ -779,6 +780,15 @@ class AISignalIntegrator:
                     original_signal = "HOLD"
                     result.adjustments_made.append(
                         f"高位过滤: 不建议买入 - {optimized.adjustment_reason[:50]}..."
+                    )
+                elif (
+                    original_signal == "BUY"
+                    and optimized.penalty_applied
+                    and optimized.adjusted_confidence < 0.40
+                ):
+                    original_signal = "HOLD"
+                    result.adjustments_made.append(
+                        "高位过滤: BUY被压到低置信，降级HOLD继续评估策略"
                     )
 
                 original_confidence = optimized.adjusted_confidence

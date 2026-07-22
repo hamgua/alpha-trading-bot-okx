@@ -56,8 +56,11 @@ MARKET_STRUCTURE_LONG_MIN_TREND = 0.70
 MARKET_STRUCTURE_LONG_MAX_RSI = 68
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
-BEARISH_STRUCTURE_SHORT_MIN_RR = 1.2
-BEARISH_STRUCTURE_SHORT_MIN_TREND = 0.05
+BEARISH_STRUCTURE_SHORT_MIN_RR = 3.0
+BEARISH_STRUCTURE_SHORT_MIN_TREND = 0.25
+BEARISH_STRUCTURE_SHORT_MIN_CONFIDENCE = 0.60
+MEAN_REVERSION_SHORT_MIN_RR = 3.0
+MEAN_REVERSION_SHORT_MIN_RSI = 78
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
@@ -139,6 +142,11 @@ class DecisionEngine:
             market_data.get("final_confidence", selected.confidence),
         )
         if (
+            side == "short"
+            and self._is_confirmed_mean_reversion_short(selected, market_data)
+        ):
+            final_confidence = max(final_confidence, selected.confidence)
+        if (
             side == "long"
             and market_data.get("is_high_risk", False)
             and final_confidence < max(min_confidence, 0.55)
@@ -163,6 +171,23 @@ class DecisionEngine:
             }
 
         return {}
+
+    def _is_confirmed_mean_reversion_short(
+        self, selected: Any, market_data: Dict[str, Any]
+    ) -> bool:
+        """确认后的均值回归空头可使用策略置信度穿过门禁。"""
+        technical = market_data.get("technical", {})
+        return (
+            selected.strategy_type == "mean_reversion"
+            and selected.signal.upper() == "SELL"
+            and selected.confidence >= HOLD_STRATEGY_SELL_MIN_CONFIDENCE
+            and self._get_short_rr(market_data) >= MEAN_REVERSION_SHORT_MIN_RR
+            and technical.get("atr_percent", 0) < MAX_TRADE_ATR_PERCENT
+            and technical.get("rsi", 50) >= MEAN_REVERSION_SHORT_MIN_RSI
+            and self._has_mean_reversion_confirmation(
+                "short", market_data, technical
+            )
+        )
 
     def _get_short_rr(self, market_data: Dict[str, Any]) -> float:
         """获取做空专用 R/R，避免复用做多方向的风险收益比。"""
@@ -256,6 +281,14 @@ class DecisionEngine:
             or technical.get("bearish_reversal_candle")
         )
         return has_rejection and (has_price_reject or macd_hist < 0)
+
+    def _has_short_pullback_confirmation(
+        self, market_data: Dict[str, Any], technical: Dict[str, Any]
+    ) -> bool:
+        """确认空头方向，避免在高位震荡上行中仅凭 R/R 开空。"""
+        if market_data.get("market_structure_direction") == "short":
+            return True
+        return self._has_mean_reversion_confirmation("short", market_data, technical)
 
     def _make_safe_mode_decision(
         self,
@@ -380,6 +413,57 @@ class DecisionEngine:
         if position_advice:
             result["position_advice"] = position_advice
         return result
+
+    def _make_low_confidence_buy_counter_short_decision(
+        self, selected: Any, market_data: Dict[str, Any], has_position: bool
+    ) -> Dict[str, Any]:
+        """AI BUY 被风险降权时，让已确认的超买做空策略接管。"""
+        if has_position or not self._config.trading.allow_short_selling:
+            return {}
+        if not self._is_confirmed_mean_reversion_short(selected, market_data):
+            return {}
+
+        configured_threshold = getattr(
+            getattr(self._config, "ai", None), "fusion_threshold", 0.5
+        )
+        if not isinstance(configured_threshold, Number):
+            configured_threshold = 0.5
+        min_confidence = market_data.get("min_trade_confidence", configured_threshold)
+        final_confidence = market_data.get(
+            "ai_final_confidence", market_data.get("final_confidence", 0)
+        )
+        long_rr = market_data.get("risk_reward_ratio", 0)
+        if (
+            final_confidence >= min_confidence
+            and long_rr >= self._get_min_rr()
+            and not market_data.get("is_high_risk", False)
+        ):
+            return {}
+
+        market_structure = market_data.get("market_structure", "sideways")
+        market_direction = market_data.get("market_structure_direction", "none")
+        if market_structure == "bullish" and market_direction != "short":
+            return {}
+
+        short_rr = self._get_short_rr(market_data)
+        logger.info(
+            "[决策] AI-BUY低置信度，策略SELL确认超买回落接管，"
+            f"短R/R={short_rr:.2f}"
+        )
+        return {
+            "action": "sell",
+            "reason": (
+                "AI-BUY低置信度，策略SELL确认超买回落做空"
+                f"(置信度{selected.confidence:.0%}, 短R/R={short_rr:.2f})"
+            ),
+            "confidence": selected.confidence * 0.75,
+            "strategy": "mean_reversion_short_rr_override",
+            "position_advice": f"短R/R={short_rr:.2f}优秀，轻仓做空",
+            "metadata": {
+                "ai_low_confidence_buy_counter_short": True,
+                "ai_hold_override_type": "mean_reversion_short_rr_override",
+            },
+        }
 
     def _make_short_decision(
         self,
@@ -529,6 +613,8 @@ class DecisionEngine:
                 market_structure == "bearish"
                 and rr_ratio >= BEARISH_STRUCTURE_SHORT_MIN_RR
                 and trend_strength >= BEARISH_STRUCTURE_SHORT_MIN_TREND
+                and selected.confidence >= BEARISH_STRUCTURE_SHORT_MIN_CONFIDENCE
+                and self._has_short_pullback_confirmation(market_data, technical)
                 and atr_percent < MAX_TRADE_ATR_PERCENT
                 and rsi > SHORT_RSI_OVERSOLD_BLOCK
                 and not has_position
@@ -710,13 +796,7 @@ class DecisionEngine:
             # 无持仓时执行做空（需满足做空安全门禁）
             if (
                 self._config.trading.allow_short_selling
-                and short_rr_ratio >= GOOD_RR_RATIO
-                and atr_percent < MAX_TRADE_ATR_PERCENT
-                and rsi > SHORT_RSI_OVERSOLD_BLOCK
-                and (
-                    market_structure == "bearish"
-                    or market_data.get("market_structure_direction") == "short"
-                )
+                and self._is_confirmed_mean_reversion_short(selected, market_data)
             ):
                 confidence_block = self._confidence_gate(
                     "short", selected, market_data
@@ -739,12 +819,7 @@ class DecisionEngine:
                 }
             if (
                 self._config.trading.allow_short_selling
-                and short_rr_ratio >= relaxed_short_min_rr
-                and atr_percent < MAX_TRADE_ATR_PERCENT
-                and rsi > SHORT_RSI_OVERSOLD_BLOCK
-                and self._has_mean_reversion_confirmation(
-                    "short", market_data, technical
-                )
+                and self._is_confirmed_mean_reversion_short(selected, market_data)
             ):
                 confidence_block = self._confidence_gate(
                     "short", selected, market_data
@@ -807,6 +882,13 @@ class DecisionEngine:
 
         # BUY 信号处理
         if signal == "BUY":
+            counter_short_decision = (
+                self._make_low_confidence_buy_counter_short_decision(
+                    selected, market_data, has_position
+                )
+            )
+            if counter_short_decision:
+                return counter_short_decision
             position_decision = self._position_aware_signal_decision(
                 signal, selected, market_data
             )

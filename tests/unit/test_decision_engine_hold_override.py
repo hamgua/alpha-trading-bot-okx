@@ -591,10 +591,14 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70, "reversal_confirmed": True},
+            "technical": {
+                "atr_percent": 0.03,
+                "rsi": 80,
+                "reversal_confirmed": True,
+            },
             "has_position": False,
             "risk_reward_ratio": 8.0,
-            "short_risk_reward_ratio": 0.7,
+            "short_risk_reward_ratio": 3.2,
             "market_structure_direction": "short",
             "market_structure": "bearish",
         }
@@ -602,7 +606,8 @@ class TestHoldStrategySellOverride:
         result = engine.make_decision("HOLD", selected, market_data)
 
         assert result["action"] == "sell"
-        assert "策略SELL覆盖AI-HOLD" in result["reason"]
+        assert "覆盖AI-HOLD" in result["reason"]
+        assert result["strategy"] == "mean_reversion_short_rr_override"
 
     def test_hold_strategy_sell_without_confirmation_stays_observation(self):
         """只有 RSI 超买时不再直接覆盖 AI-HOLD 做空。"""
@@ -620,12 +625,35 @@ class TestHoldStrategySellOverride:
 
         assert result["action"] == "skip"
 
-    def test_hold_strategy_sell_excellent_short_rr_overrides_without_confirmation(self):
-        """高质量短 R/R + 策略 SELL 可轻量覆盖 AI-HOLD 做空。"""
+    def test_hold_strategy_sell_excellent_short_rr_requires_pullback_confirmation(self):
+        """高质量短 R/R 仍需超买回落确认才可覆盖 AI-HOLD 做空。"""
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.03, "rsi": 80},
+            "has_position": False,
+            "short_risk_reward_ratio": 3.2,
+            "market_structure_direction": "short",
+            "market_structure": "bearish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.80,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+
+    def test_hold_strategy_sell_confirmed_overbought_pullback_overrides(self):
+        """RSI>=78 + 短R/R>=3 + 回落确认时允许小仓做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {
+                "atr_percent": 0.03,
+                "rsi": 80,
+                "rsi_falling": True,
+                "price_below_short_ma": True,
+            },
             "has_position": False,
             "short_risk_reward_ratio": 3.2,
             "market_structure_direction": "short",
@@ -643,6 +671,58 @@ class TestHoldStrategySellOverride:
             result["metadata"]["ai_hold_override_type"]
             == "mean_reversion_short_rr_override"
         )
+
+    def test_hold_strategy_sell_high_price_buy_penalty_allows_short(
+        self,
+    ):
+        """高位买入惩罚压低 AI 置信度时，允许超买做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {
+                "atr_percent": 0.0046,
+                "rsi": 84.0,
+                "rsi_falling": True,
+                "price_below_short_ma": True,
+            },
+            "has_position": False,
+            "short_risk_reward_ratio": 3.4,
+            "market_structure_direction": "short",
+            "market_structure": "sideways",
+            "min_trade_confidence": 0.60,
+            "ai_final_confidence": 0.35,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "mean_reversion_short_rr_override"
+
+    def test_low_confidence_ai_buy_defers_to_confirmed_overbought_short(self):
+        """AI BUY 被高位风险压低时，允许超买回落 SELL 接管。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {
+                "atr_percent": 0.0046,
+                "rsi": 86.0,
+                "rsi_falling": True,
+                "price_below_short_ma": True,
+            },
+            "has_position": False,
+            "risk_reward_ratio": -0.86,
+            "short_risk_reward_ratio": 3.2,
+            "market_structure_direction": "short",
+            "market_structure": "sideways",
+            "min_trade_confidence": 0.60,
+            "ai_final_confidence": 0.35,
+            "is_high_risk": True,
+        }
+
+        result = engine.make_decision("BUY", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "mean_reversion_short_rr_override"
 
     def test_hold_strategy_sell_does_not_reuse_long_rr_for_short(self):
         """长方向 R/R 很高但短方向未确认时，SELL 不应开空。"""
@@ -833,8 +913,8 @@ class TestHoldBothHold:
 
         assert result["action"] == "skip"
 
-    def test_bearish_structure_short_overrides_ai_hold_with_marginal_rr(self):
-        """下跌结构 + 可接受短 R/R + 趋势确认时允许小仓位做空。"""
+    def test_bearish_structure_short_overrides_ai_hold_with_strong_rr(self):
+        """下跌结构 + R/R>=3 + 明确方向确认时允许小仓位做空。"""
         engine = DecisionEngine(self.config)
         selected = MagicMock()
         selected.signal = "HOLD"
@@ -842,9 +922,15 @@ class TestHoldBothHold:
         selected.strategy_type = "trend_following"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 48, "trend_strength": 0.08},
+            "technical": {
+                "atr_percent": 0.03,
+                "rsi": 62,
+                "trend_strength": 0.28,
+                "rsi_falling": True,
+                "price_below_short_ma": True,
+            },
             "has_position": False,
-            "short_risk_reward_ratio": 1.25,
+            "short_risk_reward_ratio": 3.1,
             "market_structure": "bearish",
             "market_structure_direction": "none",
             "min_trade_confidence": 0.40,
@@ -855,6 +941,51 @@ class TestHoldBothHold:
 
         assert result["action"] == "sell"
         assert result["strategy"] == "bearish_structure_short"
+
+    def test_bearish_structure_short_blocks_weak_upside_chop(self):
+        """低质量下跌结构不应在震荡上行中仅凭 R/R 覆盖 AI-HOLD。"""
+        engine = DecisionEngine(self.config)
+        selected = MagicMock()
+        selected.signal = "HOLD"
+        selected.confidence = 0.59
+        selected.strategy_type = "trend_following"
+        selected.reasons = []
+        market_data = {
+            "technical": {"atr_percent": 0.0047, "rsi": 57.0, "trend_strength": 0.09},
+            "has_position": False,
+            "short_risk_reward_ratio": 1.9,
+            "market_structure": "bearish",
+            "market_structure_direction": "none",
+            "price_change_24h": 1.8,
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.59,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
+
+    def test_bearish_structure_short_blocks_rr_below_three_without_direction(self):
+        """R/R<3 且无回落方向确认时，不允许 bearish 结构覆盖 AI-HOLD。"""
+        engine = DecisionEngine(self.config)
+        selected = MagicMock()
+        selected.signal = "HOLD"
+        selected.confidence = 0.72
+        selected.strategy_type = "trend_following"
+        selected.reasons = []
+        market_data = {
+            "technical": {"atr_percent": 0.03, "rsi": 62, "trend_strength": 0.28},
+            "has_position": False,
+            "short_risk_reward_ratio": 2.9,
+            "market_structure": "bearish",
+            "market_structure_direction": "none",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.72,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "skip"
 
 
 class TestHoldBuyConfidenceGate:

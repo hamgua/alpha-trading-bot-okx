@@ -452,11 +452,11 @@ async def test_open_creates_take_profit_when_notional_reaches_threshold(
             "symbol": "BTC/USDT:USDT",
             "side": "sell",
             "amount": 0.01,
-            "take_profit_price": pytest.approx(106.0),
+            "take_profit_price": pytest.approx(103.0),
         }
     ]
     assert bot.position_manager._take_profit_order_id == "tp-1"
-    assert bot.position_manager._last_take_profit_price == pytest.approx(106.0)
+    assert bot.position_manager._last_take_profit_price == pytest.approx(103.0)
 
 
 @pytest.mark.asyncio
@@ -527,7 +527,7 @@ async def test_open_creates_adaptive_take_profit_from_market_structure(
             "symbol": "BTC/USDT:USDT",
             "side": "sell",
             "amount": 0.01,
-            "take_profit_price": pytest.approx(101.0988),
+            "take_profit_price": pytest.approx(100.5494),
         }
     ]
     assert tracker.records[0]["metadata"] == {
@@ -613,6 +613,56 @@ async def test_take_profit_order_falls_back_to_full_amount_below_minimum(
     )
 
     assert exchange.take_profit_calls[0]["amount"] == pytest.approx(0.01)
+
+
+@pytest.mark.asyncio
+async def test_full_amount_take_profit_uses_early_target_when_partial_too_small(
+    tmp_path: Any,
+) -> None:
+    """0.01 仓位无法分批时，全仓止盈价提前到原目标距离的分批比例。"""
+    config = _live_config(
+        StopLossConfig(
+            take_profit_mode="fixed",
+            take_profit_percent=0.06,
+            take_profit_partial_ratio=0.5,
+            take_profit_min_notional=1.0,
+        )
+    )
+    bot = AdaptiveTradingBot(config)
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        def __init__(self) -> None:
+            self.take_profit_calls: List[Dict[str, Any]] = []
+
+        async def create_take_profit(
+            self, symbol: str, side: str, amount: float, take_profit_price: float
+        ) -> str:
+            self.take_profit_calls.append(
+                {
+                    "amount": amount,
+                    "take_profit_price": take_profit_price,
+                }
+            )
+            return "tp-early"
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+    bot.position_manager.update_position(0.01, 100.0, "BTC/USDT:USDT", "long")
+
+    await bot._maybe_create_take_profit_order(
+        position_side="long",
+        amount=0.01,
+        entry_price=100.0,
+        symbol="BTC/USDT:USDT",
+        market_data={"technical": {"atr_percent": 0.01}},
+    )
+
+    assert exchange.take_profit_calls == [
+        {"amount": pytest.approx(0.01), "take_profit_price": pytest.approx(103.0)}
+    ]
 
 
 @pytest.mark.asyncio
