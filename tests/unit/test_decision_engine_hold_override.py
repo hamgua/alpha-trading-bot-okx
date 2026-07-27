@@ -687,6 +687,67 @@ class TestHoldStrategySellOverride:
         assert result["action"] == "sell"
         assert result["strategy"] == "mean_reversion_short_rr_override"
 
+    def test_repeated_missed_high_quality_sell_setup_reduces_hold_veto(self):
+        """连续错过高质量做空机会后，AI-HOLD不再一票否决轻仓做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {
+                "atr_percent": 0.003,
+                "rsi": 79.5,
+                "trend_strength": 0.08,
+            },
+            "has_position": False,
+            "short_risk_reward_ratio": 5.4,
+            "market_structure_direction": "none",
+            "market_structure": "bullish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.55,
+        }
+
+        first = engine.make_decision("HOLD", selected, market_data)
+        second = engine.make_decision("HOLD", selected, market_data)
+        third = engine.make_decision("HOLD", selected, market_data)
+
+        assert first["action"] == "skip"
+        assert second["action"] == "skip"
+        assert third["action"] == "sell"
+        assert third["strategy"] == "mean_reversion_short_missed_opportunity"
+        assert third["metadata"]["missed_high_quality_short_count"] == 3
+
+    def test_missed_high_quality_sell_setup_count_resets_on_weak_setup(self):
+        """中间出现低质量SELL时，连续错过计数重置。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        high_quality = {
+            "technical": {
+                "atr_percent": 0.003,
+                "rsi": 79.5,
+                "trend_strength": 0.08,
+            },
+            "has_position": False,
+            "short_risk_reward_ratio": 5.4,
+            "market_structure_direction": "none",
+            "market_structure": "bullish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.55,
+        }
+        weak_setup = {
+            **high_quality,
+            "technical": {
+                "atr_percent": 0.003,
+                "rsi": 72.0,
+                "trend_strength": 0.08,
+            },
+            "short_risk_reward_ratio": 1.8,
+        }
+
+        engine.make_decision("HOLD", selected, high_quality)
+        engine.make_decision("HOLD", selected, weak_setup)
+        result = engine.make_decision("HOLD", selected, high_quality)
+
+        assert result["action"] == "skip"
+
     def test_hold_strategy_sell_confirmed_overbought_pullback_overrides(self):
         """RSI>=78 + 短R/R>=3 + 回落确认时允许小仓做空。"""
         engine = DecisionEngine(self.config)

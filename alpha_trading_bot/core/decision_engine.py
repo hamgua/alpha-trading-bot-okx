@@ -66,6 +66,10 @@ EXTREME_OVERBOUGHT_SHORT_MIN_RSI = 80
 EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RR = 7.0
 EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RSI = 83
 EXTREME_BULLISH_EXHAUSTION_MAX_TREND = 0.12
+MISSED_SHORT_SETUP_MIN_RR = 5.0
+MISSED_SHORT_SETUP_MIN_RSI = 78
+MISSED_SHORT_SETUP_MAX_TREND = 0.12
+MISSED_SHORT_SETUP_REQUIRED_COUNT = 3
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
@@ -96,7 +100,10 @@ class DecisionEngine:
             "ai_hold_strategy_buy_executed": 0,
             "market_structure_long_executed": 0,
             "market_structure_short_executed": 0,
+            "ai_hold_strategy_sell_missed_quality_setup": 0,
+            "ai_hold_strategy_sell_missed_quality_executed": 0,
         }
+        self._missed_high_quality_short_count = 0
         self._oversold_metrics: Dict[str, int] = {
             "oversold_signal_total": 0,
             "oversold_signal_executed": 0,
@@ -230,6 +237,81 @@ class DecisionEngine:
             if isinstance(rr_ratio, Number) and rr_ratio > 0:
                 return float(rr_ratio)
         return 0.0
+
+    def _is_missed_high_quality_short_setup(
+        self, selected: Any, market_data: Dict[str, Any], technical: Dict[str, Any]
+    ) -> bool:
+        """识别被 AI-HOLD 反复压掉的高质量做空机会。"""
+        if not (
+            selected.strategy_type == "mean_reversion"
+            and selected.signal.upper() == "SELL"
+            and selected.confidence >= HOLD_STRATEGY_SELL_MIN_CONFIDENCE
+            and not market_data.get("has_position", False)
+            and self._config.trading.allow_short_selling
+        ):
+            return False
+
+        market_structure = market_data.get("market_structure", "sideways")
+        market_direction = market_data.get("market_structure_direction", "none")
+        bullish_without_short_bias = (
+            market_structure == "bullish" and market_direction != "short"
+        )
+        return (
+            bullish_without_short_bias
+            and self._get_short_rr(market_data) >= MISSED_SHORT_SETUP_MIN_RR
+            and technical.get("rsi", 50) >= MISSED_SHORT_SETUP_MIN_RSI
+            and technical.get("trend_strength", 0) <= MISSED_SHORT_SETUP_MAX_TREND
+            and technical.get("atr_percent", 0) < MAX_TRADE_ATR_PERCENT
+        )
+
+    def _make_repeated_missed_short_decision(
+        self, selected: Any, market_data: Dict[str, Any], technical: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """连续错过高质量做空机会后，降低 AI-HOLD 的否决权。"""
+        if not self._is_missed_high_quality_short_setup(
+            selected, market_data, technical
+        ):
+            self._missed_high_quality_short_count = 0
+            return {}
+
+        self._missed_high_quality_short_count += 1
+        self._conflict_metrics["ai_hold_strategy_sell_missed_quality_setup"] += 1
+        if self._missed_high_quality_short_count < MISSED_SHORT_SETUP_REQUIRED_COUNT:
+            logger.info(
+                "[决策] 高质量做空机会继续观察: "
+                f"连续次数={self._missed_high_quality_short_count}/"
+                f"{MISSED_SHORT_SETUP_REQUIRED_COUNT}, "
+                f"短R/R={self._get_short_rr(market_data):.2f}"
+            )
+            return {}
+
+        confidence_block = self._confidence_gate("short", selected, market_data)
+        if confidence_block:
+            return confidence_block
+
+        missed_count = self._missed_high_quality_short_count
+        self._missed_high_quality_short_count = 0
+        self._conflict_metrics["ai_hold_strategy_sell_missed_quality_executed"] += 1
+        short_rr = self._get_short_rr(market_data)
+        logger.info(
+            "[决策] 连续高质量SELL机会被AI-HOLD压制，降低否决权轻仓做空，"
+            f"连续次数={missed_count}, 短R/R={short_rr:.2f}"
+        )
+        return {
+            "action": "sell",
+            "reason": (
+                "连续高质量SELL机会降低AI-HOLD否决权"
+                f"(连续{missed_count}次, 短R/R={short_rr:.2f})"
+            ),
+            "confidence": selected.confidence * 0.65,
+            "strategy": "mean_reversion_short_missed_opportunity",
+            "position_advice": f"连续{missed_count}次短R/R优秀，轻仓试空",
+            "metadata": {
+                "ai_hold_override": True,
+                "ai_hold_override_type": "mean_reversion_short_missed_opportunity",
+                "missed_high_quality_short_count": missed_count,
+            },
+        }
 
     @staticmethod
     def _position_side(market_data: Dict[str, Any]) -> str:
@@ -836,29 +918,11 @@ class DecisionEngine:
                     "strategy": "mean_reversion_short_rr_override",
                     "position_advice": f"短R/R={short_rr_ratio:.2f}优秀，轻仓做空",
                 }
-            if (
-                self._config.trading.allow_short_selling
-                and self._is_confirmed_mean_reversion_short(selected, market_data)
-            ):
-                confidence_block = self._confidence_gate("short", selected, market_data)
-                if confidence_block:
-                    return confidence_block
-                logger.info(
-                    f"[决策] 策略SELL(置信度{selected.confidence:.0%})"
-                    f"覆盖AI-HOLD, 做空开仓, "
-                    f"短R/R={short_rr_ratio:.2f}, "
-                    f"阈值={relaxed_short_min_rr:.2f}"
-                )
-                return {
-                    "action": "sell",
-                    "reason": (
-                        f"策略SELL覆盖AI-HOLD(置信度{selected.confidence:.0%}, "
-                        f"短R/R={short_rr_ratio:.2f})"
-                    ),
-                    "confidence": selected.confidence * 0.8,
-                    "strategy": selected.strategy_type,
-                    "position_advice": f"短R/R={short_rr_ratio:.2f}，做空开仓",
-                }
+            repeated_missed_short_decision = self._make_repeated_missed_short_decision(
+                selected, market_data, technical
+            )
+            if repeated_missed_short_decision:
+                return repeated_missed_short_decision
         logger.warning(f"[决策] AI-HOLD但策略={selected.signal}，保守处理")
         self._conflict_metrics["ai_hold_strategy_buy_conservative_skip"] += 1
         return {
