@@ -351,13 +351,9 @@ class StopLossConfig:
 
     stop_loss_percent: float = 0.0005  # 亏损时止损比例 (0.05%, 即建仓价99.95%)
     stop_loss_profit_percent: float = 0.0002  # 盈利时止损比例 (0.02%, 即建仓价99.98%)
-    stop_loss_tolerance_percent: float = (
-        0.001  # 止损价容错比例 (如 0.001 = 0.1%)
-    )
+    stop_loss_tolerance_percent: float = 0.001  # 止损价容错比例 (如 0.001 = 0.1%)
     take_profit_percent: float = 0.008  # 止盈比例 (如 0.008 = 0.8%)
-    take_profit_min_notional: float = (
-        0.0  # 启用止盈单的最小名义金额，0 表示不限制
-    )
+    take_profit_min_notional: float = 0.0  # 启用止盈单的最小名义金额，0 表示不限制
     take_profit_mode: str = "adaptive"  # adaptive=ATR/支撑阻力止盈, fixed=固定比例
     take_profit_atr_multiplier: float = 1.5  # 自适应止盈 ATR 倍数
     take_profit_min_percent: float = 0.004  # 自适应止盈最小距离
@@ -365,7 +361,7 @@ class StopLossConfig:
     take_profit_structure_buffer_percent: float = 0.001  # 支撑/阻力前置缓冲
     take_profit_partial_ratio: float = 0.5  # 第一止盈使用的仓位比例
     take_profit_min_amount: float = 0.01  # 止盈单最小数量，低于时退回全仓
-    min_profit_to_tighten_stop_percent: float = 0.003  # 收紧止损前的最小浮盈比例
+    min_profit_to_tighten_stop_percent: float = 0.001  # 收紧止损前的最小浮盈比例
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
     price_vs_entry_tolerance_percent: float = (
@@ -394,17 +390,11 @@ class StopLossConfig:
                 f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed"
             )
         if self.take_profit_atr_multiplier <= 0:
-            errors.append(
-                f"止盈ATR倍数 {self.take_profit_atr_multiplier} 必须大于0"
-            )
+            errors.append(f"止盈ATR倍数 {self.take_profit_atr_multiplier} 必须大于0")
         if self.take_profit_min_percent < 0:
-            errors.append(
-                f"止盈最小距离 {self.take_profit_min_percent} 不能为负数"
-            )
+            errors.append(f"止盈最小距离 {self.take_profit_min_percent} 不能为负数")
         if self.take_profit_max_percent <= 0:
-            errors.append(
-                f"止盈最大距离 {self.take_profit_max_percent} 必须大于0"
-            )
+            errors.append(f"止盈最大距离 {self.take_profit_max_percent} 必须大于0")
         if self.take_profit_max_percent < self.take_profit_min_percent:
             errors.append("止盈最大距离不能小于最小距离")
         if self.take_profit_structure_buffer_percent < 0:
@@ -551,11 +541,9 @@ class Config:
                     os.getenv("TAKE_PROFIT_MIN_AMOUNT", "0.01")
                 ),
                 min_profit_to_tighten_stop_percent=float(
-                    os.getenv("MIN_PROFIT_TO_TIGHTEN_STOP_PERCENT", "0.003")
+                    os.getenv("MIN_PROFIT_TO_TIGHTEN_STOP_PERCENT", "0.001")
                 ),
-                stop_loss_entry_based=os.getenv(
-                    "STOP_LOSS_ENTRY_BASED", "true"
-                ).lower()
+                stop_loss_entry_based=os.getenv("STOP_LOSS_ENTRY_BASED", "true").lower()
                 == "true",
                 price_vs_entry_tolerance_percent=float(
                     os.getenv("PRICE_VS_ENTRY_TOLERANCE_PERCENT", "0.001")

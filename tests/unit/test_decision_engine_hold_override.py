@@ -643,6 +643,50 @@ class TestHoldStrategySellOverride:
 
         assert result["action"] == "skip"
 
+    def test_hold_strategy_sell_extreme_overbought_rr_overrides_without_pullback_field(
+        self,
+    ):
+        """极端超买且短R/R很高时，没有额外回落字段也允许轻仓做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {"atr_percent": 0.003, "rsi": 83.5},
+            "has_position": False,
+            "short_risk_reward_ratio": 5.2,
+            "market_structure_direction": "short",
+            "market_structure": "sideways",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.55,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "mean_reversion_short_rr_override"
+
+    def test_hold_strategy_sell_bullish_exhaustion_extreme_rr_overrides(self):
+        """多头结构但动能不强时，极端超买+超高短R/R允许轻仓逆向做空。"""
+        engine = DecisionEngine(self.config)
+        selected = self._make_selected("SELL", confidence=0.80)
+        market_data = {
+            "technical": {
+                "atr_percent": 0.003,
+                "rsi": 83.6,
+                "trend_strength": 0.08,
+            },
+            "has_position": False,
+            "short_risk_reward_ratio": 7.2,
+            "market_structure_direction": "none",
+            "market_structure": "bullish",
+            "min_trade_confidence": 0.40,
+            "final_confidence": 0.55,
+        }
+
+        result = engine.make_decision("HOLD", selected, market_data)
+
+        assert result["action"] == "sell"
+        assert result["strategy"] == "mean_reversion_short_rr_override"
+
     def test_hold_strategy_sell_confirmed_overbought_pullback_overrides(self):
         """RSI>=78 + 短R/R>=3 + 回落确认时允许小仓做空。"""
         engine = DecisionEngine(self.config)

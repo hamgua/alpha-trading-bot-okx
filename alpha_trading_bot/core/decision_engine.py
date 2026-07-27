@@ -61,6 +61,11 @@ BEARISH_STRUCTURE_SHORT_MIN_TREND = 0.25
 BEARISH_STRUCTURE_SHORT_MIN_CONFIDENCE = 0.60
 MEAN_REVERSION_SHORT_MIN_RR = 3.0
 MEAN_REVERSION_SHORT_MIN_RSI = 78
+EXTREME_OVERBOUGHT_SHORT_MIN_RR = 5.0
+EXTREME_OVERBOUGHT_SHORT_MIN_RSI = 80
+EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RR = 7.0
+EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RSI = 83
+EXTREME_BULLISH_EXHAUSTION_MAX_TREND = 0.12
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
@@ -141,9 +146,8 @@ class DecisionEngine:
             "ai_final_confidence",
             market_data.get("final_confidence", selected.confidence),
         )
-        if (
-            side == "short"
-            and self._is_confirmed_mean_reversion_short(selected, market_data)
+        if side == "short" and self._is_confirmed_mean_reversion_short(
+            selected, market_data
         ):
             final_confidence = max(final_confidence, selected.confidence)
         if (
@@ -177,16 +181,40 @@ class DecisionEngine:
     ) -> bool:
         """确认后的均值回归空头可使用策略置信度穿过门禁。"""
         technical = market_data.get("technical", {})
-        return (
+        if not (
             selected.strategy_type == "mean_reversion"
             and selected.signal.upper() == "SELL"
             and selected.confidence >= HOLD_STRATEGY_SELL_MIN_CONFIDENCE
             and self._get_short_rr(market_data) >= MEAN_REVERSION_SHORT_MIN_RR
             and technical.get("atr_percent", 0) < MAX_TRADE_ATR_PERCENT
-            and technical.get("rsi", 50) >= MEAN_REVERSION_SHORT_MIN_RSI
-            and self._has_mean_reversion_confirmation(
-                "short", market_data, technical
+        ):
+            return False
+
+        rsi = technical.get("rsi", 50)
+        has_pullback_confirmation = (
+            rsi >= MEAN_REVERSION_SHORT_MIN_RSI
+            and self._has_mean_reversion_confirmation("short", market_data, technical)
+        )
+        if has_pullback_confirmation:
+            return True
+
+        market_structure = market_data.get("market_structure", "sideways")
+        market_direction = market_data.get("market_structure_direction", "none")
+        is_bullish_without_short_bias = (
+            market_structure == "bullish" and market_direction != "short"
+        )
+        short_rr = self._get_short_rr(market_data)
+        if is_bullish_without_short_bias:
+            trend_strength = technical.get("trend_strength", 0)
+            return (
+                rsi >= EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RSI
+                and short_rr >= EXTREME_BULLISH_EXHAUSTION_SHORT_MIN_RR
+                and trend_strength <= EXTREME_BULLISH_EXHAUSTION_MAX_TREND
             )
+
+        return (
+            rsi >= EXTREME_OVERBOUGHT_SHORT_MIN_RSI
+            and short_rr >= EXTREME_OVERBOUGHT_SHORT_MIN_RR
         )
 
     def _get_short_rr(self, market_data: Dict[str, Any]) -> float:
@@ -447,8 +475,7 @@ class DecisionEngine:
 
         short_rr = self._get_short_rr(market_data)
         logger.info(
-            "[决策] AI-BUY低置信度，策略SELL确认超买回落接管，"
-            f"短R/R={short_rr:.2f}"
+            "[决策] AI-BUY低置信度，策略SELL确认超买回落接管，" f"短R/R={short_rr:.2f}"
         )
         return {
             "action": "sell",
@@ -577,9 +604,7 @@ class DecisionEngine:
                 confidence_block = self._confidence_gate("long", selected, market_data)
                 if confidence_block:
                     return confidence_block
-                logger.info(
-                    f"[决策] 市场结构LONG(R/R={long_rr_ratio:.2f})覆盖AI-HOLD"
-                )
+                logger.info(f"[决策] 市场结构LONG(R/R={long_rr_ratio:.2f})覆盖AI-HOLD")
                 self._conflict_metrics["market_structure_long_executed"] += 1
                 return {
                     "action": "open",
@@ -623,9 +648,7 @@ class DecisionEngine:
                 confidence_block = self._confidence_gate("short", selected, market_data)
                 if confidence_block:
                     return confidence_block
-                logger.info(
-                    f"[决策] 下跌结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD"
-                )
+                logger.info(f"[决策] 下跌结构SHORT(R/R={rr_ratio:.2f})覆盖AI-HOLD")
                 self._conflict_metrics["market_structure_short_executed"] += 1
                 return {
                     "action": "sell",
@@ -774,9 +797,7 @@ class DecisionEngine:
         ):
             # 有持仓时执行平仓（平仓不受做空安全门禁限制）
             if has_position:
-                confidence_block = self._confidence_gate(
-                    "short", selected, market_data
-                )
+                confidence_block = self._confidence_gate("short", selected, market_data)
                 if confidence_block:
                     return confidence_block
                 logger.info(
@@ -798,9 +819,7 @@ class DecisionEngine:
                 self._config.trading.allow_short_selling
                 and self._is_confirmed_mean_reversion_short(selected, market_data)
             ):
-                confidence_block = self._confidence_gate(
-                    "short", selected, market_data
-                )
+                confidence_block = self._confidence_gate("short", selected, market_data)
                 if confidence_block:
                     return confidence_block
                 logger.info(
@@ -821,9 +840,7 @@ class DecisionEngine:
                 self._config.trading.allow_short_selling
                 and self._is_confirmed_mean_reversion_short(selected, market_data)
             ):
-                confidence_block = self._confidence_gate(
-                    "short", selected, market_data
-                )
+                confidence_block = self._confidence_gate("short", selected, market_data)
                 if confidence_block:
                     return confidence_block
                 logger.info(

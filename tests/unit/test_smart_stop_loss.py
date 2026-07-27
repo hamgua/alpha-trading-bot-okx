@@ -18,6 +18,7 @@ def _make_config(
     stop_loss_profit_percent: float = 0.0002,
     stop_loss_entry_based: bool = True,
     price_vs_entry_tolerance_percent: float = 0.001,
+    min_profit_to_tighten_stop_percent: float = 0.003,
     take_profit_mode: str = "adaptive",
 ) -> Config:
     """创建测试配置"""
@@ -29,6 +30,7 @@ def _make_config(
             stop_loss_profit_percent=stop_loss_profit_percent,
             stop_loss_entry_based=stop_loss_entry_based,
             price_vs_entry_tolerance_percent=price_vs_entry_tolerance_percent,
+            min_profit_to_tighten_stop_percent=min_profit_to_tighten_stop_percent,
             take_profit_mode=take_profit_mode,
         ),
     )
@@ -90,6 +92,21 @@ class TestEntryBasedStopLossNormal:
         stop_price = pm.calculate_stop_price(current_price)
         expected = 100000.0 * 0.9995
         assert stop_price == pytest.approx(expected, rel=1e-6)
+
+    def test_profit_lock_keeps_small_winner_from_becoming_loser(self):
+        """浮盈达标后，即使追踪距离较宽，也至少把止损推到微盈。"""
+        config = _make_config(
+            stop_loss_percent=0.005,
+            stop_loss_profit_percent=0.002,
+            min_profit_to_tighten_stop_percent=0.001,
+        )
+        pm = _make_position_manager(entry_price=64100.1, side="long", config=config)
+        pm.update_price_tracking(64215.4, "long")
+
+        stop_price = pm.calculate_stop_price(64180.0)
+
+        assert stop_price > 64100.1
+        assert stop_price == pytest.approx(64132.15005)
 
     def test_profit_state_reaches_min_profit_gate(self):
         """做多浮盈达到 0.3% 收紧门槛后: 止损 = 建仓价 × 99.98%"""
@@ -277,7 +294,7 @@ class TestStopLossConfigValidation:
         assert config.stop_loss_profit_percent == 0.0002
         assert config.stop_loss_tolerance_percent == 0.001
         assert config.take_profit_percent == pytest.approx(0.008)
-        assert config.min_profit_to_tighten_stop_percent == pytest.approx(0.003)
+        assert config.min_profit_to_tighten_stop_percent == pytest.approx(0.001)
         assert config.stop_loss_entry_based is True
         assert config.price_vs_entry_tolerance_percent == 0.001
 

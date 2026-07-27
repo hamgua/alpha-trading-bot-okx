@@ -350,9 +350,7 @@ class PositionManager:
         """
         entry_price = self._entry_price
         tolerance = self.config.stop_loss.price_vs_entry_tolerance_percent
-        min_profit_to_tighten = (
-            self.config.stop_loss.min_profit_to_tighten_stop_percent
-        )
+        min_profit_to_tighten = self.config.stop_loss.min_profit_to_tighten_stop_percent
 
         # 计算当前价与建仓价的偏差
         price_vs_entry_percent = (
@@ -369,12 +367,22 @@ class PositionManager:
             # 盈利且价差 >= 容错: 使用最高价追踪止损
             stop_percent = self.config.stop_loss.stop_loss_profit_percent
             base_stop = entry_price * (1 - stop_percent)
+            stop_price = base_stop
             # 若最高价高于建仓价，基于最高价计算追踪止损
             if self._highest_price_since_entry > entry_price:
+                max_profit_percent = (
+                    self._highest_price_since_entry - entry_price
+                ) / entry_price
                 trail_stop = self._highest_price_since_entry * (1 - stop_percent)
-                stop_price = max(base_stop, trail_stop)
-            else:
-                stop_price = base_stop
+                stop_price = max(stop_price, trail_stop)
+                if max_profit_percent >= tighten_threshold:
+                    lock_percent = min(
+                        stop_percent,
+                        max(tighten_threshold / 2, 0.0002),
+                    )
+                    profit_lock_stop = entry_price * (1 + lock_percent)
+                    if profit_lock_stop < current_price:
+                        stop_price = max(stop_price, profit_lock_stop)
             return stop_price
         else:
             # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损

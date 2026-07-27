@@ -282,7 +282,7 @@ class TestTraditionalATRStopLoss:
             "stop_loss_percent": 0.005,
             "stop_loss_profit_percent": 0.002,
         }
-        bot.position_manager.highest_price_since_entry = 100200.0
+        bot.position_manager.highest_price_since_entry = 100050.0
         bot.position_manager.last_stop_price = 99500.0
         bot._get_existing_stop_order_id = AsyncMock(return_value=("old-stop", 99500.0))
         bot._exchange.cancel_algo_order = AsyncMock(return_value=(True, ""))
@@ -290,7 +290,7 @@ class TestTraditionalATRStopLoss:
 
         await AdaptiveTradingBot._update_stop_loss(
             bot,
-            current_price=100200.0,
+            current_price=100050.0,
             position_data={"side": "long", "entry_price": 100000.0, "amount": 0.01},
             market_data={"technical": {"atr_percent": 0.0}},
         )
