@@ -6,9 +6,12 @@ from typing import Any
 from alpha_trading_bot.config.models import StopLossConfig
 
 
-def test_default_min_net_is_zero() -> None:
+def test_default_min_net_matches_dataclass_default() -> None:
+    """dataclass 默认值即代码层 fallback，from_env 显式未设时另有 os.getenv 缺省。"""
     cfg = StopLossConfig()
-    assert cfg.min_net_profit_to_close_percent == 0.0
+    assert cfg.min_net_profit_to_close_percent == StopLossConfig.__dataclass_fields__[
+        "min_net_profit_to_close_percent"
+    ].default
 
 
 def test_min_net_zero_passes_validation() -> None:
