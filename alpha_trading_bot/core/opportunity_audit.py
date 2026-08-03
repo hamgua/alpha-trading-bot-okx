@@ -53,7 +53,40 @@ class OpportunityAuditor:
         record["opportunity_flags"] = self._build_opportunity_flags(
             record, has_position
         )
+        record["suppressed_signal"] = self._build_suppressed_signal_block(
+            record, ai_signal, selected
+        )
         return record
+
+    def _build_suppressed_signal_block(
+        self, record: Dict[str, Any], ai_signal: str, selected: Any
+    ) -> Dict[str, Any]:
+        """当 AI=HOLD 但策略给方向信号时，记录压制指标，便于事后审计"若不压制该如何"。
+        该字段不影响任何决策路径，仅作为观测性补强。"""
+        strategy_signal = record.get("strategy_signal", "").upper()
+        ai_upper = (ai_signal or "").upper()
+        if ai_upper != "HOLD" or strategy_signal not in ("BUY", "SELL"):
+            return {"suppressed": False}
+
+        direction = "long" if strategy_signal == "BUY" else "short"
+        rr = (
+            record.get("risk_reward_ratio")
+            if direction == "long"
+            else record.get("short_risk_reward_ratio")
+        )
+        hypothetical_action = (
+            f"open_{direction}_at_{record.get('price')}_with_rr_{rr:.2f}"
+            if rr and record.get("price")
+            else "unknown"
+        )
+        return {
+            "suppressed": True,
+            "direction": direction,
+            "strategy_type": record.get("strategy_type", ""),
+            "strategy_confidence": record.get("strategy_confidence", 0),
+            "final_confidence_after_ai_hold": record.get("final_confidence", 0),
+            "hypothetical_action": hypothetical_action,
+        }
 
     def log_skip(
         self,

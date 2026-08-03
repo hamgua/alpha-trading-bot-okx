@@ -78,24 +78,44 @@ class PositionCloseAuditor:
             return
 
         history = []
+        ord_types_queried: list = []
         if self.context.stop_order_id and hasattr(exchange, "get_algo_order_history"):
+            ord_types_queried = ["conditional", "trigger", "move_order_stop"]
             try:
                 history = await exchange.get_algo_order_history(
-                    symbol, algo_id=self.context.stop_order_id, limit=20
+                    symbol,
+                    algo_id=self.context.stop_order_id,
+                    limit=20,
+                    ord_types=ord_types_queried,
                 )
+            except TypeError:
+                # 兼容旧版签名（无 ord_types 参数）
+                ord_types_queried = ["conditional"]
+                try:
+                    history = await exchange.get_algo_order_history(
+                        symbol, algo_id=self.context.stop_order_id, limit=20
+                    )
+                except Exception as e:
+                    logger.warning(f"[平仓审计] 查询算法单历史失败(legacy): {e}")
             except Exception as e:
                 logger.warning(f"[平仓审计] 查询算法单历史失败: {e}")
 
         matched = self.find_close_algo_history(history)
         if not matched:
-            self.log_inferred_position_close_event("algo_history_not_found")
+            self.log_inferred_position_close_event(
+                "algo_history_not_found",
+                ord_types_queried=ord_types_queried,
+            )
             return
 
         info = matched.get("info", {})
-        close_type = "止盈" if info.get("tpTriggerPx") else "止损"
+        match_strategy = matched.get("_match_strategy", "exact_algo_id")
+        close_type = "止盈" if info.get("tpTriggerPx") or info.get("takeProfitPrice") else "止损"
         trigger_price = extract_float(
             info.get("slTriggerPx")
             or info.get("tpTriggerPx")
+            or info.get("stopLossPrice")
+            or info.get("takeProfitPrice")
             or self.context.stop_price
         )
         exit_price = extract_float(
@@ -112,6 +132,7 @@ class PositionCloseAuditor:
             f"[平仓确认] {close_type}单触发平仓: "
             f"side={self.context.side}, "
             f"algoId={matched.get('id') or self.context.stop_order_id}, "
+            f"match={match_strategy}, "
             f"entry={self.context.entry_price}, "
             f"{close_type}价={trigger_price}, exit={exit_price}, "
             f"amount={amount}, pnl={pnl_percent:.2f}%, "
@@ -119,9 +140,15 @@ class PositionCloseAuditor:
         )
 
     def find_close_algo_history(self, history: Any) -> Optional[Dict[str, Any]]:
-        """从算法单历史中找到最近一次止损/止盈触发记录。"""
+        """从算法单历史中找到最近一次止损/止盈触发记录。
+
+        优先精确匹配 algo_id；若 algo_id 不匹配，按止损/止盈价格容差 ±0.5%
+        与 context.stop_price 做粗糙匹配（标记 _match_strategy=fuzzy_price）。
+        """
         if not isinstance(history, list):
             return None
+
+        # Pass 1: exact algo_id match
         for order in history:
             if not isinstance(order, dict):
                 continue
@@ -132,7 +159,36 @@ class PositionCloseAuditor:
             if self._has_close_trigger_field(info) and self._has_trigger_evidence(
                 info
             ):
+                order["_match_strategy"] = "exact_algo_id"
                 return order
+
+        # Pass 2: fuzzy price match (仅当未通过 algo_id 找到时)
+        if self.context.stop_price > 0:
+            tolerance = 0.005  # ±0.5% 容差
+            for order in history:
+                if not isinstance(order, dict):
+                    continue
+                info = order.get("info", {})
+                for price_key in (
+                    "slTriggerPx",
+                    "stopLossPrice",
+                    "tpTriggerPx",
+                    "takeProfitPrice",
+                ):
+                    raw = info.get(price_key)
+                    if raw is None:
+                        continue
+                    try:
+                        px = float(raw)
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        abs(px - self.context.stop_price) / self.context.stop_price
+                        <= tolerance
+                        and self._has_trigger_evidence(info)
+                    ):
+                        order["_match_strategy"] = "fuzzy_price"
+                        return order
         return None
 
     @staticmethod
@@ -155,8 +211,11 @@ class PositionCloseAuditor:
             or info.get("ordId")
         )
 
-    def log_inferred_position_close_event(self, reason: str) -> None:
+    def log_inferred_position_close_event(
+        self, reason: str, ord_types_queried: Optional[list] = None
+    ) -> None:
         """算法单历史暂不可用时，至少记录一条可追踪的推断平仓日志。"""
+        ord_types_str = ",".join(ord_types_queried or []) or "none"
         logger.info(
             f"[平仓推断] 持仓消失，疑似止损/止盈触发: "
             f"side={self.context.side}, "
@@ -165,7 +224,8 @@ class PositionCloseAuditor:
             f"last_stop={self.context.stop_price}, "
             f"amount={self.context.amount}, "
             f"last_unrealized_pnl={self.context.unrealized_pnl}, "
-            f"reason={reason}"
+            f"reason={reason}, "
+            f"ord_types_queried={ord_types_str}"
         )
 
     def calculate_close_pnl_percent(self, exit_price: float) -> float:

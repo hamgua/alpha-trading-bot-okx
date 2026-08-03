@@ -181,7 +181,10 @@ async def test_logs_stop_loss_close_when_position_disappears(caplog) -> None:
         await bot._record_position_disappeared()
 
     bot._exchange.get_algo_order_history.assert_awaited_once_with(
-        "BTC/USDT:USDT", algo_id="algo-stop-1", limit=20
+        "BTC/USDT:USDT",
+        algo_id="algo-stop-1",
+        limit=20,
+        ord_types=["conditional", "trigger", "move_order_stop"],
     )
     assert "[平仓确认] 止损单触发平仓" in caplog.text
     assert "algo-stop-1" in caplog.text

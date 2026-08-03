@@ -362,6 +362,8 @@ class StopLossConfig:
     take_profit_partial_ratio: float = 0.5  # 第一止盈使用的仓位比例
     take_profit_min_amount: float = 0.01  # 止盈单最小数量，低于时退回全仓
     min_profit_to_tighten_stop_percent: float = 0.001  # 收紧止损前的最小浮盈比例
+    # 浮盈低于此比例时不更新追踪止损，0=不启用(向后兼容)。建议人工设为 0.003 以跳过低于手续费的"虚假浮盈"
+    min_net_profit_to_close_percent: float = 0.003
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
     price_vs_entry_tolerance_percent: float = (
@@ -415,6 +417,11 @@ class StopLossConfig:
         if self.price_vs_entry_tolerance_percent < 0:
             errors.append(
                 f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数"
+            )
+        if self.min_net_profit_to_close_percent < 0:
+            errors.append(
+                f"min_net_profit_to_close_percent "
+                f"{self.min_net_profit_to_close_percent} 不能为负数"
             )
         return errors
 
@@ -547,6 +554,9 @@ class Config:
                 == "true",
                 price_vs_entry_tolerance_percent=float(
                     os.getenv("PRICE_VS_ENTRY_TOLERANCE_PERCENT", "0.001")
+                ),
+                min_net_profit_to_close_percent=float(
+                    os.getenv("MIN_NET_PROFIT_TO_CLOSE_PERCENT", "0")
                 ),
             ),
             system=SystemConfig(

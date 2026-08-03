@@ -383,6 +383,17 @@ class PositionManager:
                     profit_lock_stop = entry_price * (1 + lock_percent)
                     if profit_lock_stop < current_price:
                         stop_price = max(stop_price, profit_lock_stop)
+
+            # 噪声过滤: 若计算所得止损价对应的"假定退出收益"低于 min_net_profit_to_close，
+            # 视为虚假浮盈，退回基础止损（不更新追踪），让仓位继续吃到真实波动
+            min_net = getattr(
+                self.config.stop_loss, "min_net_profit_to_close_percent", 0.0
+            )
+            if min_net > 0 and entry_price > 0 and stop_price > entry_price:
+                implied_profit = (stop_price - entry_price) / entry_price
+                if implied_profit < min_net:
+                    fallback_percent = self.config.stop_loss.stop_loss_percent
+                    return entry_price * (1 - fallback_percent)
             return stop_price
         else:
             # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损

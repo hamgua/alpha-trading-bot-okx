@@ -417,19 +417,38 @@ class ExchangeClient:
             return []
 
     async def get_algo_order_history(
-        self, symbol: str, algo_id: str = "", limit: int = 20
+        self,
+        symbol: str,
+        algo_id: str = "",
+        limit: int = 20,
+        ord_types: Optional[list] = None,
     ) -> list:
-        """获取算法订单历史（用于确认止损/止盈触发）。"""
-        try:
-            method = get_callable(
-                self.exchange,
-                "private_get_trade_orders_algo_history",
-                "privateGetTradeOrdersAlgoHistory",
-            )
-            if method is not None:
+        """获取算法订单历史（用于确认止损/止盈触发）。
+
+        默认查询 conditional 类型，但追踪止损/触发单的 ordType 可能是
+        trigger / move_order_stop。传入 ord_types 可一键合并查询多类。
+        """
+        if ord_types is None:
+            ord_types = ["conditional"]
+
+        collected: list = []
+        seen_ids: set = set()
+        last_error: Optional[Exception] = None
+
+        for ord_type in ord_types:
+            try:
+                method = get_callable(
+                    self.exchange,
+                    "private_get_trade_orders_algo_history",
+                    "privateGetTradeOrdersAlgoHistory",
+                )
+                if method is None:
+                    raise RuntimeError(
+                        "OKX raw algo-order-history endpoint is unavailable"
+                    )
                 params = {
                     "instId": okx_inst_id_from_symbol(symbol),
-                    "ordType": "conditional",
+                    "ordType": ord_type,
                     "limit": str(limit),
                 }
                 if algo_id:
@@ -440,12 +459,22 @@ class ExchangeClient:
                     params,
                     parser=lambda response: parse_okx_algo_orders(response, symbol),
                 )
-            else:
-                raise RuntimeError("OKX raw algo-order-history endpoint is unavailable")
-            return algo_orders
-        except Exception as e:
-            logger.error(f"[算法订单查询] 获取算法订单历史失败: {e}")
-            return []
+                for order in algo_orders or []:
+                    oid = str(order.get("id") or order.get("algoId") or "")
+                    if oid and oid in seen_ids:
+                        continue
+                    if oid:
+                        seen_ids.add(oid)
+                    collected.append(order)
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"[算法订单查询] ordType={ord_type} 查询失败: {e}"
+                )
+
+        if last_error and not collected:
+            logger.error(f"[算法订单查询] 全部 ordType 查询失败: {last_error}")
+        return collected
 
     async def cleanup(self) -> None:
         """清理"""
