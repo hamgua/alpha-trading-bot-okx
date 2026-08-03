@@ -369,6 +369,9 @@ class StopLossConfig:
     price_vs_entry_tolerance_percent: float = (
         0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
     )
+    # OKX 止损触发价 tick size（用于比较新/旧止损价时对齐精度，
+    # 避免 OKX 把 62501.4225 截为 62501.4 后误判 "新值更紧" 造成每周期重复取消+重建算法单）
+    stop_loss_tick_tolerance: float = 0.1
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -422,6 +425,11 @@ class StopLossConfig:
             errors.append(
                 f"min_net_profit_to_close_percent "
                 f"{self.min_net_profit_to_close_percent} 不能为负数"
+            )
+        if self.stop_loss_tick_tolerance < 0:
+            errors.append(
+                f"stop_loss_tick_tolerance "
+                f"{self.stop_loss_tick_tolerance} 不能为负数"
             )
         return errors
 
@@ -557,6 +565,9 @@ class Config:
                 ),
                 min_net_profit_to_close_percent=float(
                     os.getenv("MIN_NET_PROFIT_TO_CLOSE_PERCENT", "0")
+                ),
+                stop_loss_tick_tolerance=float(
+                    os.getenv("STOP_LOSS_TICK_TOLERANCE", "0.1")
                 ),
             ),
             system=SystemConfig(

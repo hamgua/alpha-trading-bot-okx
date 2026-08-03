@@ -106,12 +106,12 @@ class AdaptiveTradingBot:
 
         # === 方向冷却指标 ===
         self._cooldown_metrics: Dict[str, int] = {
-            "cooldown_triggered_skip": 0,        # 方向冷却期内同向开仓被跳过
+            "cooldown_triggered_skip": 0,  # 方向冷却期内同向开仓被跳过
             "cooldown_high_quality_reentry": 0,  # 高质量信号短冷却再入场
-            "cooldown_allow_opposite": 0,        # 反方向开仓被允许
-            "cooldown_full_cooldown": 0,         # 完整冷却时间（1800s）返回
-            "cooldown_medium_cooldown": 0,       # 中等冷却时间（600s）返回
-            "cooldown_short_cooldown": 0,        # 短冷却时间（300s）返回
+            "cooldown_allow_opposite": 0,  # 反方向开仓被允许
+            "cooldown_full_cooldown": 0,  # 完整冷却时间（1800s）返回
+            "cooldown_medium_cooldown": 0,  # 中等冷却时间（600s）返回
+            "cooldown_short_cooldown": 0,  # 短冷却时间（300s）返回
         }
 
         # === 新增：自适应组件 ===
@@ -650,6 +650,30 @@ class AdaptiveTradingBot:
             stop_price=stop_price,
         )
 
+    def _refresh_close_audit_stop(
+        self, stop_order_id: Optional[str], stop_price: float
+    ) -> None:
+        """止损单更新成功后同步 position_close_audit_context 中的最新 algoId/价格。
+
+        根因：智能止损每次 [止损-智能] 执行更新 都会取消旧算法单+创建新算法单，
+        但 context 中的 stop_order_id 仅在建仓时设置一次，导致持仓意外消失时 audit
+        拿到的是已被取消的旧 ID，永远 algo_history_not_found。
+        仅在仍可识别持仓时刷新，避免误写到平仓后的 context。
+        """
+        if not stop_order_id:
+            return
+        ctx = self._position_close_audit_context
+        if not ctx.entry_price or not ctx.side:
+            return
+        self._remember_position_close_audit_context(
+            side=ctx.side,
+            entry_price=ctx.entry_price,
+            amount=ctx.amount,
+            unrealized_pnl=ctx.unrealized_pnl,
+            stop_order_id=str(stop_order_id),
+            stop_price=stop_price,
+        )
+
     async def _log_disappeared_position_close_event(self) -> None:
         """查询算法单历史并记录止损/止盈触发导致的平仓事件。"""
         symbol = (
@@ -721,13 +745,18 @@ class AdaptiveTradingBot:
             return full_cooldown_seconds
 
         is_high_quality = confidence_value >= 0.70 and risk_reward_value >= 2.0
-        is_opposite_direction = bool(self._last_closed_side and side != self._last_closed_side)
+        is_opposite_direction = bool(
+            self._last_closed_side and side != self._last_closed_side
+        )
         if is_opposite_direction and is_high_quality:
             self._cooldown_metrics["cooldown_short_cooldown"] += 1
             return short_cooldown_seconds
 
         if not self._last_close_was_profitable:
-            if self._last_close_pnl_percent >= breakeven_loss_threshold and is_high_quality:
+            if (
+                self._last_close_pnl_percent >= breakeven_loss_threshold
+                and is_high_quality
+            ):
                 self._cooldown_metrics["cooldown_medium_cooldown"] += 1
                 return medium_cooldown_seconds
             self._cooldown_metrics["cooldown_full_cooldown"] += 1
@@ -922,10 +951,7 @@ class AdaptiveTradingBot:
 
             # P0: 验证订单是否创建成功
             if not fill:
-                logger.error(
-                    "[执行] 开仓订单未确认成交！"
-                    "尝试重新获取持仓状态验证"
-                )
+                logger.error("[执行] 开仓订单未确认成交！" "尝试重新获取持仓状态验证")
                 await self._verify_and_recover_position()
                 return
             order_id = fill["order_id"]
@@ -955,6 +981,18 @@ class AdaptiveTradingBot:
                 symbol=symbol,
                 side=position_side,
             )
+            # 锁定开仓时使用的动态止损百分比（来自规则引擎），
+            # 防止下一周期被全局 stop_loss_percent 立即收紧
+            dyn_pct = risk_params.get("stop_loss_percent")
+            if (
+                dyn_pct is None
+                and stop_loss_price
+                and entry_price > 0
+                and position_side == "long"
+                and stop_loss_price < entry_price
+            ):
+                dyn_pct = (entry_price - stop_loss_price) / entry_price
+            self.position_manager.set_entry_dynamic_stop_loss_percent(dyn_pct)
             self._remember_position_close_audit_context(
                 side=position_side,
                 entry_price=entry_price,
@@ -1088,7 +1126,9 @@ class AdaptiveTradingBot:
         """提交市价单并确认真实成交数量和均价。"""
         assert self._exchange is not None, "Exchange client not initialized"
         result = None
-        create_confirmed = getattr(self._exchange, "create_confirmed_market_order", None)
+        create_confirmed = getattr(
+            self._exchange, "create_confirmed_market_order", None
+        )
         if callable(create_confirmed):
             result = await create_confirmed(
                 symbol,
@@ -1098,7 +1138,9 @@ class AdaptiveTradingBot:
                 position_side,
             )
         else:
-            create_with_status = getattr(self._exchange, "create_order_with_status", None)
+            create_with_status = getattr(
+                self._exchange, "create_order_with_status", None
+            )
             if callable(create_with_status):
                 kwargs = {
                     "symbol": symbol,
@@ -1197,9 +1239,7 @@ class AdaptiveTradingBot:
         close_side = "buy" if position_side == "short" else "sell"
         create_take_profit = getattr(self._exchange, "create_take_profit", None)
         if not callable(create_take_profit):
-            logger.warning(
-                "[止盈保护] 交易所客户端不支持止盈单，跳过"
-            )
+            logger.warning("[止盈保护] 交易所客户端不支持止盈单，跳过")
             return
 
         try:
@@ -1285,8 +1325,7 @@ class AdaptiveTradingBot:
         assert self._exchange is not None, "Exchange client not initialized"
         close_side = "buy" if position_side == "short" else "sell"
         logger.error(
-            f"[止损保护] {position_side} 开仓后无有效止损，"
-            f"立即{close_side}平仓"
+            f"[止损保护] {position_side} 开仓后无有效止损，" f"立即{close_side}平仓"
         )
         fill = await self._create_confirmed_market_order(
             symbol=self._exchange.symbol,
@@ -1297,17 +1336,11 @@ class AdaptiveTradingBot:
             position_side=position_side,
         )
         if fill:
-            self._position_close_audit_context.mark_active_close(
-                str(fill["order_id"])
-            )
+            self._position_close_audit_context.mark_active_close(str(fill["order_id"]))
             self.position_manager.clear_position()
-            logger.warning(
-                f"[止损保护] 裸仓保护性平仓已确认: {fill['order_id']}"
-            )
+            logger.warning(f"[止损保护] 裸仓保护性平仓已确认: {fill['order_id']}")
         else:
-            logger.critical(
-                "[止损保护] 裸仓保护性平仓未确认，请人工检查账户"
-            )
+            logger.critical("[止损保护] 裸仓保护性平仓未确认，请人工检查账户")
             await self._verify_and_recover_position()
 
     def _update_strategy_weights(self, trade: Any) -> None:
@@ -1411,6 +1444,11 @@ class AdaptiveTradingBot:
             price_vs_entry_tolerance = (
                 self.config.stop_loss.price_vs_entry_tolerance_percent
             )
+            # OKX tick 截断容差：new_stop 比 old_stop 高出不足一个 tick 视为相等，
+            # 避免把 62501.4225 vs 62501.4 当成"新止损更紧"，重复取消+重建算法单
+            stop_tick_tolerance = max(
+                getattr(self.config.stop_loss, "stop_loss_tick_tolerance", 0.1), 0.0
+            )
             if entry_price > 0:
                 price_vs_entry_percent = (current_price - entry_price) / entry_price
                 if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
@@ -1437,8 +1475,11 @@ class AdaptiveTradingBot:
                             self.position_manager.set_stop_order(
                                 stop_order_id, new_stop_price
                             )
+                            self._refresh_close_audit_stop(
+                                stop_order_id, new_stop_price
+                            )
                         return
-                    if old_stop > 0 and new_stop_price > old_stop:
+                    if old_stop > 0 and new_stop_price > old_stop + stop_tick_tolerance:
                         logger.info(
                             f"[止损-智能] 当前价与建仓价差值"
                             f"({price_vs_entry_percent * 100:.4f}%) < "
@@ -1481,6 +1522,7 @@ class AdaptiveTradingBot:
                 )
                 if stop_order_id:
                     self.position_manager.set_stop_order(stop_order_id, initial_stop)
+                    self._refresh_close_audit_stop(stop_order_id, initial_stop)
                 return
 
             # 已有止损单：检查是否需要更新（只升不降）
@@ -1489,10 +1531,10 @@ class AdaptiveTradingBot:
                 if exchange_stop_price
                 else self.position_manager.last_stop_price
             )
-            if old_stop > 0 and new_stop_price <= old_stop:
+            if old_stop > 0 and new_stop_price <= old_stop + stop_tick_tolerance:
                 logger.info(
                     f"[止损-智能] 只升不降: 新止损{new_stop_price:.1f} <= "
-                    f"旧止损{old_stop:.1f}，跳过"
+                    f"旧止损{old_stop:.1f} (含tick容差{stop_tick_tolerance})，跳过"
                 )
                 return
 
@@ -1532,6 +1574,7 @@ class AdaptiveTradingBot:
             )
             if stop_order_id:
                 self.position_manager.set_stop_order(stop_order_id, new_stop_price)
+                self._refresh_close_audit_stop(stop_order_id, new_stop_price)
                 logger.info(f"[止损-智能] 更新成功: {stop_order_id}")
             else:
                 await AdaptiveTradingBot._recover_stop_state_after_failed_update(self)
@@ -1612,6 +1655,7 @@ class AdaptiveTradingBot:
             )
             if stop_order_id:
                 self.position_manager.set_stop_order(stop_order_id, initial_stop)
+                self._refresh_close_audit_stop(stop_order_id, initial_stop)
             return
 
         # === P5: 确定基准价格 ===
@@ -1691,6 +1735,7 @@ class AdaptiveTradingBot:
         )
         if stop_order_id:
             self.position_manager.set_stop_order(stop_order_id, new_stop_price)
+            self._refresh_close_audit_stop(stop_order_id, new_stop_price)
             logger.info(f"[止损] 更新成功: {stop_order_id}")
         else:
             await AdaptiveTradingBot._recover_stop_state_after_failed_update(self)
@@ -1705,14 +1750,13 @@ class AdaptiveTradingBot:
             self.position_manager.set_stop_order(
                 recovered_stop_id, recovered_stop_price
             )
+            self._refresh_close_audit_stop(recovered_stop_id, recovered_stop_price)
             logger.warning(
                 f"[止损] 新止损创建失败，已恢复交易所有效止损: "
                 f"{recovered_stop_id}@{recovered_stop_price:.1f}"
             )
         else:
-            logger.error(
-                "[止损] 新止损创建失败，且未查询到有效止损保护"
-            )
+            logger.error("[止损] 新止损创建失败，且未查询到有效止损保护")
 
     async def _get_existing_stop_order_id(
         self,

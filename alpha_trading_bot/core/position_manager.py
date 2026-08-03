@@ -49,6 +49,8 @@ class PositionManager:
         # 追踪持仓期间的最高价/最低价（真正的追踪止损）
         self._highest_price_since_entry: float = 0.0  # 做多时追踪最高价
         self._lowest_price_since_entry: float = 0.0  # 做空时追踪最低价
+        # 开仓时锁定的动态止损百分比（来自规则引擎），None=未锁定，使用全局默认
+        self._entry_dynamic_stop_loss_percent: Optional[float] = None
 
         # 初始化持久化管理器
         self._persistence = create_state_persistence(data_dir)
@@ -118,6 +120,21 @@ class PositionManager:
     def last_stop_price(self) -> float:
         """获取上次设置的止损价"""
         return self._last_stop_price
+
+    @property
+    def entry_dynamic_stop_loss_percent(self) -> Optional[float]:
+        """开仓时锁定的动态止损百分比，None=未锁定"""
+        return self._entry_dynamic_stop_loss_percent
+
+    def set_entry_dynamic_stop_loss_percent(self, pct: Optional[float]) -> None:
+        """在开仓成功后由 adaptive_bot 调用，锁定当次开仓使用的动态止损百分比。
+
+        合理范围 [0.0005, 0.05]，超出该范围或 None 时清空锁定
+        """
+        if pct is None or not (0.0005 <= pct <= 0.05):
+            self._entry_dynamic_stop_loss_percent = None
+        else:
+            self._entry_dynamic_stop_loss_percent = float(pct)
 
     @property
     def take_profit_order_id(self) -> Optional[str]:
@@ -359,8 +376,13 @@ class PositionManager:
         tighten_threshold = max(tolerance, min_profit_to_tighten)
 
         if current_price <= entry_price:
-            # 亏损/首次建仓: 止损 = 建仓价 × 99.95%
-            stop_percent = self.config.stop_loss.stop_loss_percent
+            # 亏损/首次建仓: 止损 = 建仓价 × (1 - 止损百分比)
+            # 优先使用开仓时锁定的动态止损百分比（来自规则引擎），否则用全局默认
+            stop_percent = (
+                self._entry_dynamic_stop_loss_percent
+                if self._entry_dynamic_stop_loss_percent is not None
+                else self.config.stop_loss.stop_loss_percent
+            )
             stop_price = entry_price * (1 - stop_percent)
             return stop_price
         elif price_vs_entry_percent >= tighten_threshold:
@@ -392,12 +414,20 @@ class PositionManager:
             if min_net > 0 and entry_price > 0 and stop_price > entry_price:
                 implied_profit = (stop_price - entry_price) / entry_price
                 if implied_profit < min_net:
-                    fallback_percent = self.config.stop_loss.stop_loss_percent
+                    fallback_percent = (
+                        self._entry_dynamic_stop_loss_percent
+                        if self._entry_dynamic_stop_loss_percent is not None
+                        else self.config.stop_loss.stop_loss_percent
+                    )
                     return entry_price * (1 - fallback_percent)
             return stop_price
         else:
             # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损
-            stop_percent = self.config.stop_loss.stop_loss_percent
+            stop_percent = (
+                self._entry_dynamic_stop_loss_percent
+                if self._entry_dynamic_stop_loss_percent is not None
+                else self.config.stop_loss.stop_loss_percent
+            )
             stop_price = entry_price * (1 - stop_percent)
             return stop_price
 
@@ -684,6 +714,7 @@ class PositionManager:
         self.clear_protection_orders()
         self._highest_price_since_entry = 0.0
         self._lowest_price_since_entry = 0.0
+        self._entry_dynamic_stop_loss_percent = None
 
         # 持久化清空
         self._persistence.clear_position()
@@ -707,6 +738,9 @@ class PositionManager:
 
         # 重置价格追踪（新开仓时）
         self.reset_price_tracking()
+
+        # 重置开仓动态止损锁定（防止上次残留；开仓成功后由外部 setter 重新写入）
+        self._entry_dynamic_stop_loss_percent = None
 
         self._entry_price = entry_price
         self._entry_time = datetime.now().isoformat()
