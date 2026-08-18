@@ -44,6 +44,7 @@ class OpportunityAuditor:
             "min_trade_confidence": self._float(
                 market_data.get("min_trade_confidence")
             ),
+            "gate_context": self._build_gate_context(decision, market_data),
             "technical": {
                 "rsi": self._float(technical.get("rsi")),
                 "atr_percent": self._float(technical.get("atr_percent")),
@@ -140,9 +141,18 @@ class OpportunityAuditor:
 
     def _float(self, value: Any) -> float:
         if isinstance(value, Number):
-            return float(value)
+            f = float(value)
+            # 安全：过滤 NaN/Inf，防止 JSON 'Infinity'/'NaN' 输出（H2 缓解）
+            import math
+            if not math.isfinite(f):
+                return 0.0
+            return f
         try:
-            return float(value)
+            f = float(value)
+            import math
+            if not math.isfinite(f):
+                return 0.0
+            return f
         except (TypeError, ValueError):
             return 0.0
 
@@ -151,3 +161,43 @@ class OpportunityAuditor:
         if enum_value is not None:
             return str(enum_value)
         return str(value)
+
+    def _build_gate_context(
+        self, decision: Dict[str, Any], market_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """提取 confidence_gate 阻断时的关键决策上下文。
+
+        任务背景 (task-card R3)：`_confidence_gate` 在 `final_confidence<min_trade_confidence`
+        时静默 skip，记录中缺诊断字段。本函数透传 metadata 中已有的关键值，便于事后归因。
+        """
+        metadata = decision.get("metadata") or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+
+        technical = market_data.get("technical", {}) or {}
+        gate_blocked = bool(metadata.get("confidence_gate_blocked"))
+        if not gate_blocked and "confidence_gate_blocked" not in metadata:
+            # 向后兼容：旧决策路径未写 metadata 字段时，不臆造内容
+            return {}
+
+        return {
+            "gate_blocked": gate_blocked,
+            "final_confidence": self._float(
+                metadata.get("final_confidence", market_data.get("final_confidence"))
+            ),
+            "min_trade_confidence": self._float(
+                metadata.get(
+                    "min_trade_confidence", market_data.get("min_trade_confidence")
+                )
+            ),
+            "long_rr": self._float(metadata.get("long_rr")),
+            "short_rr": self._float(metadata.get("short_rr")),
+            "rsi": self._float(metadata.get("rsi", technical.get("rsi"))),
+            "trend_strength": self._float(
+                metadata.get("trend_strength", technical.get("trend_strength"))
+            ),
+            "market_structure": str(metadata.get("market_structure", "")),
+            "market_structure_direction": str(
+                metadata.get("market_structure_direction", "")
+            ),
+        }

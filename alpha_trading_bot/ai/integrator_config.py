@@ -41,6 +41,10 @@ class SignalThresholdsConfig:
 
     # SHORT信号处理系数
     short_trend_up_penalty: float = 0.7
+    # 当 SHORT 在 trend_non_down 时折扣后低于该 floor，避免被永久封印（task-card R1）。
+    # 默认 0.40 与 VolatilityRule 的低波动 fusion_threshold 对齐，AI 仍能刚好穿过门禁。
+    # 决策引擎 (decision_engine.py:174-182 / :577-633) 的 RSIRSI>40、short_rr≥0.6 等二次校验未去除。
+    short_trend_up_penalty_floor: float = 0.40
     short_very_low_price_threshold: float = 0.20
     short_very_low_price_penalty: float = 0.6
     short_low_price_threshold: float = 0.35
@@ -51,6 +55,38 @@ class SignalThresholdsConfig:
     # BTC级别阈值
     btc_high_threshold: float = 0.99
     btc_low_threshold: float = 0.01
+
+    def __post_init__(self) -> None:
+        """约束 floor/penalty 等安全敏感字段在合法区间内（防配置注入攻击 H1）。
+
+        区间边界注释：
+        - [0, 1] 区间的为乘积/比例系数（如 short_trend_up_penalty、btc_short_penalty），超出 1 会变成"加成"
+        - [0, 5] 区间的为绝对阈值或 cap（如 short_decline_boost=1.2 表示 1.2 倍后的置信度）
+        - 防御 NaN：value != value 时为 NaN
+        """
+        bounded_fields = {
+            # 严格 [0, 1] 区间（折扣/比例）—— 不能反向加成
+            "short_trend_up_penalty": (0.0, 1.0),
+            "short_trend_up_penalty_floor": (0.0, 1.0),
+            "short_very_low_price_threshold": (0.0, 1.0),
+            "short_very_low_price_penalty": (0.0, 1.0),
+            "short_low_price_threshold": (0.0, 1.0),
+            "short_low_price_penalty": (0.0, 1.0),
+            "btc_short_penalty": (0.0, 1.0),  # 折扣：>1 变加成（破坏语义）
+            # [0, 5] 区间（允许加成/绝对阈值）—— 用于 boost 类倍数
+            "btc_short_boost": (0.0, 5.0),  # 默认 1.15 = 加成 15%
+            "btc_low_opportunity_boost": (0.0, 5.0),
+            "btc_high_risk_penalty": (0.0, 1.0),
+            "btc_high_risk_penalty_no_decline": (0.0, 1.0),
+            "short_decline_boost": (0.0, 5.0),
+            "short_decline_boost_ceiling": (0.0, 5.0),
+        }
+        for field_name, (lo, hi) in bounded_fields.items():
+            value = getattr(self, field_name)
+            if not (lo <= value <= hi) or value != value:  # NaN 检查
+                raise ValueError(
+                    f"{field_name} 必须在 [{lo}, {hi}] 区间内，实际值 {value}"
+                )
 
 
 class IntegrationConfig:

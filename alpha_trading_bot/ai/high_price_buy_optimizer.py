@@ -54,6 +54,19 @@ class HighPriceBuyConfig:
     strong_trend_threshold: float = 0.80  # 趋势强度>0.8时触发
     strong_trend_penalty_reduction: float = 0.50  # 惩罚减半
 
+    # 信号置信度 floor（task-card R1+R2）：替代散落在本文件 6 处 magic number 0.35。
+    # 默认 0.35 与旧值一致；与 short_trend_up_penalty_floor 都是配置层的 floor 字段。
+    integrated_confidence_floor: float = 0.35
+
+    def __post_init__(self) -> None:
+        """约束 floor 类敏感字段在合法区间内（防配置注入攻击 H1）。"""
+        for field_name in ("integrated_confidence_floor",):
+            value = getattr(self, field_name)
+            if not (0.0 <= value <= 1.0) or value != value:  # NaN 检查
+                raise ValueError(
+                    f"{field_name} 必须在 [0, 1] 区间内，实际值 {value}"
+                )
+
 
 @dataclass
 class HighPriceBuyResult:
@@ -176,7 +189,8 @@ class HighPriceBuyOptimizer:
         if not is_hold_signal and price_level == "high":
             if original_confidence < 0.75:
                 adjusted_confidence = max(
-                    adjusted_confidence - (0.10 * penalty_factor), 0.35
+                    adjusted_confidence - (0.10 * penalty_factor),
+                    self.config.integrated_confidence_floor,
                 )
                 adjustment_reason += f"高位警告: 置信度降低{10 * penalty_factor:.0f}%; "
 
@@ -186,7 +200,8 @@ class HighPriceBuyOptimizer:
             and price_position >= thresholds["price_position_threshold"]
         ):
             adjusted_confidence = max(
-                adjusted_confidence - (0.15 * penalty_factor), 0.35
+                adjusted_confidence - (0.15 * penalty_factor),
+                self.config.integrated_confidence_floor,
             )
             adjustment_reason += f"价格位置过高({price_position:.1f}%>{thresholds['price_position_threshold']}%): 置信度降低{15 * penalty_factor:.0f}%; "
             penalty_applied = True
@@ -195,7 +210,10 @@ class HighPriceBuyOptimizer:
         if not is_hold_signal and rsi >= thresholds["rsi_threshold"]:
             overshoot = (rsi - thresholds["rsi_threshold"]) / 10
             rsi_penalty = min(overshoot * 0.12, 0.12) * penalty_factor
-            adjusted_confidence = max(adjusted_confidence - rsi_penalty, 0.35)
+            adjusted_confidence = max(
+                adjusted_confidence - rsi_penalty,
+                self.config.integrated_confidence_floor,
+            )
             adjustment_reason += f"RSI过高({rsi:.1f}>{thresholds['rsi_threshold']}): 置信度降低{rsi_penalty * 100:.1f}%; "
             penalty_applied = True
 
@@ -205,7 +223,8 @@ class HighPriceBuyOptimizer:
             and trend_strength < thresholds["trend_strength_threshold"]
         ):
             adjusted_confidence = max(
-                adjusted_confidence - (0.05 * penalty_factor), 0.35
+                adjusted_confidence - (0.05 * penalty_factor),
+                self.config.integrated_confidence_floor,
             )
             adjustment_reason += f"趋势强度不足({trend_strength:.2f}<{thresholds['trend_strength_threshold']:.2f}): 置信度降低{5 * penalty_factor:.0f}%; "
             penalty_applied = True
@@ -215,7 +234,10 @@ class HighPriceBuyOptimizer:
             position_change = self._calculate_price_position_change()
             if position_change > self.config.price_position_rise_threshold:
                 penalty = self.config.price_position_rise_penalty * penalty_factor
-                adjusted_confidence = max(adjusted_confidence - penalty, 0.35)
+                adjusted_confidence = max(
+                    adjusted_confidence - penalty,
+                    self.config.integrated_confidence_floor,
+                )
                 adjustment_reason += f"价格位置快速上升({position_change:.1f}%): 置信度降低{penalty * 100:.0f}%; "
                 penalty_applied = True
 
@@ -224,7 +246,8 @@ class HighPriceBuyOptimizer:
             near_high = self._is_near_recent_high(price)
             if near_high:
                 adjusted_confidence = max(
-                    adjusted_confidence - (0.08 * penalty_factor), 0.35
+                    adjusted_confidence - (0.08 * penalty_factor),
+                    self.config.integrated_confidence_floor,
                 )
                 adjustment_reason += (
                     f"接近近期高点: 置信度降低{8 * penalty_factor:.0f}%; "

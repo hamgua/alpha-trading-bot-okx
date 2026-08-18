@@ -157,6 +157,15 @@ class DecisionEngine:
             selected, market_data
         ):
             final_confidence = max(final_confidence, selected.confidence)
+
+        # task-card R3：high_risk 长单与 confidence_gate 两个分支都要把诊断塞进 metadata
+        gate_metadata = self._build_gate_metadata(
+            side=side,
+            final_confidence=final_confidence,
+            min_confidence=min_confidence,
+            market_data=market_data,
+        )
+
         if (
             side == "long"
             and market_data.get("is_high_risk", False)
@@ -169,6 +178,7 @@ class DecisionEngine:
                 ),
                 "confidence": final_confidence,
                 "strategy": selected.strategy_type,
+                "metadata": gate_metadata,
             }
 
         if final_confidence < min_confidence:
@@ -179,9 +189,34 @@ class DecisionEngine:
                 ),
                 "confidence": final_confidence,
                 "strategy": selected.strategy_type,
+                "metadata": gate_metadata,
             }
 
         return {}
+
+    def _build_gate_metadata(
+        self,
+        side: str,
+        final_confidence: float,
+        min_confidence: float,
+        market_data: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """构造 _confidence_gate skip 时附带的诊断 metadata (task-card R3)。"""
+        technical = market_data.get("technical", {}) or {}
+        return {
+            "confidence_gate_blocked": True,
+            "gate_side": side,
+            "final_confidence": float(final_confidence),
+            "min_trade_confidence": float(min_confidence),
+            "long_rr": market_data.get("risk_reward_ratio"),
+            "short_rr": self._get_short_rr(market_data) if side == "short" else None,
+            "rsi": technical.get("rsi"),
+            "trend_strength": technical.get("trend_strength"),
+            "market_structure": market_data.get("market_structure"),
+            "market_structure_direction": market_data.get(
+                "market_structure_direction"
+            ),
+        }
 
     def _is_confirmed_mean_reversion_short(
         self, selected: Any, market_data: Dict[str, Any]

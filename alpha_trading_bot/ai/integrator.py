@@ -311,9 +311,15 @@ class AISignalIntegrator:
             if trend_direction not in ["down", "neutral"]:
                 logger.warning("[SHORT优化] 趋势向上时做空风险高，降低置信度")
                 old_conf = original_confidence
-                original_confidence *= self._t().short_trend_up_penalty
+                penalty = self._t().short_trend_up_penalty
+                penalty_floor = self._t().short_trend_up_penalty_floor
+                new_conf = old_conf * penalty
+                # 防止折扣后被永久封印 (task-card R1 + change-summary §3.3)
+                if new_conf < penalty_floor and old_conf >= penalty_floor:
+                    new_conf = penalty_floor
+                original_confidence = new_conf
                 result.adjustments_made.append(
-                    f"SHORT优化: 趋势非下跌，置信度降低{int((1 - self._t().short_trend_up_penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
+                    f"SHORT优化: 趋势非下跌，置信度降低{int((1 - penalty) * 100)}% ({old_conf:.0%}→{original_confidence:.0%})"
                 )
 
             # 2. 价格位置检查：价格太低时不建议做空（接近支撑位）
@@ -746,9 +752,16 @@ class AISignalIntegrator:
                 logger.warning(
                     f"BTC价格检测处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
-
         # 4. HighPriceBuyOptimizer
-        if self.high_price_optimizer and self.config.enable_high_price_filter:
+        # HIGHPRICE-BUY-ONLY：本优化器仅作用于 BUY 信号；SHORT/SELL 跳过（task-card R2）。
+        # 原惩罚（RSI/trend/价格位置快速上升等）是仅对 BUY 信号设计，不应作用于反方向信号。
+        # SHORT 信号已由上面的 BTC 检测 + 自己的 SHORT 专用 block 处理；
+        # SELL 信号无需 BUY 惩罚（仅用于平仓场景）。
+        if (
+            self.high_price_optimizer
+            and self.config.enable_high_price_filter
+            and original_signal == "BUY"
+        ):
             try:
                 # 传递持续下跌检测结果给高位优化器
                 market_data_with_decline = dict(market_data)
@@ -762,7 +775,7 @@ class AISignalIntegrator:
                 optimized = self.high_price_optimizer.optimize_high_price_buy(
                     market_data=market_data_with_decline,
                     original_confidence=original_confidence,
-                    original_can_buy=(original_signal == "BUY"),
+                    original_can_buy=True,
                     buy_mode=result.price_level,
                     original_signal=original_signal,
                 )
@@ -776,14 +789,13 @@ class AISignalIntegrator:
                 }
 
                 # 如果优化器说不要买入，改为HOLD
-                if not optimized.should_buy and original_signal == "BUY":
+                if not optimized.should_buy:
                     original_signal = "HOLD"
                     result.adjustments_made.append(
                         f"高位过滤: 不建议买入 - {optimized.adjustment_reason[:50]}..."
                     )
                 elif (
-                    original_signal == "BUY"
-                    and optimized.penalty_applied
+                    optimized.penalty_applied
                     and optimized.adjusted_confidence < 0.40
                 ):
                     original_signal = "HOLD"
@@ -798,6 +810,9 @@ class AISignalIntegrator:
                 logger.warning(
                     f"HighPriceBuyOptimizer处理失败: {e}, 位置: {traceback.format_exc(limit=3)}"
                 )
+        else:
+            # SHORT/SELL/未启用快速路径：记录跳过原因，便于审计
+            conf_history.append((4, "HighPrice(skip non-BUY)", original_confidence))
 
         # 5. 最终结果
         result.final_signal = original_signal
