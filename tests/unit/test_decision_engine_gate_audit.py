@@ -179,7 +179,12 @@ class TestOpportunityAuditGateContext:
         assert gate.get("market_structure_direction") == "short"
 
     def test_gate_context_empty_for_no_metadata(self) -> None:
-        """向后兼容：旧 code path 不带 metadata 时，gate_context 必须为空 dict"""
+        """向后兼容：旧 code path 不带 metadata 时，gate_context 必须含 fallback 字段。
+
+        梦 2026-08-24-profit-tp-sl-optimize / H1-fix 之前：return {} 直接空掉。
+        修复后：永远返回 9-key dict；缺 confidence_gate_blocked 时 gate_blocked=False，
+        其他字段从 market_data fallback。本测试覆盖 H1 修复的兜底路径。
+        """
         auditor = OpportunityAuditor()
         selected = MagicMock()
         selected.signal = "HOLD"
@@ -195,10 +200,15 @@ class TestOpportunityAuditGateContext:
             has_position=False,
         )
 
-        assert record.get("gate_context", {}) == {}
+        ctx = record.get("gate_context", {})
+        assert isinstance(ctx, dict)
+        assert "gate_blocked" in ctx
+        assert ctx.get("gate_blocked") is False
+        # fallback 字段: rsi 必须从 technical 拿到
+        assert ctx.get("rsi") == 60
 
     def test_gate_context_safe_with_none_metadata(self) -> None:
-        """防御性：metadata=None 时不抛异常"""
+        """防御性：metadata=None 时不抛异常；返回 fallback dict。"""
         auditor = OpportunityAuditor()
         selected = MagicMock()
         selected.signal = "HOLD"
@@ -213,4 +223,7 @@ class TestOpportunityAuditGateContext:
             has_position=False,
         )
 
-        assert record.get("gate_context", {}) == {}
+        ctx = record.get("gate_context", {})
+        assert isinstance(ctx, dict)
+        assert "gate_blocked" in ctx
+        assert ctx.get("gate_blocked") is False

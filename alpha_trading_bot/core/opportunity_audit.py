@@ -169,6 +169,13 @@ class OpportunityAuditor:
 
         任务背景 (task-card R3)：`_confidence_gate` 在 `final_confidence<min_trade_confidence`
         时静默 skip，记录中缺诊断字段。本函数透传 metadata 中已有的关键值，便于事后归因。
+
+        梦 2026-08-24-profit-tp-sl-optimize (H1-fix)：
+        之前当 metadata 缺 `confidence_gate_blocked` 字段时直接 return {}，导致
+        818 条 audit 中 gate_context 完全空，破坏审计可观测性。现策略改为：始终返回
+        9-key dict，缺 `confidence_gate_blocked` 时 gate_blocked 标记为 False，但
+        rsi / trend_strength / market_structure_* 等关键字段从 market_data fallback 兜底，
+        便于事后仍可看到诊断上下文。
         """
         metadata = decision.get("metadata") or {}
         if not isinstance(metadata, dict):
@@ -176,9 +183,6 @@ class OpportunityAuditor:
 
         technical = market_data.get("technical", {}) or {}
         gate_blocked = bool(metadata.get("confidence_gate_blocked"))
-        if not gate_blocked and "confidence_gate_blocked" not in metadata:
-            # 向后兼容：旧决策路径未写 metadata 字段时，不臆造内容
-            return {}
 
         return {
             "gate_blocked": gate_blocked,
@@ -196,8 +200,10 @@ class OpportunityAuditor:
             "trend_strength": self._float(
                 metadata.get("trend_strength", technical.get("trend_strength"))
             ),
-            "market_structure": str(metadata.get("market_structure", "")),
+            "market_structure": str(metadata.get("market_structure", "")) or str(
+                market_data.get("market_structure", "")
+            ),
             "market_structure_direction": str(
                 metadata.get("market_structure_direction", "")
-            ),
+            ) or str(market_data.get("market_structure_direction", "")),
         }

@@ -321,7 +321,11 @@ class PositionManager:
             self._position = None
             logger.info("[仓位更新] 交易所返回无持仓信息")
 
-    def calculate_stop_price(self, current_price: float) -> float:
+    def calculate_stop_price(
+        self,
+        current_price: float,
+        dynamic_atr_percent: Optional[float] = None,
+    ) -> float:
         """
         计算止损价 (做多仓位)
 
@@ -338,6 +342,9 @@ class PositionManager:
 
         Args:
             current_price: 当前价格
+            dynamic_atr_percent: 可选 ATR 百分比 (0~1)。梦 2026-08-24-profit-tp-sl-optimize
+                引入：当传入时，临时覆盖 _entry_dynamic_stop_loss_percent；用于避免被
+                ±5-min wick 刷掉；下限 0.003 (0.30%) / 上限 0.05 (5%) 兜底防护。
 
         Returns:
             止损价 (做多) 或 0.0 (无效)
@@ -349,10 +356,33 @@ class PositionManager:
         if self._position.side != "long":
             return 0.0
 
-        if self.config.stop_loss.stop_loss_entry_based:
-            return self._calculate_entry_based_stop_loss(current_price)
-        else:
-            return self._calculate_current_price_based_stop_loss(current_price)
+        # 备份原 dynamic_stop_loss_percent 防止污染 (梦 2026-08-24-profit-tp-sl-optimize P1-ATR-SL)
+        backup_dynamic = self._entry_dynamic_stop_loss_percent
+
+        # 梦 2026-08-24-profit-tp-sl-optimize / P1 (ATR-SL)：当显式传入 dynamic_atr_percent
+        # 且其值为有限数时，临时覆盖 _entry_dynamic_stop_loss_percent，避免被 ±5-min wick
+        # 刷掉。下限 0.003 (0.30%) 防止 ATR 极低时止损过近；上限 0.05 (5%) 防止意外
+        # 远离市价导致开仓即被止损。
+        try:
+            atr_value = (
+                float(dynamic_atr_percent)
+                if dynamic_atr_percent is not None
+                else None
+            )
+        except (TypeError, ValueError):
+            atr_value = None
+        if atr_value is not None and atr_value > 0:
+            clamped = max(0.003, min(atr_value, 0.05))
+            self._entry_dynamic_stop_loss_percent = clamped
+
+        try:
+            if self.config.stop_loss.stop_loss_entry_based:
+                return self._calculate_entry_based_stop_loss(current_price)
+            else:
+                return self._calculate_current_price_based_stop_loss(current_price)
+        finally:
+            # 还原原 dynamic_stop_loss_percent，避免污染下一次调用
+            self._entry_dynamic_stop_loss_percent = backup_dynamic
 
     def _calculate_entry_based_stop_loss(self, current_price: float) -> float:
         """

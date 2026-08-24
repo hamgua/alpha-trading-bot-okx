@@ -20,6 +20,7 @@ def _make_config(
     price_vs_entry_tolerance_percent: float = 0.001,
     min_profit_to_tighten_stop_percent: float = 0.003,
     take_profit_mode: str = "adaptive",
+    min_net_profit_to_close_percent: float = 0.0,
 ) -> Config:
     """创建测试配置"""
     return Config(
@@ -32,6 +33,7 @@ def _make_config(
             price_vs_entry_tolerance_percent=price_vs_entry_tolerance_percent,
             min_profit_to_tighten_stop_percent=min_profit_to_tighten_stop_percent,
             take_profit_mode=take_profit_mode,
+            min_net_profit_to_close_percent=min_net_profit_to_close_percent,
         ),
     )
 

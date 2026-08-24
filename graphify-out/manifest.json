@@ -88,16 +88,16 @@
     "hash": "b5de52487d1b5ae955a257f52486b121"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/decision_engine.py": {
-    "mtime": 1787025051.8866634,
-    "hash": "f5a7a3c827541093483c44ae910234df"
+    "mtime": 1787542771.0617278,
+    "hash": "c135e629e0544d80ac3c4f24de010847"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_close_audit.py": {
     "mtime": 1785727307.9991088,
     "hash": "05dbab00ea4e5ec87a86656f89be9cb2"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/position_manager.py": {
-    "mtime": 1785751522.6474283,
-    "hash": "5a9447e0a6062417332ab1291419ce0d"
+    "mtime": 1787542771.0624719,
+    "hash": "be92207e1761fb706dbb0a968d87bb4e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/bot.py": {
     "mtime": 1784013033.082357,
@@ -132,8 +132,8 @@
     "hash": "27c5effe946f954b764b5a37b5bcaa28"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/opportunity_audit.py": {
-    "mtime": 1787025051.8871052,
-    "hash": "15d742b295d3a15aea79df55a82f0911"
+    "mtime": 1787542771.0620642,
+    "hash": "ae4ae422d32c308d7f745ae1d7dd45f3"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/core/managers/parameter_manager.py": {
     "mtime": 1781170272.6364903,
@@ -260,8 +260,8 @@
     "hash": "5635372f8cb01763f157e61fc3ff6f26"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/integrator_config.py": {
-    "mtime": 1787025051.8861942,
-    "hash": "2ad16f31df81a09aad5c59a296692a24"
+    "mtime": 1787542818.0749483,
+    "hash": "9b82ed1b5c1eb41878fcdf4f163fbfee"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/dynamic_sell_condition.py": {
     "mtime": 1780980849.7041223,
@@ -448,7 +448,7 @@
     "hash": "ed1cb9b17307fe2292dedc8a88d8cc02"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_post_optimization_gap.py": {
-    "mtime": 1787539289.8267903,
+    "mtime": 1787540872.317998,
     "hash": "3901553c5737186dd77223878bc60208"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_position_close_audit.py": {
@@ -460,8 +460,8 @@
     "hash": "d596d89ecc9e74092e5b20084a51495b"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_smart_stop_loss.py": {
-    "mtime": 1785119406.0751238,
-    "hash": "b2446c10a03504d73da01ab41a9746aa"
+    "mtime": 1787542787.345626,
+    "hash": "8cbf5866fb14b7b0ad4188088d363eab"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_risk_reward_calculator.py": {
     "mtime": 1779253142.6944294,
@@ -560,8 +560,8 @@
     "hash": "5008e64578fa999c01a2bb9619fc7c5e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_decision_engine_gate_audit.py": {
-    "mtime": 1787025051.895281,
-    "hash": "1bd3237b5af000ff39d8b71621b6e5ac"
+    "mtime": 1787542771.0628371,
+    "hash": "33cec6bc14d0992dc2759b39f68b3ba0"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_instrument_spec.py": {
     "mtime": 1784013033.1127129,
@@ -626,6 +626,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_position_manager_trailing_bugfix.py": {
     "mtime": 1785727308.0116594,
     "hash": "8bafe0336d4c44e57b244b40b02a4e81"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_tp_sl_post_optimization.py": {
+    "mtime": 1787542349.6503713,
+    "hash": "9470cd02642218f71b39d771c8f42ede"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_market_data_ticker.py": {
     "mtime": 1781161914.306163,

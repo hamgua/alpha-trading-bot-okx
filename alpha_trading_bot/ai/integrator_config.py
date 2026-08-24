@@ -1,5 +1,6 @@
 """集成器配置"""
 
+from numbers import Number
 from typing import Optional
 from dataclasses import dataclass
 
@@ -80,13 +81,30 @@ class SignalThresholdsConfig:
             "btc_high_risk_penalty_no_decline": (0.0, 1.0),
             "short_decline_boost": (0.0, 5.0),
             "short_decline_boost_ceiling": (0.0, 5.0),
+            # [0, 1] / [0, 2] 区间（梦 2026-08-24-profit-tp-sl-optimize 补）：M2-fix
+            # confidence_floor 默认 0.30，ceiling 默认 0.97；上限 1.0 与 2.0 给出
+            # 足够宽容的 buffer（仍避免反向别名）。
+            "confidence_floor": (0.0, 1.0),
+            "confidence_ceiling": (0.0, 2.0),
         }
         for field_name, (lo, hi) in bounded_fields.items():
             value = getattr(self, field_name)
-            if not (lo <= value <= hi) or value != value:  # NaN 检查
+            if not isinstance(value, Number) or value != value:  # NaN / 非数
+                raise ValueError(
+                    f"{field_name} 必须是有限数字，实际值 {value!r}"
+                )
+            f_value = float(value)
+            if not (lo <= f_value <= hi):
                 raise ValueError(
                     f"{field_name} 必须在 [{lo}, {hi}] 区间内，实际值 {value}"
                 )
+
+        # 交叉约束：floor ≤ ceiling（梦 2026-08-24-profit-tp-sl-optimize / M2-fix）
+        if self.confidence_floor > self.confidence_ceiling:
+            raise ValueError(
+                f"confidence_floor ({self.confidence_floor}) 必须 ≤ "
+                f"confidence_ceiling ({self.confidence_ceiling})，否则 min(max(c, floor), ceiling) 退化为 ceiling。"
+            )
 
 
 class IntegrationConfig:

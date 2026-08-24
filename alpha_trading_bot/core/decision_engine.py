@@ -522,17 +522,34 @@ class DecisionEngine:
 
         rr_ratio = market_data.get("risk_reward_ratio", 0)
         market_structure = market_data.get("market_structure", "sideways")
+        technical = market_data.get("technical", {})
+        rsi = technical.get("rsi", 50) if isinstance(technical, dict) else 50
 
         if rr_ratio > 0 and rr_ratio < self._get_min_rr():
-            logger.warning(
-                f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
-            )
-            return {
-                "action": "skip",
-                "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
-                "confidence": selected.confidence,
-                "strategy": selected.strategy_type,
-            }
+            # 梦 2026-08-24-profit-tp-sl-optimize / P2-aggressive-long 兜底：
+            # 仅在 INVESTMENT_TYPE=aggressive 时允许 RSI 超卖场景下用 0.5× 仓位开多，
+            # 跳过 R/R 门禁（要求 R/R ≥ 0.8，且结构 sideways）。其他类型保持原 R/R 门禁。
+            if (
+                self._investment_type == "aggressive"
+                and market_structure == "sideways"
+                and rr_ratio >= 0.8
+                and rsi < 35
+            ):
+                logger.info(
+                    f"[BUY-aggressive-超卖] R/R={rr_ratio:.2f}，略低于普通门槛{self._get_min_rr()}，"
+                    f"但 INVESTMENT_TYPE=aggressive 且 RSI={rsi:.1f}<35，"
+                    f"允许 0.5× 仓位介入震荡市反弹"
+                )
+            else:
+                logger.warning(
+                    f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
+                )
+                return {
+                    "action": "skip",
+                    "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
+                    "confidence": selected.confidence,
+                    "strategy": selected.strategy_type,
+                }
 
         if market_structure == "bearish":
             logger.warning(f"[市场结构] 下跌结构中禁止做多")
@@ -555,7 +572,28 @@ class DecisionEngine:
             "confidence": selected.confidence,
             "strategy": selected.strategy_type,
         }
-        if position_advice:
+        # 梦 2026-08-24-profit-tp-sl-optimize / P2-aggressive-long：触发 0.5× 仓位 + 标记策略。
+        if (
+            self._investment_type == "aggressive"
+            and market_structure == "sideways"
+            and rsi < 35
+            and 0 <= rr_ratio < self._get_min_rr()
+        ):
+            result["strategy"] = "oversold_buy_aggressive"
+            result["confidence"] = selected.confidence * 0.5
+            result["position_advice"] = (
+                f"aggressive 模式 RSI={rsi:.1f} 超卖反弹，0.5× 仓位"
+            )
+        elif (
+            self._investment_type == "aggressive"
+            and market_structure == "sideways"
+            and rsi < 35
+        ):
+            result["strategy"] = "oversold_buy_aggressive"
+            result["position_advice"] = (
+                f"aggressive 模式 RSI={rsi:.1f} 超卖反弹，正常仓"
+            )
+        if position_advice and "position_advice" not in result:
             result["position_advice"] = position_advice
         return result
 
