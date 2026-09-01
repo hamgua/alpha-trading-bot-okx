@@ -377,25 +377,58 @@ class PositionManager:
 
         try:
             if self.config.stop_loss.stop_loss_entry_based:
-                return self._calculate_entry_based_stop_loss(current_price)
+                return self._calculate_entry_based_stop_loss(
+                    current_price,
+                    dynamic_atr_percent=dynamic_atr_percent,
+                )
             else:
                 return self._calculate_current_price_based_stop_loss(current_price)
         finally:
             # 还原原 dynamic_stop_loss_percent，避免污染下一次调用
             self._entry_dynamic_stop_loss_percent = backup_dynamic
 
-    def _calculate_entry_based_stop_loss(self, current_price: float) -> float:
+    def _calculate_entry_based_stop_loss(
+        self,
+        current_price: float,
+        dynamic_atr_percent: Optional[float] = None,
+    ) -> float:
         """
         基于建仓价的智能止损计算 (做多)
 
         业务逻辑:
-        - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 0.05%) = 建仓价 × 99.95%
+        - 亏损/首次建仓(当前价 <= 建仓价): 止损 = 建仓价 × (1 - 止损百分比)
+            注 (梦 2026-08-31-profit-long-impl / OC-NEW-3): 当显式传入
+            dynamic_atr_percent 时,使用 max(默认止损比率, clamp(atr, 0.003, 0.05))
+            作为停损距离,以缓解 4 笔 long 硬止损被 ±5min wick 反复刷掉的问题.
+            下限 0.003 (0.30%) 防止 ATR 极低时止损过近;上限 0.05 (5%) 防止意外
+            远离市价导致开仓即被止损. 若调用方未传 dynamic_atr_percent,
+            则行为完全保持原样 (向后兼容,e2eb35f P1-ATR-SL 暴露位+OC-NEW-3 落地).
         - 盈利且价差 >= 容错且浮盈 >= 收紧门槛:
             - 若最高价 > 建仓价: 止损 = max(建仓价×99.98%, 最高价×99.98%) 实现追踪止损
             - 否则: 止损 = 建仓价 × (1 - 0.02%) = 建仓价 × 99.98%
         - 盈利但价差未达门槛: 止损 = 建仓价 × 99.95% (视为未明显盈利)
         """
         entry_price = self._entry_price
+        default_stop_percent = (
+            self._entry_dynamic_stop_loss_percent
+            if self._entry_dynamic_stop_loss_percent is not None
+            else self.config.stop_loss.stop_loss_percent
+        )
+
+        # 梦 2026-08-31-profit-long-impl / OC-NEW-3: ATR-scaled fallback (long)
+        # 仅当显式传入 dynamic_atr_percent 时生效. e2eb35f P1-ATR-SL 已暴露
+        # 入参位, 本次配合 OC-NEW-3 在 long 路径真正生效:
+        #   effective_stop_percent = max(default_stop_percent, clamp(atr, 0.003, 0.05))
+        effective_stop_percent = default_stop_percent
+        if dynamic_atr_percent is not None:
+            try:
+                atr_value = float(dynamic_atr_percent)
+            except (TypeError, ValueError):
+                atr_value = 0.0
+            if atr_value > 0:
+                clamped_atr = max(0.003, min(atr_value, 0.05))
+                effective_stop_percent = max(default_stop_percent, clamped_atr)
+
         tolerance = self.config.stop_loss.price_vs_entry_tolerance_percent
         min_profit_to_tighten = self.config.stop_loss.min_profit_to_tighten_stop_percent
 
@@ -407,13 +440,8 @@ class PositionManager:
 
         if current_price <= entry_price:
             # 亏损/首次建仓: 止损 = 建仓价 × (1 - 止损百分比)
-            # 优先使用开仓时锁定的动态止损百分比（来自规则引擎），否则用全局默认
-            stop_percent = (
-                self._entry_dynamic_stop_loss_percent
-                if self._entry_dynamic_stop_loss_percent is not None
-                else self.config.stop_loss.stop_loss_percent
-            )
-            stop_price = entry_price * (1 - stop_percent)
+            # 梦 2026-08-31-profit-long-impl / OC-NEW-3: effective_stop_percent
+            stop_price = entry_price * (1 - effective_stop_percent)
             return stop_price
         elif price_vs_entry_percent >= tighten_threshold:
             # 盈利且价差 >= 容错: 使用最高价追踪止损
@@ -453,12 +481,8 @@ class PositionManager:
             return stop_price
         else:
             # 盈利但价差 < 容错: 视为未明显盈利，使用亏损止损
-            stop_percent = (
-                self._entry_dynamic_stop_loss_percent
-                if self._entry_dynamic_stop_loss_percent is not None
-                else self.config.stop_loss.stop_loss_percent
-            )
-            stop_price = entry_price * (1 - stop_percent)
+            # 梦 2026-08-31-profit-long-impl / OC-NEW-3: effective_stop_percent
+            stop_price = entry_price * (1 - effective_stop_percent)
             return stop_price
 
     def _calculate_current_price_based_stop_loss(self, current_price: float) -> float:
@@ -729,12 +753,37 @@ class PositionManager:
 
         # 记录平仓交易
         if self._position:
+            # 梦 2026-08-31-profit-long-impl / OC-NEW-4:
+            # 显式估算本笔平仓 pnl 百分比并传入, 而不是用默认值 0.0.
+            # 算法: (entry_price - last_stop_price) / entry_price 表示硬止损触发的最坏损失,
+            # 适用于 clear_position 的兜底清理(本地持仓与 API 失同步)场景.
+            # 注意: 若已有 _persistence.record_trade 来自仓位消失审计的 pnl, 应优先使用;
+            # 此处仅在 manual_close 的兜底路径上启动估算.
+            try:
+                if self._last_stop_price > 0 and self._entry_price > 0:
+                    stop_distance_pct = (
+                        abs(self._entry_price - self._last_stop_price)
+                        / self._entry_price
+                    )
+                    side_sign = 1.0 if self._position.side == "short" else -1.0
+                    estimated_pnl_percent = side_sign * stop_distance_pct
+                    estimated_pnl_amount = (
+                        estimated_pnl_percent
+                        * self._entry_price
+                        * self._position.amount
+                    )
+                else:
+                    estimated_pnl_amount = 0.0
+            except (ZeroDivisionError, AttributeError, TypeError):
+                estimated_pnl_amount = 0.0
+
             self._persistence.record_trade(
                 trade_type="close",
                 symbol=self._position.symbol,
                 side=self._position.side,
                 amount=self._position.amount,
                 price=self._entry_price,
+                pnl=estimated_pnl_amount,
                 reason="manual_close",
             )
 

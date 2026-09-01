@@ -379,6 +379,21 @@ class StatePersistence:
             # 加载现有历史
             history = self._load_history()
 
+            # 梦 2026-08-31-profit-long-impl / OC-NEW-4:
+            # 当平仓事件被记录却依然传入 pnl=0.0 默认值时,主动告警.
+            # 设计: 不抛异常, 避免误伤现有 caller, 但 logger.warning
+            # 提示 ML 自适应可能拿到空载 pnl.
+            if trade_type == "close" and pnl == 0.0:
+                logger.warning(
+                    "[持久化] record_trade 平仓事件 pnl=0.0 (默认值), "
+                    "调用方未传入真实 pnl,可能污染 trade_history.json → "
+                    "ML 自适应(ai/adaptive/performance_tracker) 拿不到真实反馈. "
+                    "reason=%s, symbol=%s, side=%s",
+                    reason,
+                    symbol,
+                    side,
+                )
+
             # 添加新记录
             record = {
                 "timestamp": datetime.now().isoformat(),

@@ -114,6 +114,19 @@ class AdaptiveTradingBot:
             "cooldown_short_cooldown": 0,  # 短冷却时间（300s）返回
         }
 
+        # === 梦 2026-08-31-profit-long-impl / OC-NEW-8: 按侧切片计数器 ===
+        # 用一行日志在周期末尾标准化输出 long/short 的 attempts / skipped / cooldown
+        self._side_counter: Dict[str, int] = {
+            "long_attempts": 0,
+            "short_attempts": 0,
+            "long_skipped": 0,
+            "short_skipped": 0,
+            "long_cooldown_skipped": 0,
+            "short_cooldown_skipped": 0,
+            "long_executed": 0,
+            "short_executed": 0,
+        }
+
         # === 新增：自适应组件 ===
         self._init_adaptive_components()
 
@@ -534,6 +547,12 @@ class AdaptiveTradingBot:
                         logger.info(
                             f"[冷却] 方向冷却中({this_side})，跳过{this_side}开仓"
                         )
+                        # 梦 2026-08-31-profit-long-impl / OC-NEW-8:
+                        # 按侧记录 cooldown skipped,便于周期末尾 [side_counter] 一行观察
+                        if this_side == "long":
+                            self._side_counter["long_cooldown_skipped"] += 1
+                        elif this_side == "short":
+                            self._side_counter["short_cooldown_skipped"] += 1
                         final_signal = {
                             "action": "skip",
                             "reason": f"方向冷却({this_side})",
@@ -555,6 +574,11 @@ class AdaptiveTradingBot:
                             f"[冷却] 反方向机会质量不足或冷却未满足({this_side})，"
                             f"跳过{this_side}开仓"
                         )
+                        # 梦 2026-08-31-profit-long-impl / OC-NEW-8: 按侧记录
+                        if this_side == "long":
+                            self._side_counter["long_cooldown_skipped"] += 1
+                        elif this_side == "short":
+                            self._side_counter["short_cooldown_skipped"] += 1
                         final_signal = {
                             "action": "skip",
                             "reason": f"方向冷却({this_side})",
@@ -568,11 +592,28 @@ class AdaptiveTradingBot:
                     market_data=market_data,
                     has_position=has_position,
                 )
+                # 梦 2026-08-31-profit-long-impl / OC-NEW-8:
+                # 按侧记录 skipped(不含 cooldown),便于周期末尾 [side_counter] 切片
+                try:
+                    this_side_skipped = (
+                        str(final_signal.get("metadata", {}).get("gate_side"))
+                        if isinstance(final_signal.get("metadata"), dict)
+                        else None
+                    )
+                    reason_str = str(final_signal.get("reason", ""))
+                    if "冷却" not in reason_str:
+                        if this_side_skipped == "long":
+                            self._side_counter["long_skipped"] += 1
+                        elif this_side_skipped == "short":
+                            self._side_counter["short_skipped"] += 1
+                except Exception:  # pragma: no cover - 监控层异常不应影响决策
+                    pass
                 if has_position and not is_short_to_close:
                     await self._update_stop_loss(
                         current_price, position_data, market_data
                     )
                 logger.info("[决策] 跳过交易，等待下一个周期")
+                self._emit_side_counter()  # OC-NEW-8: 周期末尾侧计数器
                 logger.info("=" * 60)
                 return
 
@@ -587,9 +628,24 @@ class AdaptiveTradingBot:
                 cached_rule_result=rule_result,
                 decision_metadata=final_signal.get("metadata"),
             )
+            # 梦 2026-08-31-profit-long-impl / OC-NEW-8: 记录开仓 attempts / executed
+            try:
+                action_attempted = str(final_signal.get("action", ""))
+                if action_attempted == "open":
+                    self._side_counter["long_attempts"] += 1
+                elif action_attempted == "sell" and self.config.trading.allow_short_selling:
+                    self._side_counter["short_attempts"] += 1
+                if action_attempted in ("open", "sell", "close", "close_short"):
+                    if action_attempted == "open":
+                        self._side_counter["long_executed"] += 1
+                    elif action_attempted == "sell" or action_attempted == "close_short":
+                        self._side_counter["short_executed"] += 1
+            except Exception:  # pragma: no cover - 监控层异常不应影响决策
+                pass
             # 检测到空单平仓后，跳过后续所有交易，等待下一个周期
             if final_signal.get("action") == "close_short":
                 logger.warning("[决策] 空单已平仓，跳过后续交易，等待下一个周期")
+                self._emit_side_counter()  # OC-NEW-8: 周期末尾侧计数器
                 logger.info("=" * 60)
                 return
         except Exception as e:
@@ -597,6 +653,7 @@ class AdaptiveTradingBot:
             logger.exception("详细错误:")
             return
 
+        self._emit_side_counter()  # OC-NEW-8: 周期末尾侧计数器
         logger.info("[周期] 完成")
         logger.info("=" * 60)
 
@@ -706,6 +763,32 @@ class AdaptiveTradingBot:
     def get_cooldown_metrics(self) -> Dict[str, int]:
         """返回方向冷却相关的决策指标快照。"""
         return dict(self._cooldown_metrics)
+
+    def get_side_counter(self) -> Dict[str, int]:
+        """返回按侧切片计数器的快照 (梦 2026-08-31-profit-long-impl / OC-NEW-8)。"""
+        return dict(self._side_counter)
+
+    def _emit_side_counter(self) -> None:
+        """在周期末尾标准化输出长/短 attempts / skipped / cooldown 计数 (OC-NEW-8)。
+
+        设计: 仅写一行 logger.info, 格式固定包含 8 个键,
+        便于运维脚本按周期切片做侧失衡检测.
+        """
+        counter = self._side_counter
+        logger.info(
+            "[side_counter] long_attempts=%d short_attempts=%d "
+            "long_skipped=%d short_skipped=%d "
+            "long_cooldown_skipped=%d short_cooldown_skipped=%d "
+            "long_executed=%d short_executed=%d",
+            counter["long_attempts"],
+            counter["short_attempts"],
+            counter["long_skipped"],
+            counter["short_skipped"],
+            counter["long_cooldown_skipped"],
+            counter["short_cooldown_skipped"],
+            counter["long_executed"],
+            counter["short_executed"],
+        )
 
     @staticmethod
     def _extract_float(value: Any, default: float = 0.0) -> float:
