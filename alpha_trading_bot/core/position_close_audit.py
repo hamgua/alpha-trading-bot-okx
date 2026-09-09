@@ -63,19 +63,38 @@ class PositionCloseAuditor:
         self,
         exchange: Any,
         symbol: str,
-    ) -> None:
-        """查询算法单历史并记录平仓事件。"""
+    ) -> Dict[str, Any]:
+        """查询算法单历史并记录平仓事件。
+
+        Returns:
+            解析结果 dict（dream C2 学习闭环补记）：
+              - handled: 是否建议上层补记 close_trade
+              - close_type: confirmed(算法单实际成交) / estimated(last_stop估算)
+              - quality: confirmed_algo / estimated_last_stop
+              - match_strategy: exact_algo_id / fuzzy_price / none
+              - side / exit_price
+              - pnl_percent: 百分比(仅供日志/审计，补记用 exit_price 重算)
+              - reason: 未补记时的原因
+        """
         if self.context.active_close_confirmed:
             logger.info(
                 "[平仓审计] 主动平仓已确认，跳过算法单触发审计: "
                 f"order_id={self.context.active_close_order_id or 'unknown'}, "
                 f"side={self.context.side}, entry={self.context.entry_price}"
             )
-            return
+            return {
+                "handled": False,
+                "reason": "active_close_confirmed",
+                "match_strategy": "none",
+            }
 
         if exchange is None:
             self.log_inferred_position_close_event("exchange_not_initialized")
-            return
+            return {
+                "handled": False,
+                "reason": "exchange_not_initialized",
+                "match_strategy": "none",
+            }
 
         history = []
         ord_types_queried: list = []
@@ -106,7 +125,24 @@ class PositionCloseAuditor:
                 "algo_history_not_found",
                 ord_types_queried=ord_types_queried,
             )
-            return
+            # dream C2: 算法单历史暂不可用，但持仓确实消失（交易所侧止损/止盈已成交）。
+            # 用最后锁定的止损价做估算补记，打质量标记 estimated_last_stop。
+            if self.context.stop_price > 0:
+                est_pnl = self.calculate_close_pnl_percent(self.context.stop_price)
+                return {
+                    "handled": True,
+                    "close_type": "estimated",
+                    "quality": "estimated_last_stop",
+                    "match_strategy": "none",
+                    "side": self.context.side,
+                    "exit_price": self.context.stop_price,
+                    "pnl_percent": est_pnl,
+                }
+            return {
+                "handled": False,
+                "reason": "no_exit_price",
+                "match_strategy": "none",
+            }
 
         info = matched.get("info", {})
         match_strategy = matched.get("_match_strategy", "exact_algo_id")
@@ -138,6 +174,16 @@ class PositionCloseAuditor:
             f"amount={amount}, pnl={pnl_percent:.2f}%, "
             f"trigger_time={trigger_time or 'unknown'}"
         )
+        # dream C2: 返回解析结果，供上层补记 performance_tracker.close_trade
+        return {
+            "handled": True,
+            "close_type": "confirmed",
+            "quality": "confirmed_algo",
+            "match_strategy": match_strategy,
+            "side": self.context.side,
+            "exit_price": exit_price,
+            "pnl_percent": pnl_percent,
+        }
 
     def find_close_algo_history(self, history: Any) -> Optional[Dict[str, Any]]:
         """从算法单历史中找到最近一次止损/止盈触发记录。

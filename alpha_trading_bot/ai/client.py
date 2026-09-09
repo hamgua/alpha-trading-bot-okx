@@ -199,6 +199,14 @@ class AIClient:
             "reasoning_fallback_misses": 0,
         }
 
+        # dream C3: 标记本次 get_signal 的信号是否来自 reasoning_content 提取(降级)。
+        # 每次 get_signal 开头重置；reasoning 提取成功处置位；get_signal 末尾据此
+        # 阻断降级 BUY。
+        self._last_signal_degraded = False
+
+        # 序列化 get_signal，防止并发调用在置位/判定窗口之间串扰降级标志。
+        self._signal_lock: Optional[asyncio.Lock] = None
+
     def _get_normalized_fusion_weights(self) -> Dict[str, float]:
         """返回融合提供商完整且归一化的权重。"""
         providers = self.config.fusion_providers or ["deepseek", "kimi"]
@@ -265,46 +273,71 @@ class AIClient:
 
     async def get_signal(self, market_data: Dict[str, Any]) -> str:
         """获取交易信号，返回: buy / hold / sell"""
-        # 检查缓存
-        if self._enable_cache and self._cache:
-            cached_signal = self._cache.get(market_data)
-            if cached_signal:
-                return cached_signal
+        # 序列化同一 AIClient 上的 get_signal 调用，
+        # 防止 _last_signal_degraded 在并发调用的置位/判定窗口之间串扰。
+        if self._signal_lock is None:
+            self._signal_lock = asyncio.Lock()
+        async with self._signal_lock:
+            # dream C3: 重置降级标记，保证只反映本次 get_signal 的信号来源
+            self._last_signal_degraded = False
 
-        # 获取原始信号
-        if self.config.mode == "single":
-            original_signal, original_confidence = await self._get_single_signal(
-                market_data
+            # 检查缓存
+            if self._enable_cache and self._cache:
+                cached_signal = self._cache.get(market_data)
+                if cached_signal:
+                    return cached_signal
+
+            # 获取原始信号
+            if self.config.mode == "single":
+                original_signal, original_confidence = await self._get_single_signal(
+                    market_data
+                )
+            else:
+                original_signal, original_confidence = await self._get_fusion_signal(
+                    market_data
+                )
+
+            # 使用集成器优化信号
+            # 注意：融合器返回的 confidence 已经是 0-1 范围，不需要再除以 100
+            confidence_float = original_confidence if original_confidence else 0.50
+            result = self.integrator.process(
+                market_data=market_data,
+                original_signal=original_signal,
+                original_confidence=confidence_float,
             )
-        else:
-            original_signal, original_confidence = await self._get_fusion_signal(
-                market_data
-            )
+            market_data["ai_final_confidence"] = result.final_confidence
+            market_data["final_confidence"] = result.final_confidence
+            market_data["is_high_risk"] = result.is_high_risk
+            market_data["is_low_opportunity"] = result.is_low_opportunity
+            market_data["price_level"] = result.price_level
 
-        # 使用集成器优化信号
-        # 注意：融合器返回的 confidence 已经是 0-1 范围，不需要再除以 100
-        confidence_float = original_confidence if original_confidence else 0.50
-        result = self.integrator.process(
-            market_data=market_data,
-            original_signal=original_signal,
-            original_confidence=confidence_float,
-        )
-        market_data["ai_final_confidence"] = result.final_confidence
-        market_data["final_confidence"] = result.final_confidence
-        market_data["is_high_risk"] = result.is_high_risk
-        market_data["is_low_opportunity"] = result.is_low_opportunity
-        market_data["price_level"] = result.price_level
+            # 记录集成过程
+            if result.adjustments_made:
+                for adj in result.adjustments_made:
+                    logger.info(f"  [集成优化] {adj}")
 
-        # 记录集成过程
-        if result.adjustments_made:
-            for adj in result.adjustments_made:
-                logger.info(f"  [集成优化] {adj}")
+            # dream C3: 降级 BUY 阻断（根因 R5）。
+            # 仅处理终态 BUY；SELL/SHORT/HOLD 不受影响；kill-switch 由
+            # AIConfig.block_degraded_buy (env AI_BLOCK_DEGRADED_BUY) 控制。
+            if (
+                self._last_signal_degraded
+                and getattr(self.config, "block_degraded_buy", True)
+                and str(result.final_signal).strip().upper() == "BUY"
+            ):
+                logger.warning(
+                    "[AI降级] 降级reasoning信号判定为BUY，阻断为HOLD "
+                    "(block_degraded_buy 生效，避免降级信号开多)"
+                )
+                market_data["ai_degraded_buy_blocked"] = True
+                result.final_signal = "HOLD"
 
-        # 写入缓存
-        if self._enable_cache and self._cache:
-            self._cache.set(market_data, result.final_signal, result.final_confidence)
+            # 写入缓存
+            if self._enable_cache and self._cache:
+                self._cache.set(
+                    market_data, result.final_signal, result.final_confidence
+                )
 
-        return result.final_signal
+            return result.final_signal
 
     async def _get_single_signal(self, market_data: Dict[str, Any]) -> tuple:
         """单AI模式，返回 (signal, confidence)"""
@@ -684,9 +717,11 @@ class AIClient:
                         if extracted:
                             content = extracted
                             self._metrics["reasoning_fallback_hits"] += 1
+                            # dream C3: 信号来自 reasoning_content 提取，标记为降级
+                            self._last_signal_degraded = True
                             logger.info(
                                 f"AI[{provider}] 从reasoning_content提取到信号文本: "
-                                f"{content[:100]}"
+                                f"{content[:100]} (降级标记)"
                             )
                         else:
                             self._metrics["reasoning_fallback_misses"] += 1

@@ -666,7 +666,26 @@ class AdaptiveTradingBot:
         self._last_close_was_profitable = self._last_position_unrealized_pnl > 0
         self._last_close_pnl_percent = self._estimate_last_close_pnl_percent()
 
-        await self._log_disappeared_position_close_event()
+        # dream C2: 平仓审计 → 学习闭环补记（用真实离场价补记 close_trade）
+        close_info = await self._log_disappeared_position_close_event()
+        if close_info and close_info.get("handled"):
+            # 持仓查询失败时，estimated 离场价不可信，跳过补记，
+            # 避免把仍可能存在的仓位按错误止损价写入学习闭环。
+            # confirmed 仅允许 exact_algo_id 匹配补记：
+            # 模糊价格匹配可能命中不相关历史算法单，查询失败时不补记。
+            query_failed = self._is_position_query_failed()
+            unreliable_close_info = (
+                close_info.get("close_type") != "confirmed"
+                or close_info.get("match_strategy") != "exact_algo_id"
+            )
+            if query_failed and unreliable_close_info:
+                logger.warning(
+                    "[学习] 平仓补记跳过：持仓查询失败且离场证据不足 "
+                    f"(close_type={close_info.get('close_type')}, "
+                    f"match_strategy={close_info.get('match_strategy')})"
+                )
+            else:
+                self._backfill_close_in_tracker(close_info)
 
         logger.info(
             f"[持仓] 无持仓 (上次方向={self._last_position_side}, "
@@ -731,16 +750,51 @@ class AdaptiveTradingBot:
             stop_price=stop_price,
         )
 
-    async def _log_disappeared_position_close_event(self) -> None:
-        """查询算法单历史并记录止损/止盈触发导致的平仓事件。"""
+    async def _log_disappeared_position_close_event(self) -> Optional[Dict[str, Any]]:
+        """查询算法单历史并记录止损/止盈触发导致的平仓事件。
+
+        dream C2: 返回审计解析结果，供学习闭环补记 close_trade。
+        """
         symbol = (
             getattr(self._exchange, "symbol", self.config.exchange.symbol)
             if self._exchange is not None
             else self.config.exchange.symbol
         )
-        await self._position_close_auditor.log_disappeared_position_close_event(
+        return await self._position_close_auditor.log_disappeared_position_close_event(
             self._exchange, symbol
         )
+
+    def _backfill_close_in_tracker(self, close_info: Dict[str, Any]) -> None:
+        """dream C2: 用审计解析出的离场价补记 performance_tracker.close_trade。
+
+        成功则用真实 pnl 覆盖过期浮盈快照，并触发策略权重更新；
+        任何异常都不影响冷却写入主流程。
+        """
+        try:
+            exit_price = float(close_info.get("exit_price", 0.0) or 0.0)
+            if exit_price <= 0:
+                logger.warning("[学习] 平仓补记跳过：离场价无效")
+                return
+            closed = self.performance_tracker.close_trade(
+                exit_time=datetime.now(timezone.utc).isoformat(),
+                exit_price=exit_price,
+                reason=f"disappeared_{close_info.get('close_type', 'unknown')}",
+            )
+            if closed is not None and closed.pnl_percent is not None:
+                self._last_close_pnl_percent = float(closed.pnl_percent)
+                self._last_close_was_profitable = self._last_close_pnl_percent > 0
+                self._update_strategy_weights(closed)
+                logger.info(
+                    "[学习] 平仓补记成功: side=%s close_type=%s quality=%s pnl=%.4f%%",
+                    close_info.get("side"),
+                    close_info.get("close_type"),
+                    close_info.get("quality"),
+                    self._last_close_pnl_percent,
+                )
+            else:
+                logger.warning("[学习] 无待平仓记录可补记(可能已记录或未开仓)")
+        except Exception as e:
+            logger.warning(f"[学习] 平仓补记失败(不影响冷却主流程): {e}")
 
     def _find_close_algo_history(self, history: Any) -> Optional[Dict[str, Any]]:
         """从算法单历史中找到最近一次止损/止盈触发记录。"""
@@ -1108,6 +1162,7 @@ class AdaptiveTradingBot:
                         entry_price=entry_price,
                         symbol=symbol,
                         market_data=market_data,
+                        stop_loss_price=stop_loss_price,
                     )
                 else:
                     logger.warning("[执行] 止损单创建失败")
@@ -1290,8 +1345,14 @@ class AdaptiveTradingBot:
         entry_price: float,
         symbol: str,
         market_data: Optional[Dict[str, Any]] = None,
+        stop_loss_price: Optional[float] = None,
     ) -> None:
-        """按最小名义金额门槛创建止盈单。"""
+        """按最小名义金额门槛创建止盈单。
+
+        Args:
+            stop_loss_price: 本次开仓锁定的止损价。用于强制止盈订单 R/R 下限
+                (dream C1)，为 None 时跳过 R/R 校验。
+        """
         if self._exchange is None or self._take_profit_calculator is None:
             return
 
@@ -1318,6 +1379,11 @@ class AdaptiveTradingBot:
         if take_profit_price <= 0:
             logger.warning("[止盈保护] 止盈价无效，跳过止盈单")
             return
+
+        # C1: 强制止盈订单 R/R 下限（防止 TP 距离 < SL 距离的结构性亏损，根因 R1）
+        take_profit_price = self._enforce_take_profit_rr_floor(
+            entry_price, take_profit_price, position_side, stop_loss_price
+        )
 
         close_side = "buy" if position_side == "short" else "sell"
         create_take_profit = getattr(self._exchange, "create_take_profit", None)
@@ -1357,6 +1423,58 @@ class AdaptiveTradingBot:
             f"amount={take_profit_amount:.4f}/{amount:.4f}, "
             f"notional={notional:.4f}"
         )
+
+    def _enforce_take_profit_rr_floor(
+        self,
+        entry_price: float,
+        take_profit_price: float,
+        position_side: str,
+        stop_loss_price: Optional[float],
+    ) -> float:
+        """强制止盈订单 R/R 下限（dream C1，根因 R1）。
+
+        若最终止盈距离 < 止损距离 × take_profit_min_rr_ratio，则把止盈价
+        向外扩到满足下限，避免挂单出现 "止盈距离 < 止损距离" 的结构性亏损。
+        ratio<=0 或无止损价时保持原价（等同现状）。
+        """
+        ratio = self.config.stop_loss.take_profit_min_rr_ratio
+        if ratio <= 0:
+            return take_profit_price
+        if stop_loss_price is None or stop_loss_price <= 0:
+            logger.debug("[止盈保护] 无止损价，跳过R/R下限校验")
+            return take_profit_price
+
+        if position_side == "short":
+            sl_dist = stop_loss_price - entry_price
+            tp_dist = entry_price - take_profit_price
+        else:
+            sl_dist = entry_price - stop_loss_price
+            tp_dist = take_profit_price - entry_price
+
+        if sl_dist <= 0 or tp_dist <= 0:
+            return take_profit_price
+
+        min_tp_dist = sl_dist * ratio
+        if tp_dist >= min_tp_dist:
+            return take_profit_price
+
+        new_price = (
+            entry_price - min_tp_dist
+            if position_side == "short"
+            else entry_price + min_tp_dist
+        )
+        logger.info(
+            "[止盈保护] R/R下限外扩止盈: side=%s entry=%.4f "
+            "old_tp=%.4f(R/R=%.2f) new_tp=%.4f(目标R/R≥%.2f) sl_dist=%.4f",
+            position_side,
+            entry_price,
+            take_profit_price,
+            tp_dist / sl_dist,
+            new_price,
+            ratio,
+            sl_dist,
+        )
+        return new_price
 
     def _calculate_take_profit_order_amount(self, amount: float) -> Tuple[float, bool]:
         """计算第一止盈单数量，低于最小量时退回全仓。"""

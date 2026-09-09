@@ -198,6 +198,12 @@ class AIConfig:
     # 各提供商API Keys
     api_keys: Dict[str, str] = field(default_factory=dict)
 
+    # 降级reasoning信号BUY阻断开关(kill-switch)：
+    # 当信号来自 reasoning_content 提取(降级)且终态为 BUY 时，降为 HOLD。
+    # true=启用阻断(默认)；false=关闭(等同现状)。
+    # dream 2026-09-09-okx-loss-optimization / C3（根因 R5: 降级信号泄漏开多）。
+    block_degraded_buy: bool = True
+
     VALID_MODES = ["single", "fusion"]
     VALID_PROVIDERS = ["deepseek", "kimi", "openai", "qwen", "gemini", "minimax"]
     VALID_STRATEGIES = [
@@ -299,6 +305,8 @@ class AIConfig:
         )
 
         return cls(
+            block_degraded_buy=os.getenv("AI_BLOCK_DEGRADED_BUY", "true").lower()
+            == "true",
             mode=os.getenv("AI_MODE", "single"),
             default_provider=os.getenv("AI_DEFAULT_PROVIDER", "deepseek"),
             fusion_providers=fusion_providers,
@@ -372,6 +380,10 @@ class StopLossConfig:
     # OKX 止损触发价 tick size（用于比较新/旧止损价时对齐精度，
     # 避免 OKX 把 62501.4225 截为 62501.4 后误判 "新值更紧" 造成每周期重复取消+重建算法单）
     stop_loss_tick_tolerance: float = 0.1
+    # 止盈订单 R/R 下限：最终止盈距离 ≥ 止损距离 × 本系数。
+    # 0=关闭保护(等同现状)；>0=强制挂单 R/R ≥ 系数（默认 1.0 保证 R/R 不倒挂）。
+    # dream 2026-09-09-okx-loss-optimization / C1（根因 R1: TP/SL R/R 倒挂）。
+    take_profit_min_rr_ratio: float = 1.0
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -430,6 +442,10 @@ class StopLossConfig:
             errors.append(
                 f"stop_loss_tick_tolerance "
                 f"{self.stop_loss_tick_tolerance} 不能为负数"
+            )
+        if self.take_profit_min_rr_ratio < 0:
+            errors.append(
+                f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)"
             )
         return errors
 
@@ -568,6 +584,9 @@ class Config:
                 ),
                 stop_loss_tick_tolerance=float(
                     os.getenv("STOP_LOSS_TICK_TOLERANCE", "0.1")
+                ),
+                take_profit_min_rr_ratio=float(
+                    os.getenv("TAKE_PROFIT_MIN_RR_RATIO", "1.0")
                 ),
             ),
             system=SystemConfig(
