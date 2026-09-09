@@ -755,18 +755,26 @@ class PositionManager:
         if self._position:
             # 梦 2026-08-31-profit-long-impl / OC-NEW-4:
             # 显式估算本笔平仓 pnl 百分比并传入, 而不是用默认值 0.0.
-            # 算法: (entry_price - last_stop_price) / entry_price 表示硬止损触发的最坏损失,
             # 适用于 clear_position 的兜底清理(本地持仓与 API 失同步)场景.
             # 注意: 若已有 _persistence.record_trade 来自仓位消失审计的 pnl, 应优先使用;
             # 此处仅在 manual_close 的兜底路径上启动估算.
+            # 梦 2026-09-09-okx-trading-loss-analysis / OC-NEW-4 修复:
+            # 原公式 side_sign * abs(entry - last_stop) / entry 使 pnl 符号与实际结果无关
+            # (空头止损亏损被记为正、多头利润锁定止损被记为负), 系统性污染
+            # trade_history → ML 自适应反馈. 现改为按 last_stop 视为退出价的带符号
+            # 估算 (口径与 position_close_audit.calculate_close_pnl_percent 一致):
+            #   long:  (last_stop - entry) / entry
+            #   short: (entry - last_stop) / entry
             try:
                 if self._last_stop_price > 0 and self._entry_price > 0:
-                    stop_distance_pct = (
-                        abs(self._entry_price - self._last_stop_price)
-                        / self._entry_price
-                    )
-                    side_sign = 1.0 if self._position.side == "short" else -1.0
-                    estimated_pnl_percent = side_sign * stop_distance_pct
+                    if self._position.side == "short":
+                        estimated_pnl_percent = (
+                            self._entry_price - self._last_stop_price
+                        ) / self._entry_price
+                    else:
+                        estimated_pnl_percent = (
+                            self._last_stop_price - self._entry_price
+                        ) / self._entry_price
                     estimated_pnl_amount = (
                         estimated_pnl_percent
                         * self._entry_price
