@@ -190,4 +190,3 @@ openspec/
 # reasonix local session state (not tracked)
 .reasonix/
 reasonix.toml
-
