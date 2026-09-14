@@ -448,12 +448,17 @@ async def test_c1_i04_direct_stop_none_unchanged(tmp_path: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_c1_i06_direct_stop_expands(tmp_path: Any) -> None:
-    """AC-1.1: _maybe_create_take_profit_order 直调 stop=90 → 外扩到 110.0。"""
+    """AC-1.1: _maybe_create_take_profit_order 直调 stop=90 → 外扩到 110.0。
+
+    显式关闭 P2 波动率 cap (take_profit_max_atr_multiplier=0.0)，
+    隔离验证纯 C1 R/R 外扩逻辑；P2 cap 收紧路径见 test_tp_volatility_cap.py。
+    """
     config = _live_config(
         StopLossConfig(
             take_profit_percent=0.06,
             take_profit_min_notional=1.0,
             take_profit_min_rr_ratio=1.0,
+            take_profit_max_atr_multiplier=0.0,
         )
     )
     bot = AdaptiveTradingBot(config)

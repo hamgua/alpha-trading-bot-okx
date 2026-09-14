@@ -384,6 +384,12 @@ class StopLossConfig:
     # 0=关闭保护(等同现状)；>0=强制挂单 R/R ≥ 系数（默认 1.0 保证 R/R 不倒挂）。
     # dream 2026-09-09-okx-loss-optimization / C1（根因 R1: TP/SL R/R 倒挂）。
     take_profit_min_rr_ratio: float = 1.0
+    # 止盈外扩的波动率上限：外扩后 TP 距离不超过 k×ATR 距离。
+    # 低波动市 (ATR 远小于 SL 距离) 时把外扩目标收回到可达位置，
+    # 避免把 0.3% 的自然止盈拉到 6×ATR 导致利润无法兑现（09-13 日志根因 R2）。
+    # 0=关闭 cap（恢复 C1 单向外扩行为）；默认 4.0。
+    # dream 2026-09-14-okx-loss-round2 / P2（根因 R2: 低波动市 TP 不可达）。
+    take_profit_max_atr_multiplier: float = 4.0
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -446,6 +452,12 @@ class StopLossConfig:
         if self.take_profit_min_rr_ratio < 0:
             errors.append(
                 f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)"
+            )
+        if self.take_profit_max_atr_multiplier < 0:
+            errors.append(
+                f"take_profit_max_atr_multiplier "
+                f"({self.take_profit_max_atr_multiplier}) "
+                "不能为负数 (0=关闭cap)"
             )
         return errors
 
@@ -587,6 +599,9 @@ class Config:
                 ),
                 take_profit_min_rr_ratio=float(
                     os.getenv("TAKE_PROFIT_MIN_RR_RATIO", "1.0")
+                ),
+                take_profit_max_atr_multiplier=float(
+                    os.getenv("TAKE_PROFIT_MAX_ATR_MULTIPLIER", "4.0")
                 ),
             ),
             system=SystemConfig(

@@ -17,9 +17,10 @@ R/R 门禁阈值定义在 alpha_trading_bot.config.thresholds:
 """
 
 import logging
+import math
 import os
 from numbers import Number
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from alpha_trading_bot.config.thresholds import (
     RR_CONSERVATIVE_MIN,
@@ -70,6 +71,12 @@ MISSED_SHORT_SETUP_MIN_RR = 5.0
 MISSED_SHORT_SETUP_MIN_RSI = 78
 MISSED_SHORT_SETUP_MAX_TREND = 0.12
 MISSED_SHORT_SETUP_REQUIRED_COUNT = 3
+# 结构性短 R/R 优质做空（dream 2026-09-14-okx-loss-round2 / P1，根因 R3）:
+# AI 和策略都 HOLD、无持仓时，若短 R/R 足够优秀且 24h 市场确认下跌，
+# 允许轻仓做空。解决下行趋势中空头机会被结构检测（低波动恒 sideways）
+# 和策略高置信度门槛（HOLD 策略仅 50%）双重屏蔽的问题。
+STRUCTURAL_SHORT_MIN_RR = 2.0
+STRUCTURAL_SHORT_CONFIDENCE_FACTOR = 0.65
 
 OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
@@ -102,6 +109,7 @@ class DecisionEngine:
             "market_structure_short_executed": 0,
             "ai_hold_strategy_sell_missed_quality_setup": 0,
             "ai_hold_strategy_sell_missed_quality_executed": 0,
+            "structural_short_rr_override_executed": 0,
         }
         self._missed_high_quality_short_count = 0
         self._oversold_metrics: Dict[str, int] = {
@@ -213,9 +221,7 @@ class DecisionEngine:
             "rsi": technical.get("rsi"),
             "trend_strength": technical.get("trend_strength"),
             "market_structure": market_data.get("market_structure"),
-            "market_structure_direction": market_data.get(
-                "market_structure_direction"
-            ),
+            "market_structure_direction": market_data.get("market_structure_direction"),
         }
 
     def _is_confirmed_mean_reversion_short(
@@ -355,6 +361,73 @@ class DecisionEngine:
         if side in {"long", "short"}:
             return side
         return ""
+
+    @staticmethod
+    def _get_daily_change_percent(market_data: Dict[str, Any]) -> Optional[float]:
+        """读取 24h 涨跌幅（%），无效时返回 None。"""
+        value = market_data.get("change_percent")
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            return None
+        f = float(value)
+        if not math.isfinite(f):
+            return None
+        return f
+
+    def _make_structural_short_rr_decision(
+        self,
+        selected: Any,
+        market_data: Dict[str, Any],
+        technical: Dict[str, Any],
+        atr_percent: float,
+        rsi: float,
+        has_position: bool,
+    ) -> Dict[str, Any]:
+        """结构性短 R/R 优质做空（dream P1，根因 R3）。
+
+        AI 和策略都 HOLD、无持仓时，若短 R/R ≥ 2.0 且 24h 市场确认下跌
+        (change_percent < 0) 且 RSI>40 且 ATR 不超上限，则轻仓做空。
+        不依赖 bearish 结构判定（低波动市恒 sideways），也不依赖策略
+        高置信度门槛（HOLD 策略仅 50%）。
+        """
+        if has_position or not self._config.trading.allow_short_selling:
+            return {}
+        if atr_percent > MAX_TRADE_ATR_PERCENT:
+            return {}
+        if rsi < SHORT_RSI_OVERSOLD_BLOCK:
+            return {}
+        short_rr = self._get_short_rr(market_data)
+        if short_rr < STRUCTURAL_SHORT_MIN_RR:
+            return {}
+        daily_change = self._get_daily_change_percent(market_data)
+        if daily_change is None or daily_change >= 0:
+            return {}
+
+        confidence_block = self._confidence_gate("short", selected, market_data)
+        if confidence_block:
+            return confidence_block
+
+        short_rr_label = f"{short_rr:.2f}"
+        self._conflict_metrics["structural_short_rr_override_executed"] += 1
+        logger.info(
+            "[决策] 结构性短R/R优质机会覆盖AI-HOLD轻仓做空, "
+            f"短R/R={short_rr_label}, 24h涨跌={daily_change:.2f}%"
+        )
+        return {
+            "action": "sell",
+            "reason": (
+                f"结构性短R/R优质机会覆盖AI-HOLD"
+                f"(短R/R={short_rr_label}, 24h涨跌={daily_change:.2f}%)"
+            ),
+            "confidence": selected.confidence * STRUCTURAL_SHORT_CONFIDENCE_FACTOR,
+            "strategy": "structural_short_rr_override",
+            "position_advice": f"短R/R={short_rr_label}优秀且24h确认下跌，轻仓做空",
+            "metadata": {
+                "ai_hold_override": True,
+                "ai_hold_override_type": "structural_short_rr_override",
+                "short_rr": short_rr,
+                "daily_change_percent": daily_change,
+            },
+        }
 
     def _position_aware_signal_decision(
         self, signal: str, selected: Any, market_data: Dict[str, Any]
@@ -812,6 +885,14 @@ class DecisionEngine:
                     "strategy": "bearish_structure_short",
                     "position_advice": f"短R/R={rr_ratio:.2f}，下跌结构轻仓做空",
                 }
+            # P1: 结构性短 R/R 优质做空（dream 2026-09-14-okx-loss-round2，根因 R3）
+            # 低波动市结构检测恒 sideways，上方分支全关；此入口不依赖结构判定，
+            # 只要求短 R/R 优秀 + 24h 确认下跌，让下行趋势中的空头机会可被捕捉。
+            structural_short_decision = self._make_structural_short_rr_decision(
+                selected, market_data, technical, atr_percent, rsi, has_position
+            )
+            if structural_short_decision:
+                return structural_short_decision
             return {
                 "action": "skip",
                 "reason": "AI和策略都是HOLD",

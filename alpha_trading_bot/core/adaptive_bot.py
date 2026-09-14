@@ -633,12 +633,17 @@ class AdaptiveTradingBot:
                 action_attempted = str(final_signal.get("action", ""))
                 if action_attempted == "open":
                     self._side_counter["long_attempts"] += 1
-                elif action_attempted == "sell" and self.config.trading.allow_short_selling:
+                elif (
+                    action_attempted == "sell"
+                    and self.config.trading.allow_short_selling
+                ):
                     self._side_counter["short_attempts"] += 1
                 if action_attempted in ("open", "sell", "close", "close_short"):
                     if action_attempted == "open":
                         self._side_counter["long_executed"] += 1
-                    elif action_attempted == "sell" or action_attempted == "close_short":
+                    elif (
+                        action_attempted == "sell" or action_attempted == "close_short"
+                    ):
                         self._side_counter["short_executed"] += 1
             except Exception:  # pragma: no cover - 监控层异常不应影响决策
                 pass
@@ -1381,8 +1386,9 @@ class AdaptiveTradingBot:
             return
 
         # C1: 强制止盈订单 R/R 下限（防止 TP 距离 < SL 距离的结构性亏损，根因 R1）
+        # P2: 外扩目标受 k×ATR / 结构位 cap 约束（防止低波动市 TP 拉到 6×ATR 不可达，根因 R2）
         take_profit_price = self._enforce_take_profit_rr_floor(
-            entry_price, take_profit_price, position_side, stop_loss_price
+            entry_price, take_profit_price, position_side, stop_loss_price, market_data
         )
 
         close_side = "buy" if position_side == "short" else "sell"
@@ -1430,12 +1436,16 @@ class AdaptiveTradingBot:
         take_profit_price: float,
         position_side: str,
         stop_loss_price: Optional[float],
+        market_data: Optional[Dict[str, Any]] = None,
     ) -> float:
-        """强制止盈订单 R/R 下限（dream C1，根因 R1）。
+        """强制止盈订单 R/R 下限（dream C1，根因 R1），并受波动率/结构位 cap 约束（P2，根因 R2）。
 
-        若最终止盈距离 < 止损距离 × take_profit_min_rr_ratio，则把止盈价
-        向外扩到满足下限，避免挂单出现 "止盈距离 < 止损距离" 的结构性亏损。
-        ratio<=0 或无止损价时保持原价（等同现状）。
+        C1: 若最终止盈距离 < 止损距离 × take_profit_min_rr_ratio，把止盈价向外扩到满足下限，
+        避免挂单出现 "止盈距离 < 止损距离" 的结构性亏损。
+        P2: 外扩目标不再无上限——取 min(RR下限目标, k×ATR, 结构位距离)。
+        低波动市 (ATR 远小于 SL 距离) 时把外扩目标收回到可达位置，
+        避免把 0.3% 的自然止盈拉到 6×ATR 导致利润无法兑现。
+        ratio<=0 或无止损价时保持原价（等同现状）；market_data=None 时保持 C1 原行为。
         """
         ratio = self.config.stop_loss.take_profit_min_rr_ratio
         if ratio <= 0:
@@ -1458,14 +1468,41 @@ class AdaptiveTradingBot:
         if tp_dist >= min_tp_dist:
             return take_profit_price
 
+        # P2: cap 外扩目标（k×ATR + 结构位），低波动市保留可达止盈
+        target_dist = min_tp_dist
+        cap_sources: List[str] = []
+        atr_cap = self._atr_tp_cap_dist(entry_price, position_side, market_data)
+        if atr_cap is not None:
+            target_dist = min(target_dist, atr_cap)
+            cap_sources.append(f"atr={atr_cap:.4f}")
+        structural_cap = self._structural_tp_cap_dist(
+            entry_price, position_side, market_data
+        )
+        if structural_cap is not None:
+            target_dist = min(target_dist, structural_cap)
+            cap_sources.append(f"structural={structural_cap:.4f}")
+
+        if target_dist <= tp_dist:
+            # cap 比当前 TP 距离还近：保留已达成的自然止盈，不外扩
+            logger.info(
+                "[止盈保护] R/R外扩被cap收回(保留原TP): side=%s entry=%.4f "
+                "tp_dist=%.4f caps=[%s] new_target=%.4f",
+                position_side,
+                entry_price,
+                tp_dist,
+                ", ".join(cap_sources) or "none",
+                target_dist,
+            )
+            return take_profit_price
+
         new_price = (
-            entry_price - min_tp_dist
+            entry_price - target_dist
             if position_side == "short"
-            else entry_price + min_tp_dist
+            else entry_price + target_dist
         )
         logger.info(
             "[止盈保护] R/R下限外扩止盈: side=%s entry=%.4f "
-            "old_tp=%.4f(R/R=%.2f) new_tp=%.4f(目标R/R≥%.2f) sl_dist=%.4f",
+            "old_tp=%.4f(R/R=%.2f) new_tp=%.4f(目标R/R≥%.2f) sl_dist=%.4f caps=[%s]",
             position_side,
             entry_price,
             take_profit_price,
@@ -1473,8 +1510,64 @@ class AdaptiveTradingBot:
             new_price,
             ratio,
             sl_dist,
+            ", ".join(cap_sources) or "none",
         )
         return new_price
+
+    @staticmethod
+    def _as_positive_float(value: Any) -> Optional[float]:
+        """把任意值安全转为正有限 float，失败返回 None。"""
+        try:
+            f = float(value)
+        except (TypeError, ValueError):
+            return None
+        if f != f or f <= 0 or f in (float("inf"), float("-inf")):
+            return None
+        return f
+
+    def _atr_tp_cap_dist(
+        self,
+        entry_price: float,
+        position_side: str,
+        market_data: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """波动率 cap：外扩后 TP 距离不超过 k×ATR。
+
+        k<=0（关闭）、无 market_data、无有效 ATR 时返回 None（不施加 cap）。
+        """
+        k = self.config.stop_loss.take_profit_max_atr_multiplier
+        if k <= 0 or market_data is None or entry_price <= 0:
+            return None
+        technical = market_data.get("technical", {}) or {}
+        atr_value = self._as_positive_float(technical.get("atr_percent", 0))
+        if atr_value is None:
+            return None
+        return entry_price * atr_value * k
+
+    def _structural_tp_cap_dist(
+        self,
+        entry_price: float,
+        position_side: str,
+        market_data: Optional[Dict[str, Any]],
+    ) -> Optional[float]:
+        """结构位 cap：long 用阻力位(前置缓冲)、short 用支撑位(前置缓冲)。
+
+        结构位缺失/方向不符时返回 None（不施加 cap）。
+        """
+        if market_data is None or entry_price <= 0:
+            return None
+        buffer = self.config.stop_loss.take_profit_structure_buffer_percent
+        if position_side == "short":
+            support = self._as_positive_float(market_data.get("nearest_support", 0))
+            if support is None or support >= entry_price:
+                return None
+            dist = entry_price - support * (1 + buffer)
+            return dist if dist > 0 else None
+        resistance = self._as_positive_float(market_data.get("nearest_resistance", 0))
+        if resistance is None or resistance <= entry_price:
+            return None
+        dist = resistance * (1 - buffer) - entry_price
+        return dist if dist > 0 else None
 
     def _calculate_take_profit_order_amount(self, amount: float) -> Tuple[float, bool]:
         """计算第一止盈单数量，低于最小量时退回全仓。"""
