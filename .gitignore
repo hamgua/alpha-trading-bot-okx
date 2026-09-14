@@ -186,3 +186,8 @@ workflows/
 
 # archived openspec history kept locally by default
 openspec/
+
+# reasonix local session state (not tracked)
+.reasonix/
+reasonix.toml
+
