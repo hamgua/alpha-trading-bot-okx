@@ -163,6 +163,20 @@ async def main() -> None:
         ):
             os.environ["RUNTIME_ENVIRONMENT"] = "prod"
 
+    # 启动标识（最小集）：在 config 加载前记录 version/commit/mode，
+    # 确保即使 config 校验失败退出，也能从日志判断实际加载的代码版本。
+    # 纯可观测性，零交易行为变更。(dream 2026-09-14-trading-loss-analysis)
+    from alpha_trading_bot import __version__ as bot_version
+    from alpha_trading_bot.startup import build_startup_info, git_commit_short
+
+    git_commit = git_commit_short()
+    logger.info(
+        "[启动] version=%s commit=%s mode=%s (config 加载前)",
+        bot_version,
+        git_commit,
+        mode,
+    )
+
     config = Config.from_env()
 
     if args.real_trading:
@@ -172,6 +186,20 @@ async def main() -> None:
     if args.symbol:
         config.exchange.symbol = args.symbol
         print(f"[交易对] {args.symbol}")
+
+    # 完整运行标识：config 就绪后补齐 test_mode/runtime/symbol/leverage。
+    # 复用上面已取到的 bot_version / git_commit（不重复 subprocess）。
+    logger.info(
+        build_startup_info(
+            version=bot_version,
+            commit=git_commit,
+            mode=mode,
+            test_mode=config.trading.test_mode,
+            runtime=config.trading.runtime_environment,
+            symbol=config.exchange.symbol,
+            leverage=config.exchange.leverage,
+        )
+    )
 
     # 根据模式创建 bot
     if mode == "standard":
