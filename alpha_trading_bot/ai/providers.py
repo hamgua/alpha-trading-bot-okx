@@ -32,6 +32,12 @@ PROVIDERS = {
         "base_url": "https://api.minimaxi.com/v1/chat/completions",
         "model": "MiniMax-M2.7",
     },
+    # 自建 Qwen3.8-27B (ninfer 部署，OpenAI 兼容接口)，默认替代 deepseek 使用
+    # 注意: 模型默认开启思考模式 (reasoning_content)，max_tokens 需按推理模型处理
+    "qwen38": {
+        "base_url": "http://140.206.177.114:16078/v1/chat/completions",
+        "model": "qwen3.8-27b",
+    },
 }
 
 

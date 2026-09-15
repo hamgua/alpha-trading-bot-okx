@@ -205,7 +205,15 @@ class AIConfig:
     block_degraded_buy: bool = True
 
     VALID_MODES = ["single", "fusion"]
-    VALID_PROVIDERS = ["deepseek", "kimi", "openai", "qwen", "gemini", "minimax"]
+    VALID_PROVIDERS = [
+        "deepseek",
+        "kimi",
+        "openai",
+        "qwen",
+        "gemini",
+        "minimax",
+        "qwen38",
+    ]
     VALID_STRATEGIES = [
         "weighted",
         "majority",
@@ -320,6 +328,8 @@ class AIConfig:
                 "qwen": os.getenv("QWEN_API_KEY", ""),
                 "gemini": os.getenv("GOOGLE_API_KEY", os.getenv("GEMINI_API_KEY", "")),
                 "minimax": os.getenv("MINIMAX_API_KEY", ""),
+                # 自建 ninfer 服务不校验 key，默认占位即可
+                "qwen38": os.getenv("QWEN38_API_KEY", "sk-anything"),
             },
         )
 

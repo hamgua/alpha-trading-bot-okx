@@ -628,10 +628,10 @@ class AIClient:
             "max_tokens": 100,
         }
 
-        # MiniMax / DeepSeek 使用推理模型，思考过程长，需要更多 output tokens
+        # MiniMax / DeepSeek / Qwen3.8-27B 使用推理模型，思考过程长，需要更多 output tokens
         # DeepSeek Thinking Mode 的 max_tokens 包含 CoT（链式思考）部分
         # 原800tokens导致reasoning消耗完全部配额，content为空 → 默认hold
-        if provider in ("minimax", "deepseek"):
+        if provider in ("minimax", "deepseek", "qwen38"):
             data["max_tokens"] = 3000  # 2000→3000，确保推理后仍有足够空间输出答案
 
         # 根据提供商类型设置不同的超时时间
@@ -761,6 +761,7 @@ class AIClient:
             "qwen": 45,
             "gemini": 75,
             "minimax": 120,  # MiniMax 可能需要更长超时
+            "qwen38": 90,  # 自建 ninfer 推理模型，思考链较长，放宽超时
         }
 
         timeout_seconds = timeout_map.get(provider, 60)
