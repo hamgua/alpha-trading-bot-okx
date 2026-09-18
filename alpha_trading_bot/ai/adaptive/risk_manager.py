@@ -209,17 +209,22 @@ class DynamicPositionBoundary(RiskBoundary):
         Returns:
             建议仓位比例
         """
-        atr_percent = market_data.get("technical", {}).get("atr_percent", 0.02)
+        # dream 2026-09-17-volatility-scenario-matrix / R7: 原 ATR 阈值
+        # 0.05/0.03/0.02 与小数 atr_percent (实盘 ~0.15%) 比较即 5%/3%/2%
+        # ATR, 永远落在 else 分支, 波动率减仓因子恒为 1.0 (死代码)。
+        # 改为与 VolatilityRule 一致的波动带 (SSOT 见 config/thresholds.py
+        # 的波动率注释: 极高>0.6% / 高>0.35% / 中>0.20% / 低≤0.20%)。
+        atr_percent = market_data.get("technical", {}).get("atr_percent", 0.002)
 
-        # 波动率调整
-        if atr_percent > 0.05:
-            volatility_factor = 0.3  # 高波动，减仓
-        elif atr_percent > 0.03:
-            volatility_factor = 0.6
-        elif atr_percent > 0.02:
-            volatility_factor = 0.8
+        # 波动率调整 (与 VolatilityRule 波动带一致)
+        if atr_percent > 0.006:
+            volatility_factor = 0.3  # 极高波动，大幅减仓
+        elif atr_percent > 0.0035:
+            volatility_factor = 0.6  # 高波动，减仓
+        elif atr_percent > 0.002:
+            volatility_factor = 0.8  # 中等波动
         else:
-            volatility_factor = 1.0
+            volatility_factor = 1.0  # 低波动
 
         # 风险调整
         risk_factor = 1.0 - risk_score * 0.5
@@ -456,6 +461,11 @@ class RiskControlManager:
         Returns:
             带风险控制参数的信号
         """
+        # 确保仓位计算能拿到真实市场数据 (signal 字典可能不含 market_data,
+        # 否则 DynamicPositionBoundary.calculate_position 永远用默认 ATR)
+        if "market_data" not in signal:
+            signal["market_data"] = market_data
+
         # 应用各个边界
         signal = self.stop_loss_boundary.apply(signal)
         signal = self.position_boundary.apply(signal)
@@ -491,6 +501,15 @@ class RiskControlManager:
             if "position_multiplier" in rule_adjustments:
                 position_mult = rule_adjustments["position_multiplier"]
                 signal["position_adjustment"] = position_mult
+                # dream 2026-09-17-volatility-scenario-matrix / R10:
+                # 规则仓位乘数必须乘入实际下单仓位 (suggested_position)。
+                # 原实现只写 position_adjustment 键, 但下单路径
+                # (adaptive_bot._execute_trade) 只读 suggested_position,
+                # 导致规则连亏/高波动减仓 (0.5x/0.2x/0.7x) 从未生效。
+                if signal.get("suggested_position") is not None:
+                    signal["suggested_position"] = (
+                        float(signal["suggested_position"]) * position_mult
+                    )
                 logger.info(f"[规则] 应用仓位调整: {position_mult:.2f}x")
 
             if "fusion_threshold" in rule_adjustments:

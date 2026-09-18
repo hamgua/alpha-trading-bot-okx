@@ -844,3 +844,14 @@ ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE = 0.55
 # 引用方:
 #   - core/decision_engine.py: _make_buy_decision / _make_short_decision
 MAX_TRADE_ATR_PERCENT = 0.0055
+
+# BUY 路径强下跌趋势门禁的最小趋势强度（默认 0.40）
+# dream 2026-09-17-volatility-scenario-matrix / R9: _make_buy_decision 的
+# bearish 拦截依赖 market_structure, 而 MarketStructureAnalyzer 基于 swing 点,
+# 平滑单调下跌 (无 swing) 判 "数据不足" 回落 sideways, 导致 bearish 门禁
+# 恰在最危险的平滑急跌场景失效 (场景矩阵 C5: 下跌趋势 0.4 + AI BUY 80%
+# 直接开多)。修复: trend_direction=down 且 trend_strength >= 本阈值时禁止
+# 开多; RSI < 30 超卖除外 (保留均值回归/超卖反弹路径)。
+# 引用方:
+#   - core/decision_engine.py: _make_buy_decision
+BUY_DOWNTREND_BLOCK_TREND_STRENGTH = 0.40

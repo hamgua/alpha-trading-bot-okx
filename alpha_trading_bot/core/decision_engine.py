@@ -23,6 +23,7 @@ from numbers import Number
 from typing import Any, Dict, Optional
 
 from alpha_trading_bot.config.thresholds import (
+    BUY_DOWNTREND_BLOCK_TREND_STRENGTH,
     MAX_TRADE_ATR_PERCENT,
     MIN_TRADE_CONFIDENCE_FLOOR,
     RR_CONSERVATIVE_MIN,
@@ -32,6 +33,7 @@ from alpha_trading_bot.config.thresholds import (
     RR_SHORT_CONSERVATIVE_MIN,
     RR_SHORT_MODERATE_MIN,
     RR_SHORT_AGGRESSIVE_MIN,
+    RSI_BUY_OVERSOLD_MAX,
 )
 
 logger = logging.getLogger(__name__)
@@ -647,6 +649,30 @@ class DecisionEngine:
             return {
                 "action": "skip",
                 "reason": "市场结构为下跌，禁止做多",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
+
+        # dream 2026-09-17-volatility-scenario-matrix / R9: 强下跌趋势门禁。
+        # 平滑单调下跌时 MarketStructureAnalyzer 无 swing 点 → "数据不足"
+        # 回落 sideways, 上方 bearish 拦截失效。趋势维度直接检查:
+        # 强下跌 (down + strength >= 0.40) 禁止开多; RSI 超卖 (<30) 除外,
+        # 保留均值回归/超卖反弹路径。
+        trend_direction = technical.get("trend_direction", "neutral")
+        trend_strength = technical.get("trend_strength", 0) or 0
+        if (
+            trend_direction == "down"
+            and trend_strength >= BUY_DOWNTREND_BLOCK_TREND_STRENGTH
+            and rsi >= RSI_BUY_OVERSOLD_MAX
+        ):
+            logger.warning(
+                f"[趋势门禁] 强下跌趋势 (direction=down, strength="
+                f"{trend_strength:.2f} >= {BUY_DOWNTREND_BLOCK_TREND_STRENGTH:.2f}, "
+                f"RSI={rsi:.1f} 未超卖), 禁止做多"
+            )
+            return {
+                "action": "skip",
+                "reason": "强下跌趋势，禁止做多",
                 "confidence": selected.confidence,
                 "strategy": selected.strategy_type,
             }
