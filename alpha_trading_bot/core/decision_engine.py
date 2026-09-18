@@ -23,6 +23,8 @@ from numbers import Number
 from typing import Any, Dict, Optional
 
 from alpha_trading_bot.config.thresholds import (
+    MAX_TRADE_ATR_PERCENT,
+    MIN_TRADE_CONFIDENCE_FLOOR,
     RR_CONSERVATIVE_MIN,
     RR_MODERATE_MIN,
     RR_AGGRESSIVE_MIN,
@@ -43,10 +45,8 @@ INVESTMENT_RR_THRESHOLDS = {
 }
 DEFAULT_RR_THRESHOLD = RR_MODERATE_MIN
 GOOD_RR_RATIO = RR_GOOD_RATIO
-MAX_TRADE_ATR_PERCENT = 0.55
 SHORT_RSI_OVERSOLD_BLOCK = 40
 SAFE_MODE_REDUCED_MIN_RR = 1.0
-SAFE_MODE_REDUCED_MAX_ATR = 0.40
 HOLD_STRATEGY_BUY_MIN_CONFIDENCE = 0.80
 HOLD_STRATEGY_SHORT_MIN_CONFIDENCE = 0.75
 # SELL覆盖AI-HOLD最低置信度（均值回归超买信号）
@@ -157,6 +157,16 @@ class DecisionEngine:
         if not isinstance(configured_threshold, Number):
             configured_threshold = 0.5
         min_confidence = market_data.get("min_trade_confidence", configured_threshold)
+        # dream 2026-09-16-loss-root-cause / R2: 抛硬币绝对下限。
+        # 规则引擎只能收紧(提高)门禁, 不能放松到低于 0.50。
+        # 证据: 2026-09-13 规则把门禁降到 40%, 42.6% 置信度的 BUY
+        # (低于抛硬币) 通过开仓, 当周期 -0.80% 止损。
+        if min_confidence < MIN_TRADE_CONFIDENCE_FLOOR:
+            logger.warning(
+                f"[置信度门禁] 门禁 {min_confidence:.0%} 低于绝对下限 "
+                f"{MIN_TRADE_CONFIDENCE_FLOOR:.0%}, 强制提升到下限"
+            )
+            min_confidence = MIN_TRADE_CONFIDENCE_FLOOR
         final_confidence = market_data.get(
             "ai_final_confidence",
             market_data.get("final_confidence", selected.confidence),
@@ -537,15 +547,22 @@ class DecisionEngine:
                 trend_direction == "up"
                 and signal == "BUY"
                 and rr_ratio >= SAFE_MODE_REDUCED_MIN_RR
-                and atr_percent < SAFE_MODE_REDUCED_MAX_ATR
+                # dream 2026-09-16-loss-root-cause / R5: 原
+                # SAFE_MODE_REDUCED_MAX_ATR=0.40 与小数 atr_percent 比较
+                # (40% ATR) 永不触发, 属死代码。统一使用全局高波动门禁
+                # MAX_TRADE_ATR_PERCENT (0.55% ATR)。
+                and atr_percent < MAX_TRADE_ATR_PERCENT
             ):
                 logger.info(
-                    "[安全] 安全模式+上升趋势+AI=BUY+R/R≥1.0+ATR<40%，"
+                    "[安全] 安全模式+上升趋势+AI=BUY+R/R≥1.0+非高波动, "
                     "允许减半仓位开仓"
                 )
                 return {
                     "action": "open",
-                    "reason": "安全模式减半开仓: 上升趋势+AI=BUY+R/R≥1.0+ATR<40%",
+                    "reason": (
+                        f"安全模式减半开仓: 上升趋势+AI=BUY+R/R≥1.0+"
+                        f"ATR<{MAX_TRADE_ATR_PERCENT * 100:.1f}%"
+                    ),
                     "confidence": selected.confidence * 0.5,
                     "strategy": "safe_mode_reduced",
                     "position_advice": "安全模式，建议半仓",
@@ -584,7 +601,8 @@ class DecisionEngine:
 
         if atr_percent > MAX_TRADE_ATR_PERCENT:
             logger.warning(
-                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止开仓"
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > "
+                f"{MAX_TRADE_ATR_PERCENT * 100:.1f}%, 高波动市场禁止开仓"
             )
             return {
                 "action": "skip",
@@ -741,7 +759,8 @@ class DecisionEngine:
 
         if atr_percent > MAX_TRADE_ATR_PERCENT:
             logger.warning(
-                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，高波动市场禁止做空"
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > "
+                f"{MAX_TRADE_ATR_PERCENT * 100:.1f}%, 高波动市场禁止做空"
             )
             return {
                 "action": "skip",
@@ -803,7 +822,8 @@ class DecisionEngine:
         """处理 HOLD 信号分支。"""
         if atr_percent > MAX_TRADE_ATR_PERCENT:
             logger.warning(
-                f"[高波动] ATR%={atr_percent * 100:.1f}% > 55%，HOLD信号下完全停仓"
+                f"[高波动] ATR%={atr_percent * 100:.1f}% > "
+                f"{MAX_TRADE_ATR_PERCENT * 100:.1f}%, HOLD信号下完全停仓"
             )
             return {
                 "action": "skip",

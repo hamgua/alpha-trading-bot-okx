@@ -305,11 +305,11 @@ class TestDecisionEngineAggressiveLongOversold:
             "market_structure": structure,
             "market_structure_direction": "long",
             "is_high_risk": False,
-            "atr_percent": 0.02,
+            "atr_percent": 0.002,
             "has_position": False,
             "technical": {
                 "rsi": rsi,
-                "atr_percent": 0.02,
+                "atr_percent": 0.002,
                 "trend_strength": 0.05,
                 "trend_direction": "sideways",
             },
@@ -322,7 +322,7 @@ class TestDecisionEngineAggressiveLongOversold:
         result = engine._make_buy_decision(
             self._selected(0.7),
             market_data,
-            atr_percent=0.02,
+            atr_percent=0.002,
         )
         assert result["action"] == "open"
         assert result.get("strategy", "").startswith("oversold_buy_aggressive") or result.get(
@@ -338,7 +338,7 @@ class TestDecisionEngineAggressiveLongOversold:
         result = engine._make_buy_decision(
             self._selected(0.7),
             market_data,
-            atr_percent=0.02,
+            atr_percent=0.002,
         )
         # moderate 仍可以放出但策略字段不应为 oversold_buy_aggressive
         assert result.get("strategy", "") != "oversold_buy_aggressive"
@@ -352,7 +352,7 @@ class TestDecisionEngineAggressiveLongOversold:
         result = engine._make_buy_decision(
             self._selected(0.7),
             market_data,
-            atr_percent=0.02,
+            atr_percent=0.002,
         )
         strategy = result.get("strategy", "")
         assert "oversold_buy_aggressive" not in strategy

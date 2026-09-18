@@ -47,6 +47,12 @@ class TradeRecord:
     market_regime: str  # 当时的市场环境
     used_threshold: float  # 当时使用的融合阈值
     used_stop_loss: float  # 当时使用的止损比例
+    # dream 2026-09-16-loss-root-cause / R4: 学习闭环修复。
+    # 原 TradeRecord 无 provider 字段, strategy_weight_manager 用
+    # getattr(trade, "signal_provider", "unknown") 永远得到 "unknown",
+    # 在线学习全部记到 unknown 桶; 策略权重匹配 "buy_following" 永不命中。
+    signal_provider: str = "unknown"  # AI 信号来源 (提供商名/fusion)
+    strategy_name: str = ""  # 触发决策的策略名 (如 trend_following)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
@@ -127,6 +133,8 @@ class PerformanceTracker:
         used_threshold: float,
         used_stop_loss: float,
         metadata: Optional[Dict[str, Any]] = None,
+        signal_provider: str = "unknown",
+        strategy_name: str = "",
     ) -> TradeRecord:
         """记录开仓"""
         trade = TradeRecord(
@@ -143,12 +151,15 @@ class PerformanceTracker:
             market_regime=market_regime,
             used_threshold=used_threshold,
             used_stop_loss=used_stop_loss,
+            signal_provider=signal_provider,
+            strategy_name=strategy_name,
             metadata=dict(metadata or {}),
         )
 
         self._open_position = trade
         logger.info(
-            f"[绩效追踪] 记录开仓: {side} @ {entry_price}, 置信度: {confidence}%"
+            f"[绩效追踪] 记录开仓: {side} @ {entry_price}, "
+            f"置信度: {confidence * 100:.0f}%"
         )
 
         return trade
@@ -429,6 +440,8 @@ class PerformanceTracker:
                     "market_regime": t.market_regime,
                     "used_threshold": t.used_threshold,
                     "used_stop_loss": t.used_stop_loss,
+                    "signal_provider": t.signal_provider,
+                    "strategy_name": t.strategy_name,
                     "metadata": t.metadata,
                 }
                 for t in self._trades
@@ -465,6 +478,8 @@ class PerformanceTracker:
                     market_regime=t_data["market_regime"],
                     used_threshold=t_data["used_threshold"],
                     used_stop_loss=t_data["used_stop_loss"],
+                    signal_provider=t_data.get("signal_provider", "unknown"),
+                    strategy_name=t_data.get("strategy_name", ""),
                     metadata=t_data.get("metadata", {}),
                 )
                 self._trades.append(trade)

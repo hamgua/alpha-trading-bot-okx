@@ -94,10 +94,29 @@ class VolatilityRule(AdaptiveRule):
         market_state: "MarketRegimeState",
         performance: "PerformanceMetrics",
     ) -> RuleResult:
-        """评估波动率规则"""
+        """评估波动率规则
+
+        dream 2026-09-16-loss-root-cause / R1 修复：
+        原实现存在单位混淆 —— 高波动阈值 (0.60/0.35/0.20) 以小数
+        atr_percent (0.0014 = 0.14%) 比较，即 60%/35%/20% ATR，
+        在 15 分钟周期下永远不触发；而低波动分支 atr < 0.015 (=1.5%)
+        几乎恒触发，把止损固定为 0.8% (≈5-8 倍 ATR) 并放大仓位 1.2x，
+        导致实盘每笔亏损固定 -0.80% (2026-09-09~13 日志)。
+
+        修复后 (阈值单位统一为小数, 与 atr_percent 一致):
+        - 极高波动 ATR > 0.6%: 宽止损 1.5%, 减仓 0.5x, 收紧门禁 0.55
+        - 高波动   ATR > 0.35%: 止损 1.0%, 0.7x, 收紧门禁 0.55
+        - 中等波动 ATR > 0.20%: 止损 0.7%, 0.85x, 门禁 0.50
+        - 低波动   ATR < 0.20%: 止损 = clamp(3×ATR, 0.3%, 0.5%),
+          仓位 1.0x (不再放大), 收紧门禁 0.55, 仅深度超卖可买 (RSI<35)
+          例: ATR 0.14% (2026-09-13 实盘值) → 止损 0.42% (原 0.8%)
+
+        风险平价性质: 仓位×止损 ≈ 常数 (0.3%~0.75%), 波动越大仓位越小。
+        高波动分支收紧 (而非放松) 置信度门禁: 高波动=更严格入场。
+        """
         atr_percent = market_state.atr_percent
 
-        if atr_percent > 0.60:
+        if atr_percent > 0.006:  # ATR > 0.6%
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -105,13 +124,13 @@ class VolatilityRule(AdaptiveRule):
                 adjustment={
                     "stop_loss_percent": 0.015,
                     "position_multiplier": 0.5,
-                    "fusion_threshold": 0.45,
+                    "fusion_threshold": 0.55,
                 },
                 reason=f"极高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.9,
             )
 
-        elif atr_percent > 0.35:
+        elif atr_percent > 0.0035:  # ATR > 0.35%
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -119,13 +138,13 @@ class VolatilityRule(AdaptiveRule):
                 adjustment={
                     "stop_loss_percent": 0.01,
                     "position_multiplier": 0.7,
-                    "fusion_threshold": 0.40,
+                    "fusion_threshold": 0.55,
                 },
                 reason=f"高波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.85,
             )
 
-        elif atr_percent > 0.20:
+        elif atr_percent > 0.002:  # ATR > 0.20%
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
@@ -133,21 +152,25 @@ class VolatilityRule(AdaptiveRule):
                 adjustment={
                     "stop_loss_percent": 0.007,
                     "position_multiplier": 0.85,
-                    "fusion_threshold": 0.35,
+                    "fusion_threshold": 0.50,
                 },
                 reason=f"中等波动 (ATR%: {atr_percent * 100:.2f}%)",
                 confidence=0.7,
             )
 
-        elif atr_percent < 0.015:
+        elif atr_percent < 0.002:  # ATR < 0.20% (低波动/震荡区, 含正常波动)
+            # 止损与波动率成比例: 3×ATR, 下限 0.3% 防极窄止损被噪音扫掉,
+            # 上限 0.5% 防止接近中等波动带时止损过宽。
+            # 原固定 0.8% 在 ATR 0.14% 时等于 5.7×ATR, 实盘验证为结构性亏损源。
+            stop_loss_percent = min(max(3.0 * atr_percent, 0.003), 0.005)
             return RuleResult(
                 rule_name=self.name,
                 category=self.category,
                 triggered=True,
                 adjustment={
-                    "stop_loss_percent": 0.008,
-                    "position_multiplier": 1.2,
-                    "fusion_threshold": 0.40,
+                    "stop_loss_percent": stop_loss_percent,
+                    "position_multiplier": 1.0,
+                    "fusion_threshold": 0.55,
                     "buy_rsi_threshold": 35,
                 },
                 reason=f"低波动 (ATR%: {atr_percent:.2%})",
@@ -396,7 +419,10 @@ class AdaptiveRulesEngine:
         triggered_rules: list[RuleResult] = []
         combined_adjustment: Dict[str, float] = {}
 
-        for rule in self.rules:
+        # dream 2026-09-16-loss-root-cause: 原实现按优先级降序遍历 + 最后写入胜出,
+        # 导致优先级最低的规则反而覆盖高优先级规则 (与文档字符串矛盾)。
+        # 修复: 升序遍历, 高优先级规则后写入, 实现"高优先级覆盖低优先级"。
+        for rule in sorted(self.rules, key=lambda r: r.priority):
             if not rule.enabled:
                 continue
 

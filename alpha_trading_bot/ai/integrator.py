@@ -20,6 +20,10 @@ import traceback
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
+from alpha_trading_bot.config.thresholds import (
+    ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE,
+)
+
 from .adaptive_buy_condition import (
     AdaptiveBuyCondition,
     BuyConditions,
@@ -471,32 +475,65 @@ class AISignalIntegrator:
 
                 # 如果买入条件判断可以买入，提高置信度
                 if buy_result.can_buy:
-                    # 检查是否在持续下跌趋势中，如果是则谨慎对待
-                    if (
-                        decline_result
-                        and decline_result.is_detected
-                        and not decline_result.should_block_buy
+                    # dream 2026-09-16-loss-root-cause / R3: 翻转守卫。
+                    # 原实现无条件把 HOLD/SELL 翻转为 BUY，导致 AI 明确 HOLD
+                    # (56%) + 全策略 HOLD 时仍被技术规则翻转开仓并亏损
+                    # (2026-09-13 05:17 案例)。修复:
+                    # - SELL 永不翻转为 BUY (SELL 必须执行平仓, 翻转会导致反向开仓)
+                    # - AI 明确 HOLD (置信度 >= 0.55) 时不翻转, 交由决策引擎
+                    #   既有的高置信度策略覆盖路径 (HOLD_STRATEGY_BUY_MIN_CONFIDENCE=0.80) 裁决
+                    # - 仅当 AI-HOLD 模糊 (<0.55) 时才允许技术规则翻转
+                    allow_flip = True
+                    flip_block_reason = ""
+                    if original_signal == "SELL":
+                        allow_flip = False
+                        flip_block_reason = "AI SELL 信号, 禁止翻转为 BUY"
+                    elif (
+                        original_signal == "HOLD"
+                        and original_confidence
+                        >= ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE
                     ):
-                        # 持续下跌趋势中，降低买入条件的置信度加成
-                        adjusted_buy_conf = buy_result.confidence * (
-                            1 - decline_result.buy_penalty
-                        )
-                        original_confidence = max(
-                            original_confidence, adjusted_buy_conf
-                        )
-                        if adjusted_buy_conf < buy_result.confidence:
-                            result.adjustments_made.append(
-                                f"自适应买入: {buy_result.mode}模式通过，但持续下跌趋势降低权重"
-                            )
-                    else:
-                        original_confidence = max(
-                            original_confidence, buy_result.confidence
+                        allow_flip = False
+                        flip_block_reason = (
+                            f"AI 明确 HOLD (置信度 {original_confidence:.0%} >= "
+                            f"{ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE:.0%}), "
+                            f"技术买入条件不翻转信号"
                         )
 
-                    original_signal = "BUY"
-                    result.adjustments_made.append(
-                        f"自适应买入: {buy_result.mode}模式通过"
-                    )
+                    if allow_flip:
+                        # 检查是否在持续下跌趋势中，如果是则谨慎对待
+                        if (
+                            decline_result
+                            and decline_result.is_detected
+                            and not decline_result.should_block_buy
+                        ):
+                            # 持续下跌趋势中，降低买入条件的置信度加成
+                            adjusted_buy_conf = buy_result.confidence * (
+                                1 - decline_result.buy_penalty
+                            )
+                            original_confidence = max(
+                                original_confidence, adjusted_buy_conf
+                            )
+                            if adjusted_buy_conf < buy_result.confidence:
+                                result.adjustments_made.append(
+                                    f"自适应买入: {buy_result.mode}模式通过，但持续下跌趋势降低权重"
+                                )
+                        else:
+                            original_confidence = max(
+                                original_confidence, buy_result.confidence
+                            )
+
+                        original_signal = "BUY"
+                        result.adjustments_made.append(
+                            f"自适应买入: {buy_result.mode}模式通过"
+                        )
+                    else:
+                        logger.info(
+                            f"[信号集成] 自适应买入条件通过但信号未翻转: {flip_block_reason}"
+                        )
+                        result.adjustments_made.append(
+                            f"自适应买入被阻止翻转: {flip_block_reason}"
+                        )
 
                 result.price_level = buy_result.mode
                 conf_history.append((1, "AdaptiveBuy", original_confidence))
@@ -794,10 +831,7 @@ class AISignalIntegrator:
                     result.adjustments_made.append(
                         f"高位过滤: 不建议买入 - {optimized.adjustment_reason[:50]}..."
                     )
-                elif (
-                    optimized.penalty_applied
-                    and optimized.adjusted_confidence < 0.40
-                ):
+                elif optimized.penalty_applied and optimized.adjusted_confidence < 0.40:
                     original_signal = "HOLD"
                     result.adjustments_made.append(
                         "高位过滤: BUY被压到低置信，降级HOLD继续评估策略"

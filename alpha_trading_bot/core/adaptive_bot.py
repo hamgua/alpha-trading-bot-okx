@@ -26,6 +26,10 @@ from .position_close_audit import (
 )
 from .opportunity_audit import OpportunityAuditor
 from ..config.models import Config
+from ..config.thresholds import (
+    MIN_TRADE_CONFIDENCE_FLOOR,
+    RULE_FUSION_THRESHOLD_MAX,
+)
 from ..exchange.models.orders import OrderIntent
 from ..utils.observability import record_live_guard_block
 
@@ -627,6 +631,7 @@ class AdaptiveTradingBot:
                 selected_strategy=selected,
                 cached_rule_result=rule_result,
                 decision_metadata=final_signal.get("metadata"),
+                decision_strategy=final_signal.get("strategy"),
             )
             # 梦 2026-08-31-profit-long-impl / OC-NEW-8: 记录开仓 attempts / executed
             try:
@@ -930,12 +935,28 @@ class AdaptiveTradingBot:
     def _apply_rule_threshold_to_market_data(
         self, market_data: Dict[str, Any], rule_result: Dict[str, Any]
     ) -> None:
-        """将规则引擎阈值写入本周期最终决策门禁。"""
+        """将规则引擎阈值写入本周期最终决策门禁。
+
+        dream 2026-09-16-loss-root-cause / R2: 规则只能收紧门禁(提高阈值),
+        不能放松到抛硬币 (0.50) 以下; 也不能提到无法交易 (0.90) 以上。
+        证据: 2026-09-13 VolatilityRule 把门禁降到 40%, 42.6% 置信度信号
+        通过开仓亏损 -0.80%。
+        """
         adjustments = rule_result.get("adjustments", {}) if rule_result else {}
         fusion_threshold = adjustments.get("fusion_threshold")
         if isinstance(fusion_threshold, (int, float)):
-            market_data["min_trade_confidence"] = float(fusion_threshold)
-            logger.info(f"[规则] 本周期交易置信度门禁: {fusion_threshold:.0%}")
+            clamped = min(
+                max(float(fusion_threshold), MIN_TRADE_CONFIDENCE_FLOOR),
+                RULE_FUSION_THRESHOLD_MAX,
+            )
+            if clamped != float(fusion_threshold):
+                logger.warning(
+                    f"[规则] 门禁 {fusion_threshold:.0%} 超出安全区间 "
+                    f"[{MIN_TRADE_CONFIDENCE_FLOOR:.0%}, {RULE_FUSION_THRESHOLD_MAX:.0%}], "
+                    f"截断为 {clamped:.0%}"
+                )
+            market_data["min_trade_confidence"] = clamped
+            logger.info(f"[规则] 本周期交易置信度门禁: {clamped:.0%}")
 
     async def _execute_trade(
         self,
@@ -947,6 +968,7 @@ class AdaptiveTradingBot:
         selected_strategy: Optional[Any] = None,
         cached_rule_result: Optional[Dict[str, Any]] = None,
         decision_metadata: Optional[Dict[str, Any]] = None,
+        decision_strategy: Optional[Any] = None,
     ) -> None:
         """执行交易"""
         logger.info(f"[执行] {action}: {current_price}")
@@ -1101,8 +1123,16 @@ class AdaptiveTradingBot:
             entry_price = fill["average_price"]
 
             # === P1: 记录开仓（学习闭环开始） ===
+            # dream 2026-09-16-loss-root-cause / R4: 记录 AI 信号来源与实际
+            # 决策策略名, 修复在线学习永远更新 "unknown"、策略权重永不命中的问题。
             market_state = self.regime_detector.detect(market_data)
             confidence = selected_strategy.confidence if selected_strategy else 0.5
+            signal_provider = self._resolve_ai_provider_label()
+            strategy_name = self._normalize_strategy_name(decision_strategy)
+            if not strategy_name and selected_strategy is not None:
+                strategy_name = self._normalize_strategy_name(
+                    getattr(selected_strategy, "strategy_type", None)
+                )
             self.performance_tracker.record_trade(
                 entry_time=datetime.now(timezone.utc).isoformat(),
                 entry_price=entry_price,
@@ -1113,8 +1143,13 @@ class AdaptiveTradingBot:
                 used_threshold=params.get("fusion_threshold", 0.5),
                 used_stop_loss=risk_params.get("stop_loss_percent", 0.005),
                 metadata=decision_metadata,
+                signal_provider=signal_provider,
+                strategy_name=strategy_name,
             )
-            logger.info("[学习] 已记录开仓信号，用于后续学习")
+            logger.info(
+                f"[学习] 已记录开仓信号 (provider={signal_provider}, "
+                f"strategy={strategy_name or 'unknown'})，用于后续学习"
+            )
 
             # 开仓成功后，更新持仓信息 (支持做多和做空)
             self.position_manager.update_position(
@@ -1636,6 +1671,31 @@ class AdaptiveTradingBot:
         else:
             logger.critical("[止损保护] 裸仓保护性平仓未确认，请人工检查账户")
             await self._verify_and_recover_position()
+
+    def _resolve_ai_provider_label(self) -> str:
+        """解析 AI 信号来源标签 (单模式=提供商名, 融合模式=fusion)。
+
+        dream 2026-09-16-loss-root-cause / R4: 供学习闭环按真实 provider
+        更新在线权重; 无法解析时返回 "unknown" (调用方跳过学习更新)。
+        """
+        try:
+            ai_config = getattr(self._ai_client, "config", None)
+            mode = getattr(ai_config, "mode", "fusion")
+            if mode == "single":
+                provider = getattr(ai_config, "default_provider", "unknown")
+                return str(provider) if provider else "unknown"
+            return "fusion"
+        except Exception:
+            return "unknown"
+
+    @staticmethod
+    def _normalize_strategy_name(strategy: Any) -> str:
+        """将决策策略标识归一化为字符串 (StrategyType enum 或 str)。"""
+        if strategy is None:
+            return ""
+        value = getattr(strategy, "value", strategy)
+        name = str(value).strip()
+        return name
 
     def _update_strategy_weights(self, trade: Any) -> None:
         """根据交易结果更新策略权重（学习闭环）"""

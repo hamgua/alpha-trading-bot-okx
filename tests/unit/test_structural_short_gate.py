@@ -129,7 +129,7 @@ class TestStructuralShortRROverride:
             "HOLD",
             _SelectedStub(),
             _market_data(
-                technical={"atr_percent": 0.60, "rsi": 53.0, "trend_strength": 0.01}
+                technical={"atr_percent": 0.007, "rsi": 53.0, "trend_strength": 0.01}
             ),
         )
         assert result["action"] == "skip"
@@ -176,7 +176,7 @@ class TestStructuralShortRROverride:
                 market_structure="bearish",
                 market_structure_direction="short",
                 short_risk_reward_ratio=3.5,
-                technical={"atr_percent": 0.03, "rsi": 60.0, "trend_strength": 0.30},
+                technical={"atr_percent": 0.003, "rsi": 60.0, "trend_strength": 0.30},
                 final_confidence=0.75,
                 mean_reversion_confirmed=True,
             ),

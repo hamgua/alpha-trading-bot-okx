@@ -36,7 +36,7 @@ class TestConfidenceGateMetadata:
         """SHORT final_confidence < min_trade_confidence 时 gate 返回带 metadata 的 skip"""
         engine = DecisionEngine(_config())
         market_data = {
-            "technical": {"atr_percent": 0.30, "rsi": 60, "trend_strength": 0.05},
+            "technical": {"atr_percent": 0.003, "rsi": 60, "trend_strength": 0.05},
             "has_position": False,
             "short_risk_reward_ratio": 2.0,
             "risk_reward_ratio": 1.0,
@@ -48,8 +48,10 @@ class TestConfidenceGateMetadata:
         result = engine.make_decision("SHORT", _SelectedStub(), market_data)
 
         # 决策被 gate 拦截
+        # dream 2026-09-16-loss-root-cause / R2: 规则门禁 0.40 被绝对下限
+        # MIN_TRADE_CONFIDENCE_FLOOR=0.50 强制提升, 拦截原因显示 50%。
         assert result["action"] == "skip"
-        assert "置信度35%低于阈值40%" in result["reason"]
+        assert "置信度35%低于阈值50%" in result["reason"]
 
         # 必须包含 metadata (task-card R3)
         metadata = result.get("metadata")
@@ -57,7 +59,7 @@ class TestConfidenceGateMetadata:
         assert metadata["confidence_gate_blocked"] is True
         assert metadata["gate_side"] == "short"
         assert metadata["final_confidence"] == pytest.approx(0.35)
-        assert metadata["min_trade_confidence"] == pytest.approx(0.40)
+        assert metadata["min_trade_confidence"] == pytest.approx(0.50)
         assert metadata["short_rr"] == pytest.approx(2.0)
         assert metadata["rsi"] == 60
         assert metadata["trend_strength"] == pytest.approx(0.05)
@@ -69,7 +71,7 @@ class TestConfidenceGateMetadata:
         """LONG 高位+低置信时 gate 阻断并附带 metadata"""
         engine = DecisionEngine(_config())
         market_data = {
-            "technical": {"atr_percent": 0.30, "rsi": 60, "trend_strength": 0.05},
+            "technical": {"atr_percent": 0.003, "rsi": 60, "trend_strength": 0.05},
             "has_position": False,
             "short_risk_reward_ratio": 0,
             "risk_reward_ratio": 1.0,
@@ -97,7 +99,7 @@ class TestConfidenceGateMetadata:
         engine = DecisionEngine(_config())
         selected = _SelectedStub(signal="BUY", strategy_type="trend_following")
         market_data = {
-            "technical": {"atr_percent": 0.30, "rsi": 60, "trend_strength": 0.05},
+            "technical": {"atr_percent": 0.003, "rsi": 60, "trend_strength": 0.05},
             "has_position": False,
             "short_risk_reward_ratio": 0,
             "risk_reward_ratio": 1.5,  # 满足 RR≥1.0 moderate

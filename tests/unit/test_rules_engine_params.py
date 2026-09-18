@@ -1,7 +1,9 @@
 """规则引擎参数修改验证测试
 
 验证 RSIRule 超卖时 position_multiplier=0.8 和
-VolatilityRule 低波动时 stop_loss_percent=0.008 的修改。
+VolatilityRule 低波动时 ATR 比例止损 (dream 2026-09-16-loss-root-cause 修复后:
+原固定 0.008 为单位混淆产物, 改为 clamp(3×ATR, 0.3%, 0.5%); 合并顺序修复为
+高优先级规则覆盖低优先级)。
 """
 
 from unittest.mock import MagicMock
@@ -70,28 +72,31 @@ class TestVolatilityRuleLowVolStopLoss:
     def _make_perf(self):
         return MagicMock(spec=PerformanceMetrics)
 
-    def test_low_volatility_stop_loss_is_0_008(self):
+    def test_low_volatility_stop_loss_is_atr_proportional(self):
+        """ATR 0.14% (2026-09-13 实盘值): SL = 3×ATR = 0.42% (原固定 0.8%)。"""
         rule = VolatilityRule()
-        market_state = self._make_market_state(atr_percent=0.01)
+        market_state = self._make_market_state(atr_percent=0.0014)
         perf = self._make_perf()
 
         result = rule.evaluate(market_state, perf)
 
         assert result.triggered is True
-        assert result.adjustment["stop_loss_percent"] == 0.008
+        assert abs(result.adjustment["stop_loss_percent"] - 0.0042) < 1e-6
 
-    def test_low_volatility_position_multiplier_1_2(self):
+    def test_low_volatility_position_multiplier_is_one(self):
+        """低波动仓位 1.0x (原 1.2x 放大风险敞口, 已移除)。"""
         rule = VolatilityRule()
-        market_state = self._make_market_state(atr_percent=0.01)
+        market_state = self._make_market_state(atr_percent=0.0014)
         perf = self._make_perf()
 
         result = rule.evaluate(market_state, perf)
 
-        assert result.adjustment["position_multiplier"] == 1.2
+        assert result.adjustment["position_multiplier"] == 1.0
 
     def test_medium_volatility_stop_loss_0_007(self):
+        """ATR 0.3% 落入中等波动带 (0.20% < atr <= 0.35%), SL 0.7%。"""
         rule = VolatilityRule()
-        market_state = self._make_market_state(atr_percent=0.25)
+        market_state = self._make_market_state(atr_percent=0.003)
         perf = self._make_perf()
 
         result = rule.evaluate(market_state, perf)
@@ -101,7 +106,7 @@ class TestVolatilityRuleLowVolStopLoss:
 
 
 class TestRulesEngineIntegration:
-    def _make_market_state(self, rsi=15.0, atr=0.01):
+    def _make_market_state(self, rsi=15.0, atr=0.0014):
         state = MagicMock(spec=MarketRegimeState)
         state.rsi_level = rsi
         state.atr_percent = atr
@@ -116,12 +121,21 @@ class TestRulesEngineIntegration:
         return perf
 
     def test_oversold_plus_low_vol_combined_adjustments(self):
+        """合并顺序修复: VolatilityRule(优先级10) 覆盖 RSIRule(优先级5)。
+
+        ATR 0.14% (低波动带): SL=0.42%, pos=1.0x, 门禁=0.55
+        RSI 15 (超卖, 低优先级): pos=0.8, 门禁=0.45, buy_rsi=25
+        合并后: SL 取波动率规则 (RSI 规则不设 SL); pos/门禁 取高优先级 (波动率)。
+        """
         engine = AdaptiveRulesEngine()
-        market_state = self._make_market_state(rsi=15.0, atr=0.01)
+        market_state = self._make_market_state(rsi=15.0, atr=0.0014)
         perf = self._make_perf()
 
         result = engine.evaluate_all(market_state, perf)
 
         adjustments = result["adjustments"]
-        assert adjustments["position_multiplier"] == 0.8
-        assert adjustments["stop_loss_percent"] == 0.008
+        assert abs(adjustments["stop_loss_percent"] - 0.0042) < 1e-6
+        assert adjustments["position_multiplier"] == 1.0
+        assert adjustments["fusion_threshold"] == 0.55
+        # buy_rsi_threshold: 两规则都设置, 高优先级 VolatilityRule(35) 胜出
+        assert adjustments["buy_rsi_threshold"] == 35

@@ -807,3 +807,40 @@ RR_GOOD_RATIO = 2.0
 RR_SHORT_CONSERVATIVE_MIN = 0.5
 RR_SHORT_MODERATE_MIN = 0.6
 RR_SHORT_AGGRESSIVE_MIN = 0.4
+# ============================================================
+# 实盘亏损根因修复阈值 (dream 2026-09-16-loss-root-cause)
+# ============================================================
+# 证据 (2026-09-09 ~ 09-13 实盘日志):
+# - 5天6笔平仓, 胜率33%, 平均盈利+0.51% vs 平均亏损-0.80%
+# - 所有亏损 = -0.80%: VolatilityRule 单位混淆 (0.60/0.35/0.20 与小数
+#   atr_percent 比较永远不触发; atr<0.015 几乎恒触发, 固定 SL 0.8%+仓位1.2x)
+# - 09-13 案例: AI HOLD(56%) 被 AdaptiveBuy 无条件翻转 BUY(42.6%),
+#   规则把置信度门禁降到 40%, 低于抛硬币的置信度通过开仓
+
+
+# 交易置信度绝对下限（默认 0.50 = 抛硬币）
+# 低于此置信度的信号不允许开仓, 规则引擎只能收紧(更高)不能放松。
+# 引用方:
+#   - core/decision_engine.py: _confidence_gate (最终执行门禁)
+#   - core/adaptive_bot.py: _apply_rule_threshold_to_market_data (规则阈值 clamp)
+MIN_TRADE_CONFIDENCE_FLOOR = 0.50
+
+# 规则引擎输出的 fusion_threshold 上限（默认 0.90）
+# 防止规则把门禁提到无法交易。
+# 引用方:
+#   - core/adaptive_bot.py: _apply_rule_threshold_to_market_data
+RULE_FUSION_THRESHOLD_MAX = 0.90
+
+# 自适应买入条件翻转 HOLD→BUY 的最大 AI-HOLD 置信度（默认 0.55）
+# AI 明确 HOLD (置信度 >= 0.55) 时, AdaptiveBuyCondition 不允许把信号翻转为
+# BUY, 交由决策引擎的既有多重门禁裁决。仅当 AI-HOLD 模糊 (<0.55) 时才允许
+# 技术规则翻转。SELL 信号永不翻转为 BUY。
+# 引用方:
+#   - ai/integrator.py: AdaptiveBuyCondition 处理段
+ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE = 0.55
+
+# 高波动禁止开仓的 ATR 上限（默认 0.55%, 即 atr_percent 小数 0.0055）
+# 原值 0.55 与小数 atr_percent 比较 (55% ATR) 永不触发, 属死代码。
+# 引用方:
+#   - core/decision_engine.py: _make_buy_decision / _make_short_decision
+MAX_TRADE_ATR_PERCENT = 0.0055

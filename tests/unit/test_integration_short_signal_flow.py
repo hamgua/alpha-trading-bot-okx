@@ -52,7 +52,7 @@ class TestShortFlowCanPassGate:
         engine = _make_engine()
         market_data = {
             "technical": {
-                "atr_percent": 0.30,
+                "atr_percent": 0.003,
                 "rsi": 60,
                 "trend_strength": 0.05,
             },
@@ -103,12 +103,17 @@ class TestShortFlowCanPassGate:
             f"got {result.final_confidence}"
         )
 
-    def test_short_after_integration_can_pass_gate_under_vol_rule(self) -> None:
-        """真实场景：min_trade_confidence=0.40 (VolatilityRule)，SHORT conf=0.45 进入 gate"""
+    def test_short_after_integration_blocked_by_floor_under_vol_rule(self) -> None:
+        """dream 2026-09-16-loss-root-cause / R2: 规则门禁 0.40 被绝对下限 0.50 提升。
+
+        原测试固化了"规则把门禁降到 40% → 45% 置信度信号通过"的行为,
+        这正是 2026-09-13 实盘亏损的根因之一 (低于抛硬币的信号被放行)。
+        修复后: 45% < 50% 下限, 必须被门禁拦截。
+        """
         engine = _make_engine()
         market_data = {
             "technical": {
-                "atr_percent": 0.08,
+                "atr_percent": 0.003,
                 "rsi": 60,
                 "trend_strength": 0.05,
             },
@@ -124,19 +129,16 @@ class TestShortFlowCanPassGate:
 
         result = engine.make_decision("SHORT", _Selected(), market_data)
 
-        # 不能是 "confidence_gate skip"
-        if result["action"] == "skip":
-            reason = result.get("reason", "")
-            assert "低于阈值" not in reason, (
-                f"VolatilityRule 0.40 + SHORT conf 0.45 应能穿过 gate: got skip={reason}"
-            )
+        # 低于抛硬币下限的信号必须被门禁拦截
+        assert result["action"] == "skip"
+        assert "低于阈值" in result.get("reason", "")
 
     def test_short_still_blocked_by_rr_when_short_rr_low(self) -> None:
         """验证：决策引擎的 R/R 检查未失效——short_rr=0.4 仍会被 R/R gate 拒绝"""
         engine = _make_engine()
         market_data = {
             "technical": {
-                "atr_percent": 0.08,
+                "atr_percent": 0.003,
                 "rsi": 60,
                 "trend_strength": 0.05,
             },
@@ -161,7 +163,7 @@ class TestShortFlowCanPassGate:
         engine = _make_engine()
         market_data = {
             "technical": {
-                "atr_percent": 0.08,
+                "atr_percent": 0.003,
                 "rsi": 25,  # RSI 超卖
                 "trend_strength": 0.05,
             },
@@ -192,7 +194,7 @@ class TestBackwardCompat:
         engine = _make_engine()
         market_data = {
             "technical": {
-                "atr_percent": 0.30,
+                "atr_percent": 0.003,
                 "rsi": 50,
                 "trend_strength": 0.10,
             },

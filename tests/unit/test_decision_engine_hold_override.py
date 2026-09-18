@@ -41,7 +41,7 @@ class TestPositionAwareSignalSemantics:
         engine = DecisionEngine(_config())
         market_data = {
             "technical": {
-                "atr_percent": 0.35,
+                "atr_percent": 0.003,
                 "rsi": 74,
                 "rsi_falling": True,
                 "price_below_short_ma": True,
@@ -64,7 +64,7 @@ class TestPositionAwareSignalSemantics:
         engine = DecisionEngine(_config())
         market_data = {
             "technical": {
-                "atr_percent": 0.20,
+                "atr_percent": 0.002,
                 "rsi": 28,
                 "reversal_confirmed": True,
             },
@@ -84,7 +84,7 @@ class TestPositionAwareSignalSemantics:
     def test_hold_strategy_buy_keeps_existing_long_position(self) -> None:
         engine = DecisionEngine(_config())
         market_data = {
-            "technical": {"atr_percent": 0.20, "rsi": 52},
+            "technical": {"atr_percent": 0.002, "rsi": 52},
             "has_position": True,
             "position_side": "long",
             "risk_reward_ratio": 1.4,
@@ -103,7 +103,7 @@ class TestPositionAwareSignalSemantics:
     def test_ai_sell_keeps_existing_short_position(self) -> None:
         engine = DecisionEngine(_config())
         market_data = {
-            "technical": {"atr_percent": 0.20, "rsi": 58},
+            "technical": {"atr_percent": 0.002, "rsi": 58},
             "has_position": True,
             "position_side": "short",
             "risk_reward_ratio": 0.0,
@@ -118,7 +118,7 @@ class TestPositionAwareSignalSemantics:
     def test_ai_buy_closes_existing_short_position(self) -> None:
         engine = DecisionEngine(_config())
         market_data = {
-            "technical": {"atr_percent": 0.20, "rsi": 45},
+            "technical": {"atr_percent": 0.002, "rsi": 45},
             "has_position": True,
             "position_side": "short",
             "risk_reward_ratio": 1.2,
@@ -162,7 +162,7 @@ class TestHoldOversoldOverride:
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
             "technical": {
-                "atr_percent": 0.35,
+                "atr_percent": 0.003,
                 "rsi": 27.9,
                 "reversal_confirmed": True,
             },
@@ -183,7 +183,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -199,7 +199,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "bearish",
@@ -215,7 +215,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 0.8,
             "market_structure": "sideways",
@@ -230,7 +230,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": True,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -246,7 +246,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.60, "rsi": 27.9},
+            "technical": {"atr_percent": 0.007, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -262,7 +262,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 0.4,
             "market_structure": "sideways",
@@ -279,7 +279,7 @@ class TestHoldOversoldOverride:
             "BUY", confidence=0.85, strategy_type="trend_following"
         )
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -294,7 +294,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 30.0},
+            "technical": {"atr_percent": 0.003, "rsi": 30.0},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -309,7 +309,7 @@ class TestHoldOversoldOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 27.9},
+            "technical": {"atr_percent": 0.003, "rsi": 27.9},
             "has_position": False,
             "risk_reward_ratio": 1.2,
             "market_structure": "sideways",
@@ -350,7 +350,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.82)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "sideways",
@@ -365,7 +365,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.82)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 1.0,
             "market_structure": "sideways",
@@ -382,7 +382,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.82)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.5,
             "market_structure": "sideways",
@@ -397,7 +397,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.82)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -412,7 +412,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.75)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "sideways",
@@ -427,7 +427,7 @@ class TestHoldStrategyBuyOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY", confidence=0.85)
         market_data = {
-            "technical": {"atr_percent": 0.35, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 2.4,
             "market_structure": "bullish",
@@ -470,7 +470,7 @@ class TestHoldStrategyShortOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SHORT", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -487,7 +487,7 @@ class TestHoldStrategyShortOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SHORT", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -502,7 +502,7 @@ class TestHoldStrategyShortOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SHORT", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 50},
+            "technical": {"atr_percent": 0.003, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.4,
             "market_structure": "bearish",
@@ -517,7 +517,7 @@ class TestHoldStrategyShortOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SHORT", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.60, "rsi": 50},
+            "technical": {"atr_percent": 0.007, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -533,7 +533,7 @@ class TestHoldStrategyShortOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SHORT", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 30},
+            "technical": {"atr_percent": 0.003, "rsi": 30},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -574,7 +574,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": True,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -592,7 +592,7 @@ class TestHoldStrategySellOverride:
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
             "technical": {
-                "atr_percent": 0.03,
+                "atr_percent": 0.003,
                 "rsi": 80,
                 "reversal_confirmed": True,
             },
@@ -614,7 +614,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": False,
             "short_risk_reward_ratio": 0.7,
             "market_structure_direction": "short",
@@ -630,7 +630,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 80},
+            "technical": {"atr_percent": 0.003, "rsi": 80},
             "has_position": False,
             "short_risk_reward_ratio": 3.2,
             "market_structure_direction": "short",
@@ -754,7 +754,7 @@ class TestHoldStrategySellOverride:
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
             "technical": {
-                "atr_percent": 0.03,
+                "atr_percent": 0.003,
                 "rsi": 80,
                 "rsi_falling": True,
                 "price_below_short_ma": True,
@@ -834,7 +834,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": False,
             "risk_reward_ratio": 102.8,
             "market_structure_direction": "long",
@@ -850,7 +850,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.70)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -866,7 +866,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -881,7 +881,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.60, "rsi": 70},
+            "technical": {"atr_percent": 0.007, "rsi": 70},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -896,7 +896,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 30},
+            "technical": {"atr_percent": 0.003, "rsi": 30},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bearish",
@@ -911,7 +911,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 70},
+            "technical": {"atr_percent": 0.003, "rsi": 70},
             "has_position": False,
             "risk_reward_ratio": 0.3,
             "market_structure": "bearish",
@@ -927,7 +927,7 @@ class TestHoldStrategySellOverride:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.80)
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 30},
+            "technical": {"atr_percent": 0.003, "rsi": 30},
             "has_position": True,
             "risk_reward_ratio": 0.3,
             "market_structure": "bullish",
@@ -962,7 +962,7 @@ class TestHoldBothHold:
         selected.strategy_type = "trend_following"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 2.0,
             "market_structure": "bullish",
@@ -982,7 +982,7 @@ class TestHoldBothHold:
         selected.strategy_type = "trend_following"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 55, "trend_strength": 0.75},
+            "technical": {"atr_percent": 0.003, "rsi": 55, "trend_strength": 0.75},
             "has_position": False,
             "risk_reward_ratio": 2.4,
             "market_structure_direction": "long",
@@ -1007,7 +1007,7 @@ class TestHoldBothHold:
         selected.strategy_type = "trend_following"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 50, "trend_strength": 0.3},
+            "technical": {"atr_percent": 0.003, "rsi": 50, "trend_strength": 0.3},
             "has_position": False,
             "risk_reward_ratio": 5.0,
             "short_risk_reward_ratio": 0.4,
@@ -1028,7 +1028,7 @@ class TestHoldBothHold:
         selected.reasons = []
         market_data = {
             "technical": {
-                "atr_percent": 0.03,
+                "atr_percent": 0.003,
                 "rsi": 62,
                 "trend_strength": 0.28,
                 "rsi_falling": True,
@@ -1079,7 +1079,7 @@ class TestHoldBothHold:
         selected.strategy_type = "trend_following"
         selected.reasons = []
         market_data = {
-            "technical": {"atr_percent": 0.03, "rsi": 62, "trend_strength": 0.28},
+            "technical": {"atr_percent": 0.003, "rsi": 62, "trend_strength": 0.28},
             "has_position": False,
             "short_risk_reward_ratio": 2.9,
             "market_structure": "bearish",
@@ -1118,7 +1118,7 @@ class TestHoldBuyConfidenceGate:
         selected.reasons = []
         market_data = {
             "technical": {
-                "atr_percent": 0.35,
+                "atr_percent": 0.003,
                 "rsi": 27.9,
                 "reversal_confirmed": True,
             },

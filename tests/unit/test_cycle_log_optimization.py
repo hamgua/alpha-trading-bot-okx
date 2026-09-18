@@ -798,7 +798,11 @@ class TestAdaptiveBotRuleThresholdPropagation:
     """规则阈值应进入最终决策门禁。"""
 
     def test_rule_fusion_threshold_sets_min_trade_confidence(self):
-        """低波动规则给出的融合阈值应写入 market_data。"""
+        """规则给出的融合阈值应写入 market_data; 低于 0.50 下限的被截断。
+
+        dream 2026-09-16-loss-root-cause / R2: 原断言固化了 0.40 门禁
+        (低于抛硬币) 可写入的行为, 修复后被 clamp 到 0.50。
+        """
         import os
 
         os.environ.setdefault("OKX_API_KEY", "test")
@@ -814,10 +818,18 @@ class TestAdaptiveBotRuleThresholdPropagation:
         rule_result = {
             "adjustments": {
                 "fusion_threshold": 0.40,
-                "stop_loss_percent": 0.008,
+                "stop_loss_percent": 0.004,
             }
         }
 
         bot._apply_rule_threshold_to_market_data(market_data, rule_result)
 
-        assert market_data["min_trade_confidence"] == pytest.approx(0.40)
+        # 0.40 低于抛硬币下限 → 截断为 0.50
+        assert market_data["min_trade_confidence"] == pytest.approx(0.50)
+
+        # 高于下限的阈值原样通过
+        market_data2 = {}
+        bot._apply_rule_threshold_to_market_data(
+            market_data2, {"adjustments": {"fusion_threshold": 0.65}}
+        )
+        assert market_data2["min_trade_confidence"] == pytest.approx(0.65)

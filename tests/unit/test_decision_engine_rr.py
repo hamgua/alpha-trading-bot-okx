@@ -51,7 +51,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.9,  # R/R < 1.0
             "market_structure": "bullish",
@@ -67,7 +67,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 2.0,
             "market_structure": "bearish",
@@ -83,7 +83,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 2.5,
             "market_structure": "bullish",
@@ -99,7 +99,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY")
 
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 2.5,
             "market_structure": "bullish",
@@ -112,7 +112,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("SELL", confidence=0.8)
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": True,
             "risk_reward_ratio": 0.5,
         }
@@ -126,7 +126,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("HOLD")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.5,
         }
@@ -140,7 +140,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
         }
 
@@ -153,7 +153,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 1.6,
             "market_structure": "bullish",
@@ -172,7 +172,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.45, "rsi": 50},
+            "technical": {"atr_percent": 0.004, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 3.0,
             "market_structure": "bullish",
@@ -187,7 +187,7 @@ class TestDecisionEngineRR:
         engine = DecisionEngine(self.config)
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.60, "rsi": 50},
+            "technical": {"atr_percent": 0.007, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 3.0,
             "market_structure": "bullish",
@@ -210,7 +210,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY")
         # R/R=0.9 > 0.8，保守型应允许
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.9,
             "market_structure": "bullish",
@@ -225,7 +225,7 @@ class TestDecisionEngineRR:
 
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bullish",
@@ -251,7 +251,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY")
         # R/R=0.7 > 0.6，激进型应允许
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.7,
             "market_structure": "bullish",
@@ -266,7 +266,7 @@ class TestDecisionEngineRR:
 
         selected = self._make_selected("BUY")
         market_data = {
-            "technical": {"atr_percent": 0.02, "rsi": 50},
+            "technical": {"atr_percent": 0.002, "rsi": 50},
             "has_position": False,
             "risk_reward_ratio": 0.5,
             "market_structure": "bullish",
@@ -290,7 +290,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY", confidence=0.7, strategy_type="safe_mode")
         market_data = {
             "technical": {
-                "atr_percent": 0.30,  # ATR < 40%
+                "atr_percent": 0.003,  # ATR < 40%
                 "rsi": 50,
                 "trend_direction": "up",
             },
@@ -310,7 +310,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY", confidence=0.7, strategy_type="safe_mode")
         market_data = {
             "technical": {
-                "atr_percent": 0.30,
+                "atr_percent": 0.003,
                 "rsi": 50,
                 "trend_direction": "up",
             },
@@ -329,7 +329,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY", confidence=0.7, strategy_type="safe_mode")
         market_data = {
             "technical": {
-                "atr_percent": 0.45,  # ATR >= 40%
+                "atr_percent": 0.007,  # ATR >= 0.55% (高波动门禁)
                 "rsi": 50,
                 "trend_direction": "up",
             },
@@ -348,7 +348,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("BUY", confidence=0.7, strategy_type="safe_mode")
         market_data = {
             "technical": {
-                "atr_percent": 0.30,
+                "atr_percent": 0.003,
                 "rsi": 50,
                 "trend_direction": "down",  # 下跌趋势
             },
@@ -367,7 +367,7 @@ class TestDecisionEngineRR:
         selected = self._make_selected("HOLD", confidence=0.7, strategy_type="safe_mode")
         market_data = {
             "technical": {
-                "atr_percent": 0.02,
+                "atr_percent": 0.002,
                 "rsi": 50,
                 "trend_direction": "neutral",
             },

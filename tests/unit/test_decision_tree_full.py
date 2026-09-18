@@ -44,7 +44,7 @@ def make_selected(signal="HOLD", confidence=0.5, strategy_type="regular"):
 def make_market_data(**overrides):
     """构造市场数据"""
     data = {
-        "technical": {"atr_percent": 0.02, "rsi": 50, "trend_direction": "neutral"},
+        "technical": {"atr_percent": 0.002, "rsi": 50, "trend_direction": "neutral"},
         "has_position": False,
         "risk_reward_ratio": 0,
         "market_structure": "sideways",
@@ -125,7 +125,7 @@ class TestDecisionEngineDecisionTree:
         result = engine.make_decision(
             "BUY",
             make_selected("BUY"),
-            make_market_data(technical={"atr_percent": 0.60, "rsi": 50}),
+            make_market_data(technical={"atr_percent": 0.007, "rsi": 50}),
         )
         assert result["action"] == "skip"
         assert "高波动" in result["reason"]
@@ -229,7 +229,7 @@ class TestDecisionEngineDecisionTree:
         result = engine.make_decision(
             "SHORT",
             make_selected("SHORT"),
-            make_market_data(technical={"atr_percent": 0.60, "rsi": 50}),
+            make_market_data(technical={"atr_percent": 0.007, "rsi": 50}),
         )
         assert result["action"] == "skip"
 
@@ -239,7 +239,7 @@ class TestDecisionEngineDecisionTree:
         result = engine.make_decision(
             "SHORT",
             make_selected("SHORT"),
-            make_market_data(technical={"atr_percent": 0.02, "rsi": 30}),
+            make_market_data(technical={"atr_percent": 0.002, "rsi": 30}),
         )
         assert result["action"] == "skip"
 
@@ -307,7 +307,7 @@ class TestDecisionEngineDecisionTree:
         result = engine.make_decision(
             "HOLD",
             make_selected("HOLD"),
-            make_market_data(technical={"atr_percent": 0.60, "rsi": 50}),
+            make_market_data(technical={"atr_percent": 0.007, "rsi": 50}),
         )
         assert result["action"] == "skip"
 
@@ -361,7 +361,7 @@ class TestDecisionEngineDecisionTree:
                 market_structure_direction="short",
                 risk_reward_ratio=3.2,
                 final_confidence=0.65,
-                technical={"atr_percent": 0.02, "rsi": 50, "trend_strength": 0.30},
+                technical={"atr_percent": 0.002, "rsi": 50, "trend_strength": 0.30},
             ),
         )
         assert result["action"] == "sell"
@@ -376,7 +376,7 @@ class TestDecisionEngineDecisionTree:
                 market_structure_direction="short",
                 risk_reward_ratio=4.0,
                 final_confidence=0.65,
-                technical={"atr_percent": 0.02, "rsi": 56, "trend_strength": 0.07},
+                technical={"atr_percent": 0.002, "rsi": 56, "trend_strength": 0.07},
             ),
         )
         assert result["action"] == "skip"
@@ -391,7 +391,7 @@ class TestDecisionEngineDecisionTree:
                 market_structure_direction="short",
                 risk_reward_ratio=2.4,
                 final_confidence=0.65,
-                technical={"atr_percent": 0.02, "rsi": 56, "trend_strength": 0.30},
+                technical={"atr_percent": 0.002, "rsi": 56, "trend_strength": 0.30},
             ),
         )
         assert result["action"] == "skip"
@@ -407,7 +407,7 @@ class TestDecisionEngineDecisionTree:
                 risk_reward_ratio=4.0,
                 final_confidence=0.40,
                 min_trade_confidence=0.50,
-                technical={"atr_percent": 0.02, "rsi": 56, "trend_strength": 0.30},
+                technical={"atr_percent": 0.002, "rsi": 56, "trend_strength": 0.30},
             ),
         )
         assert result["action"] == "skip"
@@ -451,7 +451,7 @@ class TestDecisionEngineDecisionTree:
             "SHORT",
             make_selected("SHORT", 0.7, strategy_type="safe_mode"),
             make_market_data(
-                technical={"atr_percent": 0.02, "rsi": 50, "trend_direction": "down"}
+                technical={"atr_percent": 0.002, "rsi": 50, "trend_direction": "down"}
             ),
         )
         assert result["action"] in ("sell", "skip")
@@ -465,7 +465,7 @@ class TestDecisionEngineDecisionTree:
             make_market_data(
                 risk_reward_ratio=1.5,
                 market_structure="bullish",
-                technical={"atr_percent": 0.30, "rsi": 50, "trend_direction": "up"},
+                technical={"atr_percent": 0.003, "rsi": 50, "trend_direction": "up"},
             ),
         )
         assert result["action"] == "open"
@@ -480,7 +480,7 @@ class TestDecisionEngineDecisionTree:
             make_market_data(
                 risk_reward_ratio=0.5,
                 market_structure="bullish",
-                technical={"atr_percent": 0.30, "rsi": 50, "trend_direction": "up"},
+                technical={"atr_percent": 0.003, "rsi": 50, "trend_direction": "up"},
             ),
         )
         assert result["action"] == "skip"
@@ -494,7 +494,7 @@ class TestDecisionEngineDecisionTree:
             make_market_data(
                 risk_reward_ratio=1.5,
                 market_structure="bullish",
-                technical={"atr_percent": 0.50, "rsi": 50, "trend_direction": "up"},
+                technical={"atr_percent": 0.007, "rsi": 50, "trend_direction": "up"},
             ),
         )
         assert result["action"] == "skip"
@@ -508,7 +508,7 @@ class TestDecisionEngineDecisionTree:
             make_market_data(
                 has_position=True,
                 risk_reward_ratio=2.0,
-                technical={"atr_percent": 0.02, "rsi": 50},
+                technical={"atr_percent": 0.002, "rsi": 50},
             ),
         )
         assert result["action"] == "reduce"
@@ -521,7 +521,7 @@ class TestDecisionEngineDecisionTree:
             make_selected("SHORT", 0.7, strategy_type="safe_mode"),
             make_market_data(
                 has_position=True,
-                technical={"atr_percent": 0.02, "rsi": 50, "trend_direction": "down"},
+                technical={"atr_percent": 0.002, "rsi": 50, "trend_direction": "down"},
             ),
         )
         assert result["action"] == "reduce"

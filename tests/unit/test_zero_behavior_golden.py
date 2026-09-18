@@ -62,7 +62,7 @@ def _config(
             "BUY",
             _selected("BUY", 0.82, "trend_following"),
             {
-                "technical": {"atr_percent": 0.02, "rsi": 55},
+                "technical": {"atr_percent": 0.002, "rsi": 55},
                 "has_position": False,
                 "risk_reward_ratio": 2.4,
                 "market_structure": "bullish",
@@ -81,7 +81,7 @@ def _config(
             "SHORT",
             _selected("SHORT", 0.78, "market_structure_short"),
             {
-                "technical": {"atr_percent": 0.03, "rsi": 52},
+                "technical": {"atr_percent": 0.003, "rsi": 52},
                 "has_position": False,
                 "risk_reward_ratio": 0.75,
                 "market_structure": "bearish",
@@ -99,7 +99,7 @@ def _config(
             "HOLD",
             _selected("SHORT", 0.80, "breakdown"),
             {
-                "technical": {"atr_percent": 0.02, "rsi": 50},
+                "technical": {"atr_percent": 0.002, "rsi": 50},
                 "has_position": False,
                 "risk_reward_ratio": 1.5,
                 "market_structure": "bearish",
@@ -122,7 +122,7 @@ def _config(
             "SELL",
             _selected("HOLD", 0.61, "safe_mode"),
             {
-                "technical": {"atr_percent": 0.02, "rsi": 55},
+                "technical": {"atr_percent": 0.002, "rsi": 55},
                 "has_position": True,
                 "risk_reward_ratio": 0,
                 "market_structure": "sideways",
