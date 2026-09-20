@@ -328,7 +328,7 @@ def test_c1_c06_from_env_negative_raises(monkeypatch: pytest.MonkeyPatch) -> Non
 
 @pytest.mark.asyncio
 async def test_c1_i01_execute_trade_long_rr_floor_applies(tmp_path: Any) -> None:
-    """AC-1.1: 开仓链路 stop=90 → TP 由全仓 fallback 103.0 外扩到 110.0。"""
+    """AC-1.1: 开仓链路 stop=90 → TP 外扩到 110.0 (全仓止盈默认保持原目标 106.0)。"""
     config = _live_config(
         StopLossConfig(
             take_profit_percent=0.06,
@@ -392,7 +392,7 @@ async def test_c1_i02_execute_trade_short_rr_floor_applies(tmp_path: Any) -> Non
 
 @pytest.mark.asyncio
 async def test_c1_i03_kill_switch_ratio_zero_keeps_original(tmp_path: Any) -> None:
-    """AC-1.1(开关): ratio=0 → 保持全仓 fallback 原价 103.0，不外扩。"""
+    """AC-1.1(开关): ratio=0 → 保持止盈原目标 106.0，不外扩。"""
     config = _live_config(
         StopLossConfig(
             take_profit_percent=0.06,
@@ -415,12 +415,13 @@ async def test_c1_i03_kill_switch_ratio_zero_keeps_original(tmp_path: Any) -> No
         cached_rule_result={"adjustments": {"position_multiplier": 1.0}},
     )
 
-    assert exchange.take_profit_calls[0]["take_profit_price"] == pytest.approx(103.0)
+    # 2026-09-20 loss-structure-fix / R1: 全仓止盈默认保持原目标 (fixed 6% = 106.0)
+    assert exchange.take_profit_calls[0]["take_profit_price"] == pytest.approx(106.0)
 
 
 @pytest.mark.asyncio
 async def test_c1_i04_direct_stop_none_unchanged(tmp_path: Any) -> None:
-    """AC-1.5: _maybe_create_take_profit_order 直调 stop=None → 不变(100.75)。"""
+    """AC-1.5: _maybe_create_take_profit_order 直调 stop=None → 不变(101.5)。"""
     config = _live_config(
         StopLossConfig(
             take_profit_percent=0.06,
@@ -440,9 +441,11 @@ async def test_c1_i04_direct_stop_none_unchanged(tmp_path: Any) -> None:
         market_data={"technical": {"atr_percent": 0.01}},
     )
 
+    # 2026-09-20 loss-structure-fix / R1: 自适应 TP (ATR 1%×1.5) = 101.5，
+    # 全仓回退默认保持原目标 (旧值 100.75 是砍半结果)
     assert (
         bot._exchange.take_profit_calls[0]["take_profit_price"]
-        == pytest.approx(100.75)
+        == pytest.approx(101.5)
     )
 
 

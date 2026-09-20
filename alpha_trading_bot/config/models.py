@@ -124,6 +124,10 @@ class TradingConfig:
     runtime_environment: str = "dev"
     order_confirm_timeout_seconds: float = 5.0
     order_confirm_poll_interval_seconds: float = 0.25
+    # 24h 涨幅(%)上限：超过该值时禁止新开空单（逆势做空 R/R 极差，
+    # 2026-09-18 日志: +5.22% 大阳线日逆势做空 -1.02% 止损）。
+    # 0=关闭门禁。
+    short_entry_max_daily_change: float = 1.5
 
     VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
     LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
@@ -154,6 +158,11 @@ class TradingConfig:
             errors.append("订单确认超时必须大于0")
         if self.order_confirm_poll_interval_seconds <= 0:
             errors.append("订单确认轮询间隔必须大于0")
+        if self.short_entry_max_daily_change < 0:
+            errors.append(
+                "short_entry_max_daily_change "
+                f"({self.short_entry_max_daily_change}) 不能为负数 (0=关闭门禁)"
+            )
         if (
             self.order_confirm_poll_interval_seconds
             > self.order_confirm_timeout_seconds
@@ -400,6 +409,16 @@ class StopLossConfig:
     # 0=关闭 cap（恢复 C1 单向外扩行为）；默认 4.0。
     # dream 2026-09-14-okx-loss-round2 / P2（根因 R2: 低波动市 TP 不可达）。
     take_profit_max_atr_multiplier: float = 4.0
+    # 全仓止盈回退时的目标拉近比例：分批止盈数量低于最小张数退回全仓止盈时，
+    # 止盈目标 = 入场价 ∓ 原距离×本比例。1.0=保持原目标（默认，修复 30 天日志
+    # 中 57/57 笔 TP 距离被砍半导致 R/R 结构性倒挂的问题）；0.5=旧行为（拉近一半）。
+    # 2026-09-20 loss-structure-fix / R1。
+    take_profit_full_amount_pull_ratio: float = 1.0
+    # 单边 taker 手续费率（OKX VIP0 默认 0.05%），用于手续费感知的出场门禁：
+    # 追踪止损仅在"锁定净浮盈 ≥ 2×往返手续费"后才收紧，避免 0.1~0.3% 的
+    # 手续费级"虚假盈利"被提前落袋。
+    # 2026-09-20 loss-structure-fix / R2。
+    taker_fee_rate: float = 0.0005
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -469,6 +488,16 @@ class StopLossConfig:
                 f"({self.take_profit_max_atr_multiplier}) "
                 "不能为负数 (0=关闭cap)"
             )
+        if (
+            self.take_profit_full_amount_pull_ratio <= 0
+            or self.take_profit_full_amount_pull_ratio > 1
+        ):
+            errors.append(
+                f"全仓止盈拉近比例 {self.take_profit_full_amount_pull_ratio} "
+                "不在有效范围 (0,1] (1.0=保持原目标)"
+            )
+        if self.taker_fee_rate < 0 or self.taker_fee_rate > 0.05:
+            errors.append(f"taker手续费率 {self.taker_fee_rate} 不在有效范围 [0, 0.05)")
         return errors
 
 
@@ -557,6 +586,9 @@ class Config:
                 runtime_environment=os.getenv(
                     "RUNTIME_ENVIRONMENT", os.getenv("RUNTIME_ENV", "dev")
                 ).lower(),
+                short_entry_max_daily_change=float(
+                    os.getenv("SHORT_ENTRY_MAX_DAILY_CHANGE", "1.5")
+                ),
                 order_confirm_timeout_seconds=float(
                     os.getenv("ORDER_CONFIRM_TIMEOUT_SECONDS", "5")
                 ),
@@ -604,6 +636,10 @@ class Config:
                 min_net_profit_to_close_percent=float(
                     os.getenv("MIN_NET_PROFIT_TO_CLOSE_PERCENT", "0")
                 ),
+                take_profit_full_amount_pull_ratio=float(
+                    os.getenv("TAKE_PROFIT_FULL_AMOUNT_PULL_RATIO", "1.0")
+                ),
+                taker_fee_rate=float(os.getenv("TAKER_FEE_RATE", "0.0005")),
                 stop_loss_tick_tolerance=float(
                     os.getenv("STOP_LOSS_TICK_TOLERANCE", "0.1")
                 ),

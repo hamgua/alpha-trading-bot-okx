@@ -447,16 +447,18 @@ async def test_open_creates_take_profit_when_notional_reaches_threshold(
         cached_rule_result={"adjustments": {"position_multiplier": 1.0}},
     )
 
+    # 2026-09-20 loss-structure-fix / R1: 全仓止盈默认保持原目标 (fixed 6% = 106.0)，
+    # 不再按分批比例拉近 (旧值 103.0 是 50% 砍半的结果)。
     assert exchange.take_profit_calls == [
         {
             "symbol": "BTC/USDT:USDT",
             "side": "sell",
             "amount": 0.01,
-            "take_profit_price": pytest.approx(103.0),
+            "take_profit_price": pytest.approx(106.0),
         }
     ]
     assert bot.position_manager._take_profit_order_id == "tp-1"
-    assert bot.position_manager._last_take_profit_price == pytest.approx(103.0)
+    assert bot.position_manager._last_take_profit_price == pytest.approx(106.0)
 
 
 @pytest.mark.asyncio
@@ -527,7 +529,9 @@ async def test_open_creates_adaptive_take_profit_from_market_structure(
             "symbol": "BTC/USDT:USDT",
             "side": "sell",
             "amount": 0.01,
-            "take_profit_price": pytest.approx(100.5494),
+            # 2026-09-20 loss-structure-fix / R1: 保持结构位目标 101.0988
+            # (阻力 101.2×(1-0.001))，不再按分批比例砍半 (旧值 100.5494)。
+            "take_profit_price": pytest.approx(101.0988),
         }
     ]
     assert tracker.records[0]["metadata"] == {
@@ -616,10 +620,15 @@ async def test_take_profit_order_falls_back_to_full_amount_below_minimum(
 
 
 @pytest.mark.asyncio
-async def test_full_amount_take_profit_uses_early_target_when_partial_too_small(
+async def test_full_amount_take_profit_keeps_target_by_default(
     tmp_path: Any,
 ) -> None:
-    """0.01 仓位无法分批时，全仓止盈价提前到原目标距离的分批比例。"""
+    """0.01 仓位无法分批时，全仓止盈默认保持原目标 (pull_ratio=1.0)。
+
+    2026-09-20 loss-structure-fix / R1: 旧实现固定按分批比例 (0.5) 把止盈
+    距离砍半，最小张数仓位 100% 走全仓回退分支，30 天日志 57/57 笔 TP
+    距离被压缩，与 0.5~1.0% 止损形成 R/R 倒挂 (盈亏比 0.62)。
+    """
     config = _live_config(
         StopLossConfig(
             take_profit_mode="fixed",
@@ -660,6 +669,59 @@ async def test_full_amount_take_profit_uses_early_target_when_partial_too_small(
         market_data={"technical": {"atr_percent": 0.01}},
     )
 
+    # fixed 6% 目标 106.0 保持不动
+    assert exchange.take_profit_calls == [
+        {"amount": pytest.approx(0.01), "take_profit_price": pytest.approx(106.0)}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_full_amount_take_profit_pulls_target_when_ratio_below_one(
+    tmp_path: Any,
+) -> None:
+    """pull_ratio<1 时全仓止盈按配置拉近目标 (显式回退旧行为)。"""
+    config = _live_config(
+        StopLossConfig(
+            take_profit_mode="fixed",
+            take_profit_percent=0.06,
+            take_profit_partial_ratio=0.5,
+            take_profit_full_amount_pull_ratio=0.5,
+            take_profit_min_notional=1.0,
+        )
+    )
+    bot = AdaptiveTradingBot(config)
+    _wire_execution_deps(bot, tmp_path, _RiskAllows())
+
+    class _Exchange:
+        symbol = "BTC/USDT:USDT"
+
+        def __init__(self) -> None:
+            self.take_profit_calls: List[Dict[str, Any]] = []
+
+        async def create_take_profit(
+            self, symbol: str, side: str, amount: float, take_profit_price: float
+        ) -> str:
+            self.take_profit_calls.append(
+                {
+                    "amount": amount,
+                    "take_profit_price": take_profit_price,
+                }
+            )
+            return "tp-pull"
+
+    exchange = _Exchange()
+    bot._exchange = exchange
+    bot.position_manager.update_position(0.01, 100.0, "BTC/USDT:USDT", "long")
+
+    await bot._maybe_create_take_profit_order(
+        position_side="long",
+        amount=0.01,
+        entry_price=100.0,
+        symbol="BTC/USDT:USDT",
+        market_data={"technical": {"atr_percent": 0.01}},
+    )
+
+    # 106.0 拉近 50% → 103.0
     assert exchange.take_profit_calls == [
         {"amount": pytest.approx(0.01), "take_profit_price": pytest.approx(103.0)}
     ]

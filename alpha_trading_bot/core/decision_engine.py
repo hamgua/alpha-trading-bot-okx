@@ -58,6 +58,11 @@ MARKET_STRUCTURE_LONG_MIN_RR = 2.0
 MARKET_STRUCTURE_LONG_MIN_TREND = 0.70
 MARKET_STRUCTURE_LONG_MAX_RSI = 68
 MARKET_STRUCTURE_SHORT_MIN_RR = 3.0
+# 2026-09-20 loss-structure-fix / R7: 逆势做空 24h 涨幅上限（%）。
+# 30 天日志: 26 笔空单净 -5.21% (价格%), 其中 09-18 在 +5.22% 大阳线日
+# 逆势做空单笔 -1.02%；AI 信号 312 次 BUY vs 2 次 SELL，做空路径系统性
+# 无视市场方向。超过该 24h 涨幅禁止新开空单（0=关闭门禁）。
+SHORT_ENTRY_MAX_DAILY_CHANGE = 1.5
 MARKET_STRUCTURE_SHORT_MIN_TREND = 0.25
 BEARISH_STRUCTURE_SHORT_MIN_RR = 3.0
 BEARISH_STRUCTURE_SHORT_MIN_TREND = 0.25
@@ -112,6 +117,7 @@ class DecisionEngine:
             "ai_hold_strategy_sell_missed_quality_setup": 0,
             "ai_hold_strategy_sell_missed_quality_executed": 0,
             "structural_short_rr_override_executed": 0,
+            "short_entry_trend_blocked": 0,
         }
         self._missed_high_quality_short_count = 0
         self._oversold_metrics: Dict[str, int] = {
@@ -338,6 +344,12 @@ class DecisionEngine:
             )
             return {}
 
+        # 2026-09-20 loss-structure-fix / R7: 逆势做空门禁
+        trend_block = self._short_entry_trend_block(market_data)
+        if trend_block is not None:
+            self._missed_high_quality_short_count = 0
+            return trend_block
+
         confidence_block = self._confidence_gate("short", selected, market_data)
         if confidence_block:
             return confidence_block
@@ -384,6 +396,45 @@ class DecisionEngine:
         if not math.isfinite(f):
             return None
         return f
+
+    def _short_entry_trend_block(
+        self, market_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """逆势做空门禁：24h 涨幅超过上限时禁止新开空单。
+
+        2026-09-20 loss-structure-fix / R7。返回 None=放行，
+        否则返回 skip 决策 dict。配置 short_entry_max_daily_change<=0 时关闭。
+        """
+        max_change = getattr(self._config.trading, "short_entry_max_daily_change", None)
+        if (
+            not isinstance(max_change, (int, float))
+            or isinstance(max_change, bool)
+            or max_change <= 0
+        ):
+            return None
+        daily_change = self._get_daily_change_percent(market_data)
+        if daily_change is None or daily_change <= max_change:
+            return None
+        self._conflict_metrics["short_entry_trend_blocked"] += 1
+        logger.info(
+            "[决策] 逆势做空门禁: 24h涨幅={:.2f}% > 上限{:.2f}%, 禁止新开空单".format(
+                daily_change, max_change
+            )
+        )
+        return {
+            "action": "skip",
+            "reason": (
+                f"24h涨幅{daily_change:.2f}%超过做空上限{max_change:.2f}%，"
+                "逆势做空R/R极差，跳过"
+            ),
+            "confidence": 0.0,
+            "strategy": "short_entry_trend_gate",
+            "metadata": {
+                "short_entry_trend_blocked": True,
+                "daily_change_percent": daily_change,
+                "max_daily_change": max_change,
+            },
+        }
 
     def _make_structural_short_rr_decision(
         self,
@@ -1053,6 +1104,10 @@ class DecisionEngine:
             and atr_percent < MAX_TRADE_ATR_PERCENT
             and rsi > SHORT_RSI_OVERSOLD_BLOCK
         ):
+            # 2026-09-20 loss-structure-fix / R7: 逆势做空门禁
+            trend_block = self._short_entry_trend_block(market_data)
+            if trend_block is not None:
+                return trend_block
             confidence_block = self._confidence_gate("short", selected, market_data)
             if confidence_block:
                 return confidence_block
@@ -1101,6 +1156,10 @@ class DecisionEngine:
                 self._config.trading.allow_short_selling
                 and self._is_confirmed_mean_reversion_short(selected, market_data)
             ):
+                # 2026-09-20 loss-structure-fix / R7: 逆势做空门禁
+                trend_block = self._short_entry_trend_block(market_data)
+                if trend_block is not None:
+                    return trend_block
                 confidence_block = self._confidence_gate("short", selected, market_data)
                 if confidence_block:
                     return confidence_block

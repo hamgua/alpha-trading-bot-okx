@@ -13,7 +13,7 @@
 import asyncio
 import inspect
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 
 from .trading_scheduler import TradingScheduler
@@ -723,6 +723,8 @@ class AdaptiveTradingBot:
         unrealized_pnl: Any = 0.0,
         stop_order_id: str = "",
         stop_price: Any = 0.0,
+        take_profit_order_id: str = "",
+        take_profit_price: Any = 0.0,
     ) -> None:
         """保存最近持仓上下文，供下一轮持仓消失审计使用。"""
         self._last_position_side = side
@@ -734,6 +736,8 @@ class AdaptiveTradingBot:
             unrealized_pnl=unrealized_pnl,
             stop_order_id=stop_order_id,
             stop_price=stop_price,
+            take_profit_order_id=take_profit_order_id,
+            take_profit_price=take_profit_price,
         )
 
     def _refresh_close_audit_stop(
@@ -758,6 +762,32 @@ class AdaptiveTradingBot:
             unrealized_pnl=ctx.unrealized_pnl,
             stop_order_id=str(stop_order_id),
             stop_price=stop_price,
+            take_profit_order_id=ctx.take_profit_order_id,
+            take_profit_price=ctx.take_profit_price,
+        )
+
+    def _refresh_close_audit_take_profit(
+        self, take_profit_order_id: str, take_profit_price: float
+    ) -> None:
+        """止盈单创建成功后同步平仓审计上下文中的止盈 algoId/价格。
+
+        2026-09-20 loss-structure-fix / R5: 持仓消失审计此前只追踪止损单，
+        止盈触发平仓永远"推断"且按止损价估算 PnL。
+        """
+        if not take_profit_order_id:
+            return
+        ctx = self._position_close_audit_context
+        if not ctx.entry_price or not ctx.side:
+            return
+        self._remember_position_close_audit_context(
+            side=ctx.side,
+            entry_price=ctx.entry_price,
+            amount=ctx.amount,
+            unrealized_pnl=ctx.unrealized_pnl,
+            stop_order_id=ctx.stop_order_id,
+            stop_price=ctx.stop_price,
+            take_profit_order_id=str(take_profit_order_id),
+            take_profit_price=take_profit_price,
         )
 
     async def _log_disappeared_position_close_event(self) -> Optional[Dict[str, Any]]:
@@ -1095,10 +1125,13 @@ class AdaptiveTradingBot:
 
             # 调用交易所API开仓
             symbol = self._exchange.symbol
-            suggested_amount = risk_params.get("suggested_position", 0.01)
-            # 限制仓位不超过最大仓位 (0.01 BTC，符合OKX最小交易单位和配置要求)
-            max_amount = 0.01
-            amount = min(suggested_amount, max_amount)
+            suggested_fraction = risk_params.get("suggested_position", 0.1)
+            # 2026-09-20 loss-structure-fix / R4: 仓位不再硬编码最小张数。
+            # suggested_position 是"账户容量比例"(0.05~0.1)，旧实现把它当
+            # 张数再 min(0.01)，仓位决策恒为最小张数 (死代码)。
+            amount = await self._calculate_open_amount(
+                float(suggested_fraction or 0.1), current_price
+            )
             stop_loss_price = risk_params.get("stop_loss_price")
 
             # 下市价单开仓 (根据 position_side 决定买入还是卖出)
@@ -1400,7 +1433,7 @@ class AdaptiveTradingBot:
             take_profit_amount,
             full_amount_fallback,
         ) = self._calculate_take_profit_order_amount(amount)
-        notional = take_profit_amount * entry_price
+        notional = self._calculate_notional_usdt(take_profit_amount, entry_price)
         min_notional = self.config.stop_loss.take_profit_min_notional
         if min_notional > 0 and notional < min_notional:
             logger.info(
@@ -1458,6 +1491,7 @@ class AdaptiveTradingBot:
             return
 
         self.position_manager.set_take_profit_order(order_id, take_profit_price)
+        self._refresh_close_audit_take_profit(order_id, take_profit_price)
         logger.info(
             f"[止盈保护] 止盈单已设置: id={order_id}, "
             f"price={take_profit_price:.4f}, "
@@ -1618,13 +1652,71 @@ class AdaptiveTradingBot:
             return amount, True
         return take_profit_amount, False
 
+    def _calculate_notional_usdt(self, amount: float, price: float) -> float:
+        """按合约规格计算 USDT 名义价值（ctVal 修正）。
+
+        2026-09-20 loss-structure-fix / R3: 旧实现 amount×price 把"张数"
+        当成 BTC 数量，对 BTC-USDT-SWAP (ctVal=0.01 BTC/张) 高估 100 倍
+        (日志: 0.01 张被记为 notional=745.79，实际仅 ~$7.5)，导致
+        TAKE_PROFIT_MIN_NOTIONAL=50 等名义金额门禁全部失真。
+        规格不可用时回退 amount×price (旧行为)。
+        """
+        try:
+            return float(self._exchange.calculate_notional_usdt(amount, price))
+        except Exception:
+            return amount * price
+
+    async def _calculate_open_amount(
+        self, suggested_fraction: float, current_price: float
+    ) -> float:
+        """按账户容量与合约规格计算开仓张数。
+
+        2026-09-20 loss-structure-fix / R4: 张数 = clamp(容量张数×建议比例,
+        最小张数, 容量张数)。旧实现 max_amount=0.01 硬编码，把
+        suggested_position (0.05~0.1 的容量比例) 直接当张数再 min(0.01)，
+        仓位决策恒为最小张数 (死代码)，账户余额/杠杆从未参与决策。
+        容量不可用或低于最小张数时回退最小张数 (不阻断开仓)。
+        """
+        min_amount = 0.01  # OKX 最小张数
+        max_contracts = 0.0
+        try:
+            leverage = int(self.config.exchange.leverage or 0) or 10
+            max_contracts = await self._exchange.calculate_max_contracts(
+                current_price, leverage
+            )
+        except Exception as e:
+            logger.warning(f"[仓位] 账户容量计算失败，回退最小张数: {e}")
+        if not max_contracts or max_contracts < min_amount:
+            logger.info("[仓位] 账户容量不足或不可用，使用最小张数 0.01")
+            return min_amount
+        fraction = max(0.05, min(float(suggested_fraction or 0.1), 1.0))
+        target = max_contracts * fraction
+        amount = max(min_amount, min(target, max_contracts))
+        try:
+            amount = float(self._exchange.normalize_order_size(amount))
+        except Exception:
+            amount = max(min_amount, min(target, max_contracts))
+        logger.info(
+            f"[仓位] 开仓张数={amount:.4f} (账户容量={max_contracts:.4f}, "
+            f"建议比例={fraction:.2f})"
+        )
+        return amount
+
     def _adjust_full_amount_take_profit_price(
         self, entry_price: float, take_profit_price: float, position_side: str
     ) -> float:
-        """全仓止盈时把目标拉近，替代无效的 0.005 分批止盈。"""
+        """全仓止盈回退时按配置拉近目标。
+
+        2026-09-20 loss-structure-fix / R1: 默认
+        take_profit_full_amount_pull_ratio=1.0 保持原止盈目标。旧实现固定按
+        take_profit_partial_ratio (0.5) 把止盈距离砍半，而最小张数仓位 100%
+        走全仓回退分支 —— 30 天日志 57/57 笔 TP 距离被压缩 (均值 0.73%→
+        0.36%)，与 0.5~1.0% 的止损距离形成 R/R 结构性倒挂 (盈亏比 0.62)，
+        是持续亏损的首要根因。
+        """
         if entry_price <= 0 or take_profit_price <= 0:
             return take_profit_price
-        ratio = self.config.stop_loss.take_profit_partial_ratio
+        ratio = self.config.stop_loss.take_profit_full_amount_pull_ratio
         ratio = min(max(ratio, 0.0), 1.0)
         if ratio >= 1.0:
             return take_profit_price
@@ -1641,7 +1733,7 @@ class AdaptiveTradingBot:
             adjusted_price = entry_price + distance * ratio
 
         logger.info(
-            "[止盈保护] 全仓止盈目标提前: "
+            "[止盈保护] 全仓止盈目标拉近: "
             f"entry={entry_price:.4f}, original={take_profit_price:.4f}, "
             f"adjusted={adjusted_price:.4f}, ratio={ratio:.2f}"
         )
@@ -1950,7 +2042,15 @@ class AdaptiveTradingBot:
         )
 
         # === P3: 计算新的止损价格 ===
-        min_profit_to_tighten = self.config.stop_loss.min_profit_to_tighten_stop_percent
+        # 2026-09-20 loss-structure-fix / R2: 手续费感知收紧门槛 ——
+        # 追踪止损收紧后锁定的净浮盈 = 浮盈 - 追踪距离，必须 ≥ 2×往返手续费，
+        # 否则 0.1~0.3% 的"盈利"扣掉 0.1% 往返 taker 费后接近 0 (30 天日志:
+        # 15 笔结算胜率 33%，平均盈利 +0.37% ≈ 3×往返费)。
+        round_trip_fee = 2 * max(self.config.stop_loss.taker_fee_rate, 0.0)
+        min_profit_to_tighten = max(
+            self.config.stop_loss.min_profit_to_tighten_stop_percent,
+            atr_adjusted_profit_pct + 2 * round_trip_fee,
+        )
         if position_side == "long":
             profit_percent = (
                 (current_price - entry_price) / entry_price if entry_price > 0 else 0
