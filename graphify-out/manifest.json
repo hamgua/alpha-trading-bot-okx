@@ -236,8 +236,8 @@
     "hash": "6fc7c45567e37d9908349927ee86938e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/client.py": {
-    "mtime": 1790499154.5178525,
-    "hash": "5b021b6ad5e265200e6c2dd9590a8296"
+    "mtime": 1790499968.770935,
+    "hash": "4bad7495716acd750477d93c86e31c05"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/backtest_validator.py": {
     "mtime": 1774321626.527536,
@@ -396,8 +396,8 @@
     "hash": "b2ea62c9fbb3f8987fe0198793a8e6e9"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/jev/fast_lane.py": {
-    "mtime": 1790499243.0822818,
-    "hash": "b879bf87d3a3f6579c66b272e4930945"
+    "mtime": 1790499942.2078443,
+    "hash": "f31e50d61717aabdd929a3599660ed8f"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/alpha_trading_bot/ai/adaptive/market_regime.py": {
     "mtime": 1780979514.3791454,
@@ -672,8 +672,8 @@
     "hash": "8e1cac6fd5b7021b9f539da112307a00"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_jev_fast_lane.py": {
-    "mtime": 1790498894.7316258,
-    "hash": "6b2a6d36a121be71a75c61fea42f312e"
+    "mtime": 1790499838.2235124,
+    "hash": "c66b0cef29b793deb93165ce40ec6bbb"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_integration_short_signal_flow.py": {
     "mtime": 1789700454.3768485,
@@ -724,8 +724,8 @@
     "hash": "15f231497b98722f3c3eb22d2165ed1a"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_ai_client_fast_lane.py": {
-    "mtime": 1790499157.7674983,
-    "hash": "4c5ada76c6c01f6470701dde87b48e85"
+    "mtime": 1790499949.7706065,
+    "hash": "e65dadd26599bdd0e80dbcb9a98005c6"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/tests/unit/test_loss_structure_fixes.py": {
     "mtime": 1789876508.4059796,
@@ -1052,8 +1052,8 @@
     "hash": "5ddb3498db13a7c223f2de38d1a183dd"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/docs/superpowers/specs/2026-09-27-jev-fast-lane-design.md": {
-    "mtime": 1790497547.0693107,
-    "hash": "d34422f0b286ff82ffaf0b9e47c4625a"
+    "mtime": 1790500109.3117821,
+    "hash": "faf30b3acf4ac66b8c7464562ad14d19"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/openspec/config.yaml": {
     "mtime": 1776070842.2931933,
