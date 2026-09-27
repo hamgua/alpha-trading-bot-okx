@@ -1,72 +1,53 @@
 """
-build_prompt 的 jev_context 注入单元测试（prompt_builder.build_prompt）
+prompt_builder Jev 初读注入单元测试
 """
 
-from alpha_trading_bot.ai.prompt_builder import build_prompt
+from alpha_trading_bot.ai.prompt_builder import PromptBuilder, build_prompt
 
 MARKET_DATA = {
     "symbol": "BTC-USDT",
     "price": 118000.0,
-    "high": 119000.0,
-    "low": 116000.0,
-    "volume": 12345.6,
-    "change_percent": 1.2,
-    "recent_drop_percent": -0.01,
-    "recent_rise_percent": 0.008,
     "technical": {
-        "rsi": 55.5,
-        "macd": 12.3,
-        "macd_histogram": 12.3456,
-        "adx": 18.0,
-        "atr_percent": 0.02,
-        "bb_position": 0.45,
+        "rsi": 55,
+        "macd_hist": 1.0,
         "trend_direction": "up",
-        "trend_strength": 0.25,
+        "trend_strength": 0.2,
     },
-    "position": {
-        "side": "long",
-        "amount": 0.05,
-        "entry_price": 115000.0,
-        "unrealized_pnl": 150.0,
-        "pnl_percent": 2.6,
-    },
-    "price_history": [117000.0 + i for i in range(30)],
-    "market_structure": "bullish",
-    "market_structure_direction": "long",
-    "risk_reward_ratio": 2.5,
-    "nearest_support": 116500.0,
-    "nearest_resistance": 119200.0,
-    "position_size_factor": 1.0,
 }
 
-
-def test_none_keeps_old_behavior_exactly() -> None:
-    """jev_context=None → 输出与旧版逐字节一致（回归保障）。"""
-    old = build_prompt(MARKET_DATA, provider="deepseek")
-    new = build_prompt(MARKET_DATA, provider="deepseek", jev_context=None)
-    assert new == old
-    assert "[Jev初读]" not in old
+JEV_CONTEXT = (
+    "[Jev初读] 倾向=BUY (置信 0.62) 分布: buy=0.45 hold=0.35\n"
+    "          反转风险=0.31 震荡无方向=0.60\n"
+    "          快车道置信度不足未能直接决策，请基于完整市场数据独立判断，不必与初读一致。"
+)
 
 
-def test_jev_context_appended_at_end() -> None:
-    """jev_context 追加在 prompt 末尾，原有内容逐字节保留。"""
-    jev = (
-        "[Jev初读] signal=buy conf=0.70 probabilities: buy=0.70; "
-        "反转风险Noul=0.20; 震荡无方向Noul=0.30. "
-        "以上为快速模型的初步判断，仅供参考，请以你的完整分析为准。"
-    )
-    without_ctx = build_prompt(MARKET_DATA, provider="deepseek")
-    with_ctx = build_prompt(MARKET_DATA, provider="deepseek", jev_context=jev)
-    assert with_ctx.startswith(without_ctx)  # 仅追加，不改原有内容
-    assert with_ctx.endswith(jev)  # 追加在末尾
+def test_none_context_prompt_unchanged() -> None:
+    """jev_context=None：输出与旧行为一致（无初读小节）。"""
+    base = PromptBuilder.build(MARKET_DATA, "default")
+    with_none = PromptBuilder.build(MARKET_DATA, "default", jev_context=None)
+    assert base == with_none
+    assert "快速模型初读" not in base
 
 
-def test_jev_context_behavior_across_providers() -> None:
-    """kimi/deepseek/default 各 provider 下同样保持 None→原样、有值→追加末尾。"""
-    jev = "[Jev初读] x"
+def test_jev_context_appended_section() -> None:
+    """jev_context 非空：prompt 尾部追加初读小节，原内容不变（前缀一致）。"""
+    base = PromptBuilder.build(MARKET_DATA, "default")
+    prompt = PromptBuilder.build(MARKET_DATA, "default", jev_context=JEV_CONTEXT)
+    assert prompt.startswith(base)
+    assert "## 快速模型初读（仅供参考，请独立判断）" in prompt
+    assert "[Jev初读]" in prompt
+
+
+def test_convenience_function_forwards_context() -> None:
+    """便捷函数 build_prompt 透传 jev_context；provider 参数不受影响。"""
+    prompt = build_prompt(MARKET_DATA, provider="default", jev_context=JEV_CONTEXT)
+    assert "[Jev初读]" in prompt
+    plain = build_prompt(MARKET_DATA)
+    assert "快速模型初读" not in plain
     for provider in ("kimi", "deepseek", "default"):
         base = build_prompt(MARKET_DATA, provider=provider)
         assert build_prompt(MARKET_DATA, provider=provider, jev_context=None) == base
-        assert build_prompt(MARKET_DATA, provider=provider, jev_context=jev).endswith(
-            jev
-        )
+        assert build_prompt(
+            MARKET_DATA, provider=provider, jev_context=JEV_CONTEXT
+        ).startswith(base)

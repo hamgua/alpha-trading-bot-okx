@@ -249,10 +249,9 @@ class PromptBuilder:
             mkt_pos_factor=mkt_pos_factor,
             crash_bounce_guide=crash_bounce_guide,
         )
-        # Jev 快车道：升级 LLM 时把 Jev 初读上下文追加在 prompt 末尾
-        # （None/空 → 输出与旧版逐字节一致，零行为变化）
+        # Jev 快车道初读：仅升级路径注入；None 时保持旧输出逐字节一致
         if jev_context:
-            prompt += f"\n\n{jev_context}"
+            prompt += f"\n## 快速模型初读（仅供参考，请独立判断）\n" f"{jev_context}\n"
         return prompt
 
     @classmethod
