@@ -188,6 +188,11 @@ class FastLaneResult:
 | 8 | `choice in ("sell","short")` 且 `confidence ≥ conf_sell` | 采用 | `adopt` |
 | 9 | 其余 | 不采用 | `low_confidence` |
 
+> shadow 模式实现说明（复审回写）：第 3 行的语义是“永不采用”而非 reason 必为
+> `shadow`。实现中安全旗标/置信度判断先于模式判断执行：shadow 模式下
+> risk_gate/low_confidence 路径保留其具体 reason（审计粒度更细），仅“本应
+> 采用”时 reason 记为 `shadow`（日志标记 `[Jev快车道][shadow] 本可采用`）。
+
 不采用时生成 `jev_context`（示例）：
 
 ```
