@@ -8,8 +8,8 @@ Jev 快车道：熔断器 + 决策矩阵
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Optional
 
 from .config import JevFastLaneConfig
 from .questions import JEV_QUESTIONS, build_state
@@ -18,7 +18,6 @@ from .typesafe_client import (
     JevClient,
     NoulAnswer,
     SystemOneResponse,
-    TypeSafeAPIError,
     TypeSafeAuthError,
     TypeSafeTimeoutError,
 )
