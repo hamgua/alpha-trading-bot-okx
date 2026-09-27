@@ -336,7 +336,8 @@ class JevFastLane:
         )
         logger.info(
             "[Jev快车道] 置信度计算: choice=%s, API返回confidence=%.2f, "
-            "概率分布{%s}, 采用阈值%s=%.2f, 反转风险Noul=%.2f(≤%.2f未触发)",
+            "概率分布{%s}, 采用阈值%s=%.2f, 反转风险Noul=%.2f(≤%.2f未触发), "
+            "耗时=%.0fms",
             decision.choice,
             decision.confidence,
             ", ".join(
@@ -347,6 +348,7 @@ class JevFastLane:
             threshold,
             risk_noul,
             self.config.risk_noul_gate,
+            latency_ms,
         )
         logger.info(
             "[Jev快车道] 置信度不足 (%.2f < %.2f)，升级 LLM",

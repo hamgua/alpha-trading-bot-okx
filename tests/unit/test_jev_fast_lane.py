@@ -270,6 +270,7 @@ async def test_low_confidence_logs_calculation_process(
     assert "0.50" in calc  # 阈值值
     assert "hold=0.55" in calc  # 概率分布
     assert "0.21" in calc  # 反转风险 Noul
+    assert "耗时=" in calc  # Jev 调用耗时（升级路径也可观测延迟）
 
 
 @pytest.mark.asyncio
