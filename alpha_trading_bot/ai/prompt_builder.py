@@ -5,7 +5,19 @@ Prompt构建器 - 专业的加密货币量化交易Prompt
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
-from alpha_trading_bot.config.thresholds import RSI_BUY_OVERSOLD_MAX, PROMPT_BUY_RSI_THRESHOLD, PROMPT_BUY_ADX_THRESHOLD, PROMPT_SELL_RSI_THRESHOLD, PROMPT_WATCH_TREND_STRENGTH, PROMPT_WATCH_ADX_THRESHOLD, PROMPT_WATCH_ATR_THRESHOLD, PROMPT_CRASH_DROP_THRESHOLD, PROMPT_SHORT_TERM_BUY_THRESHOLD, PROMPT_DEEPSEEK_LOW_POSITION_THRESHOLD, PROMPT_DEEPSEEK_REBOUND_RSI_MAX
+from alpha_trading_bot.config.thresholds import (
+    RSI_BUY_OVERSOLD_MAX,
+    PROMPT_BUY_RSI_THRESHOLD,
+    PROMPT_BUY_ADX_THRESHOLD,
+    PROMPT_SELL_RSI_THRESHOLD,
+    PROMPT_WATCH_TREND_STRENGTH,
+    PROMPT_WATCH_ADX_THRESHOLD,
+    PROMPT_WATCH_ATR_THRESHOLD,
+    PROMPT_CRASH_DROP_THRESHOLD,
+    PROMPT_SHORT_TERM_BUY_THRESHOLD,
+    PROMPT_DEEPSEEK_LOW_POSITION_THRESHOLD,
+    PROMPT_DEEPSEEK_REBOUND_RSI_MAX,
+)
 
 
 @dataclass
@@ -98,12 +110,19 @@ class PromptBuilder:
     DEEPSEEK_REBOUND_RSI_MAX = PROMPT_DEEPSEEK_REBOUND_RSI_MAX
 
     @classmethod
-    def build(cls, market_data: Dict[str, Any], provider: str = "default") -> str:
+    def build(
+        cls,
+        market_data: Dict[str, Any],
+        provider: str = "default",
+        jev_context: Optional[str] = None,
+    ) -> str:
         """构建完整的Prompt - 差异化系统
 
         Args:
             market_data: 市场数据
             provider: AI 提供商（kimi/deepseek/default）
+            jev_context: Jev 快车道初读上下文（升级 LLM 时追加在 prompt 末尾；
+                None 时输出与旧版完全一致）
         """
         technical = market_data.get("technical", {})
         current_price = market_data.get("price", 0)
@@ -194,7 +213,7 @@ class PromptBuilder:
    - 密切关注市场结构是否从下跌(bearish)转为震荡(sideways)，这是企稳信号
 """
 
-        return cls._format_prompt(
+        prompt = cls._format_prompt(
             pos_side=pos_side if pos_side != "none" else "无持仓",
             pos_amount=pos_amount,
             entry_price=entry_price,
@@ -230,6 +249,11 @@ class PromptBuilder:
             mkt_pos_factor=mkt_pos_factor,
             crash_bounce_guide=crash_bounce_guide,
         )
+        # Jev 快车道：升级 LLM 时把 Jev 初读上下文追加在 prompt 末尾
+        # （None/空 → 输出与旧版逐字节一致，零行为变化）
+        if jev_context:
+            prompt += f"\n\n{jev_context}"
+        return prompt
 
     @classmethod
     def _format_prompt(
@@ -524,14 +548,19 @@ JSON 格式必须完全符合：
 - 置信度范围：BUY/SHORT 50%-90%, HOLD 25%-65%"""
 
 
-def build_prompt(market_data: Dict[str, Any], provider: str = "default") -> str:
+def build_prompt(
+    market_data: Dict[str, Any],
+    provider: str = "default",
+    jev_context: Optional[str] = None,
+) -> str:
     """构建AI交易决策Prompt - 便捷函数
 
     Args:
         market_data: 市场数据
         provider: AI 提供商(kimi/deepseek/default)
+        jev_context: Jev 快车道初读上下文（追加在 prompt 末尾；None → 与旧版一致）
 
     Returns:
         格式化后的 prompt
     """
-    return PromptBuilder.build(market_data, provider)
+    return PromptBuilder.build(market_data, provider, jev_context)
