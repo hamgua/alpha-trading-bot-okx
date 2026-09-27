@@ -8,6 +8,7 @@ Jev (TypeSafe System One) 快车道
 """
 
 from .config import JevFastLaneConfig
+from .questions import JEV_QUESTIONS, build_state
 from .typesafe_client import (
     ChoiceAnswer,
     NoulAnswer,
@@ -29,4 +30,6 @@ __all__ = [
     "TypeSafeAuthError",
     "TypeSafeError",
     "TypeSafeTimeoutError",
+    "JEV_QUESTIONS",
+    "build_state",
 ]
