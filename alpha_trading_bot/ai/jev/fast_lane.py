@@ -328,6 +328,26 @@ class JevFastLane:
             )
 
         # 置信度不足：升级 LLM 并携带初读上下文（shadow 模式不注入）
+        # 先记录置信度计算过程（API 原始值 → 概率分布 → 阈值对比），便于审计
+        threshold_name = (
+            "conf_buy"
+            if decision.choice == "buy"
+            else "conf_sell" if decision.choice in ("sell", "short") else "conf_hold"
+        )
+        logger.info(
+            "[Jev快车道] 置信度计算: choice=%s, API返回confidence=%.2f, "
+            "概率分布{%s}, 采用阈值%s=%.2f, 反转风险Noul=%.2f(≤%.2f未触发)",
+            decision.choice,
+            decision.confidence,
+            ", ".join(
+                f"{key}={value:.2f}" for key, value in decision.probabilities.items()
+            )
+            or "n/a",
+            threshold_name,
+            threshold,
+            risk_noul,
+            self.config.risk_noul_gate,
+        )
         logger.info(
             "[Jev快车道] 置信度不足 (%.2f < %.2f)，升级 LLM",
             decision.confidence,

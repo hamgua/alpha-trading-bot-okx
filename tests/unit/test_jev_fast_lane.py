@@ -236,6 +236,43 @@ async def test_shadow_risk_gate_does_not_inject_context() -> None:
 
 
 @pytest.mark.asyncio
+async def test_low_confidence_logs_calculation_process(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """置信度不足时，上一行必须记录置信度计算过程：
+    API 原始置信度 / 概率分布 / 所用阈值（名称+值）/ 反转风险旗标，
+    且计算行必须先于“置信度不足”行输出。"""
+    caplog.set_level(logging.INFO, logger="alpha_trading_bot.ai.jev.fast_lane")
+    response = SystemOneResponse(
+        answers={
+            "trade_decision": ChoiceAnswer(
+                choice="hold",
+                probabilities={"hold": 0.55, "buy": 0.10, "sell": 0.30, "short": 0.05},
+                confidence=0.34,
+            ),
+            "is_high_risk_reversal": NoulAnswer(noul=0.21),
+            "is_choppy_no_edge": NoulAnswer(noul=0.40),
+        }
+    )
+    client = _FakeJevClient(response=response)
+    lane = make_lane(client)
+    result = await lane.decide(MARKET_DATA)
+    assert result.reason == "low_confidence"
+
+    messages = [r.getMessage() for r in caplog.records]
+    calc_idx = next(i for i, m in enumerate(messages) if "置信度计算" in m)
+    insufficient_idx = next(i for i, m in enumerate(messages) if "置信度不足" in m)
+    assert calc_idx < insufficient_idx  # 计算过程在前，结论在后
+    calc = messages[calc_idx]
+    assert "choice=hold" in calc  # Jev 的 choice
+    assert "0.34" in calc  # API 原始置信度
+    assert "conf_hold" in calc  # 所用阈值名称
+    assert "0.50" in calc  # 阈值值
+    assert "hold=0.55" in calc  # 概率分布
+    assert "0.21" in calc  # 反转风险 Noul
+
+
+@pytest.mark.asyncio
 async def test_out_of_vocabulary_choice_escalates() -> None:
     """词表外 choice（API 漂移）：不得被采用，按 bad_response 升级 LLM。"""
     drift = make_response("buy", 0.99)
