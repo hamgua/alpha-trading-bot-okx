@@ -8,7 +8,7 @@ Jev 快车道：熔断器 + 决策矩阵
 
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
 from .config import JevFastLaneConfig
@@ -124,9 +124,9 @@ class FastLaneResult:
     """
 
     adopted: bool
-    signal: str
-    confidence: float
-    probabilities: Dict[str, float]
+    signal: Optional[str] = None  # adopted 时为 buy/hold/sell/short
+    confidence: float = 0.0  # 主问题 Choice 的 confidence
+    probabilities: Dict[str, float] = field(default_factory=dict)
     jev_context: Optional[str] = None  # 升级 LLM 时的上下文文本
     reason: str = ""  # 审计：adopt/low_confidence/risk_gate/timeout/auth_error/
     # api_error/bad_response/circuit_open/shadow/disabled
@@ -161,6 +161,11 @@ class JevFastLane:
         self._adopted = 0
         self._escalated = 0
         self._errors = 0
+
+    @property
+    def breaker(self) -> _CircuitBreaker:
+        """熔断器实例（供 AIClient.get_metrics 读 circuit_state）。"""
+        return self._breaker
 
     @classmethod
     def from_env(cls) -> "JevFastLane":
@@ -243,6 +248,22 @@ class JevFastLane:
                 reason="bad_response",
                 latency_ms=latency_ms,
             )
+        if decision.choice not in ("buy", "hold", "sell", "short"):
+            # 词表外 choice（模型/API 漂移）：绝不采用，按 bad_response 升级 LLM
+            logger.warning("[Jev快车道] 词表外 choice=%r，升级 LLM", decision.choice)
+            self._escalated += 1
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="bad_response",
+                latency_ms=latency_ms,
+            )
+
+        # shadow 观察模式永不注入 jev_context（不污染 LLM prompt，
+        # Phase 1 一致率观测必须基于未受污染的 LLM 决策）
+        inject_context = self.config.mode == "on"
 
         self._breaker.record_success()
         # 安全旗标一票否决
@@ -260,7 +281,11 @@ class JevFastLane:
                 signal=decision.choice,
                 confidence=decision.confidence,
                 probabilities=decision.probabilities,
-                jev_context=self._jev_context(decision, risk_noul, response),
+                jev_context=(
+                    self._jev_context(decision, risk_noul, response)
+                    if inject_context
+                    else None
+                ),
                 reason="risk_gate",
                 latency_ms=latency_ms,
             )
@@ -302,7 +327,7 @@ class JevFastLane:
                 latency_ms=latency_ms,
             )
 
-        # 置信度不足：升级 LLM 并携带初读上下文
+        # 置信度不足：升级 LLM 并携带初读上下文（shadow 模式不注入）
         logger.info(
             "[Jev快车道] 置信度不足 (%.2f < %.2f)，升级 LLM",
             decision.confidence,
@@ -314,7 +339,11 @@ class JevFastLane:
             signal=decision.choice,
             confidence=decision.confidence,
             probabilities=decision.probabilities,
-            jev_context=self._jev_context(decision, risk_noul, response),
+            jev_context=(
+                self._jev_context(decision, risk_noul, response)
+                if inject_context
+                else None
+            ),
             reason="low_confidence",
             latency_ms=latency_ms,
         )

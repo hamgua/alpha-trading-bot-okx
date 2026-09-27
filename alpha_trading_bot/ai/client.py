@@ -14,9 +14,10 @@ import asyncio
 import hashlib
 import importlib
 import logging
+import os
 import re
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 from collections import defaultdict
 
 from alpha_trading_bot.config.models import AIConfig
@@ -25,13 +26,11 @@ from .prompt_builder import build_prompt
 from .response_parser import parse_response
 from .integrator import AISignalIntegrator
 from .integrator_config import IntegrationConfig
+from .jev.fast_lane import JevFastLane
 from alpha_trading_bot.utils.observability import (
     record_fallback_invocation,
     record_gemini_request,
 )
-
-if TYPE_CHECKING:
-    from .jev import JevFastLane
 
 logger = logging.getLogger(__name__)
 
@@ -214,8 +213,37 @@ class AIClient:
         # 序列化 get_signal，防止并发调用在置位/判定窗口之间串扰降级标志。
         self._signal_lock: Optional[asyncio.Lock] = None
 
-        # Jev 快车道（默认 None = 禁用，零行为变化；失败自动降级 LLM）
-        self.fast_lane = fast_lane
+        # Jev 快车道：显式注入优先；否则按 env 自建
+        # （AI_FAST_LANE=off 时返回 None，保持现状行为）
+        self._fast_lane: Optional[JevFastLane] = (
+            fast_lane if fast_lane is not None else self._init_fast_lane()
+        )
+
+    def _init_fast_lane(self) -> Optional[JevFastLane]:
+        """启用时从 env 构建 Jev 快车道；禁用时返回 None（保持现状行为）。"""
+        mode = os.getenv("AI_FAST_LANE", "off").strip().lower()
+        if mode == "off":
+            return None
+        fast_lane = JevFastLane.from_env()
+        logger.info(
+            "[Jev快车道] 已启用 mode=%s model=%s "
+            "阈值=buy:%s/sell:%s/hold:%s risk_gate:%s",
+            mode,
+            fast_lane.config.model,
+            fast_lane.config.conf_buy,
+            fast_lane.config.conf_sell,
+            fast_lane.config.conf_hold,
+            fast_lane.config.risk_noul_gate,
+        )
+        return fast_lane
+
+    async def _get_llm_signal(
+        self, market_data: Dict[str, Any], jev_context: Optional[str] = None
+    ) -> Tuple[str, float]:
+        """获取 LLM 原始信号（single/fusion），可携带 Jev 快车道初读上下文。"""
+        if self.config.mode == "single":
+            return await self._get_single_signal(market_data, jev_context=jev_context)
+        return await self._get_fusion_signal(market_data, jev_context=jev_context)
 
     def _get_normalized_fusion_weights(self) -> Dict[str, float]:
         """返回融合提供商完整且归一化的权重。"""
@@ -297,32 +325,31 @@ class AIClient:
                 if cached_signal:
                     return cached_signal
 
-            # Jev 快车道：Jev 高置信度且过安全旗标 → 直接采用并跳过 LLM
-            # （fast_lane=None 时本块不生效，零行为变化）
-            jev_context: Optional[str] = None
-            if self.fast_lane is not None:
-                lane_result = await self.fast_lane.decide(market_data)
-                if lane_result.adopted:
+            # 获取原始信号（Jev 快车道优先；低置信/故障时升级 LLM）
+            # _fast_lane=None（默认）时本分支不生效，零行为变化
+            if self._fast_lane is not None:
+                fast_result = await self._fast_lane.decide(market_data)
+                if fast_result.adopted:
+                    # 采用路径：跳过 LLM，但信号仍走下游集成器安全层
+                    # （adopted 与 escalated 共用同一下游，spec 关键不变式）
                     self._metrics["fast_lane_adopted"] += 1
+                    original_signal = fast_result.signal or "hold"
+                    original_confidence = fast_result.confidence
+                    await log_signal_distribution(original_signal, source="jev")
                     logger.info(
-                        f"[AI信号] 快车道采用 (Jev): signal={lane_result.signal} "
-                        f"conf={lane_result.confidence:.2f} "
-                        f"latency={int(lane_result.latency_ms)}ms"
+                        "[AI请求] Jev快车道采用: %s " "(置信=%.2f, %dms, 跳过LLM)",
+                        original_signal,
+                        original_confidence,
+                        fast_result.latency_ms,
                     )
-                    await log_signal_distribution(lane_result.signal, source="jev")
-                    return lane_result.signal.upper()
-                self._metrics["fast_lane_escalated"] += 1
-                if lane_result.jev_context:
-                    jev_context = lane_result.jev_context
-
-            # 获取原始信号
-            if self.config.mode == "single":
-                original_signal, original_confidence = await self._get_single_signal(
-                    market_data, jev_context
-                )
+                else:
+                    self._metrics["fast_lane_escalated"] += 1
+                    original_signal, original_confidence = await self._get_llm_signal(
+                        market_data, jev_context=fast_result.jev_context
+                    )
             else:
-                original_signal, original_confidence = await self._get_fusion_signal(
-                    market_data, jev_context
+                original_signal, original_confidence = await self._get_llm_signal(
+                    market_data
                 )
 
             # 使用集成器优化信号
@@ -844,7 +871,13 @@ class AIClient:
 
     def get_metrics(self) -> Dict[str, int]:
         """返回当前累计的监控指标快照（用于诊断和报告）。"""
-        return dict(self._metrics)
+        metrics = dict(self._metrics)
+        if self._fast_lane is not None:
+            metrics.update(self._fast_lane.get_stats())
+            metrics["fast_lane_circuit_open"] = int(
+                self._fast_lane.breaker.get_stats()["circuit_state"] != "closed"
+            )
+        return metrics
 
 
 async def get_signal(market_data: Dict[str, Any], mode: str = "single") -> str:

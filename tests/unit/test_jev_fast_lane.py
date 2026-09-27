@@ -215,3 +215,51 @@ async def test_bad_response_shape_escalates() -> None:
     result = await lane.decide(MARKET_DATA)
     assert result.adopted is False
     assert result.reason == "bad_response"
+
+
+@pytest.mark.asyncio
+async def test_shadow_risk_gate_does_not_inject_context() -> None:
+    """shadow 模式：risk_gate/low_conf 升级也不注入 jev_context（不污染 LLM prompt，
+    Phase 1 观测必须基于未受污染的 LLM 决策）。"""
+    client = _FakeJevClient(response=make_response("buy", 0.99, risk=0.85))
+    lane = make_lane(client, mode="shadow", risk_noul_gate=0.70)
+    result = await lane.decide(MARKET_DATA)
+    assert result.adopted is False
+    assert result.reason == "risk_gate"
+    assert result.jev_context is None
+
+    client2 = _FakeJevClient(response=make_response("buy", 0.6))
+    lane2 = make_lane(client2, mode="shadow")
+    result2 = await lane2.decide(MARKET_DATA)
+    assert result2.reason == "low_confidence"
+    assert result2.jev_context is None
+
+
+@pytest.mark.asyncio
+async def test_out_of_vocabulary_choice_escalates() -> None:
+    """词表外 choice（API 漂移）：不得被采用，按 bad_response 升级 LLM。"""
+    drift = make_response("buy", 0.99)
+    drift.answers["trade_decision"] = ChoiceAnswer(
+        choice="long", probabilities={"long": 0.99}, confidence=0.99
+    )
+    client = _FakeJevClient(response=drift)
+    lane = make_lane(client)
+    result = await lane.decide(MARKET_DATA)
+    assert result.adopted is False
+    assert result.reason == "bad_response"
+
+
+def test_fast_lane_result_probabilities_default() -> None:
+    """spec: probabilities 缺省为空 dict（FastLaneResult 可省略该字段）。"""
+    from alpha_trading_bot.ai.jev.fast_lane import FastLaneResult
+
+    result = FastLaneResult(adopted=True, signal="buy", confidence=0.9, reason="adopt")
+    assert result.probabilities == {}
+
+
+def test_breaker_exposed_for_metrics() -> None:
+    """JevFastLane.breaker 暴露熔断器（供 AIClient.get_metrics 读 circuit_state）。"""
+    client = _FakeJevClient(response=make_response())
+    lane = make_lane(client)
+    assert lane.breaker.state in ("closed", "open", "half_open")
+    assert "circuit_state" in lane.breaker.get_stats()
