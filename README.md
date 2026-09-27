@@ -358,6 +358,27 @@ alpha_trading_bot/
 - `BUY_MAX_RSI`: BUY信号最大RSI值（默认65）
 - `BUY_MIN_ATR`: BUY信号最小ATR百分比（默认0.15%）
 
+#### Jev 快车道（TypeSafe System One）
+
+AI 信号支持 Jev（TypeSafe "System One" 模型）快车道：Jev 先做快速结构化决策
+（70–500ms，返回类型化值 + 概率分布 + 置信度），高置信且无风险旗标时直接采用、
+跳过 LLM；低置信/反转风险旗标/超时/账户故障时自动升级现有 LLM 路径（并把
+Jev 初读注入 LLM prompt 作为上下文）。熔断器在账户欠费/封停时自动关闭快车道
+（全部流量回落纯 LLM），故障恢复后自动探测恢复。
+
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `AI_FAST_LANE` | `off` | `off`/`shadow`/`on` 三档 |
+| `TYPESAFE_API_KEY` | - | TypeSafe API Key（`AI_FAST_LANE != off` 时必填） |
+| `TYPESAFE_MODEL` | `jev-1.13.0` | 建议 pin 固定版本 |
+| `JEV_TIMEOUT` | `5.0` | 快车道超时（秒） |
+| `JEV_CONF_BUY` / `JEV_CONF_SELL` / `JEV_CONF_HOLD` | `0.75`/`0.75`/`0.50` | 采用置信阈值（非对称） |
+| `JEV_RISK_NOUL_GATE` | `0.70` | 反转风险超此值强制升级 LLM |
+| `JEV_CB_FAILURES` / `JEV_CB_COOLDOWN` / `JEV_CB_AUTH_COOLDOWN` | `3`/`600`/`21600` | 熔断参数 |
+
+建议上线节奏：`off`（默认）→ `shadow`（观察 Jev 与 LLM 一致率与延迟，
+决策仍走 LLM）→ `on`（真快车道）。随时 `AI_FAST_LANE=off` 一键回退。
+
 ### Gemini 配置示例
 
 ```bash
