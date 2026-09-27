@@ -16,7 +16,7 @@ import importlib
 import logging
 import re
 import time
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 from collections import defaultdict
 
 from alpha_trading_bot.config.models import AIConfig
@@ -29,6 +29,9 @@ from alpha_trading_bot.utils.observability import (
     record_fallback_invocation,
     record_gemini_request,
 )
+
+if TYPE_CHECKING:
+    from .jev import JevFastLane
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +172,7 @@ class AIClient:
         integrator_mode: str = "standard",
         cache_ttl: int = DEFAULT_CACHE_TTL,
         enable_cache: bool = True,
+        fast_lane: Optional["JevFastLane"] = None,
     ):
         from .fusion.base import get_fusion_strategy
 
@@ -197,6 +201,9 @@ class AIClient:
             "max_tokens_truncated": 0,
             "reasoning_fallback_hits": 0,
             "reasoning_fallback_misses": 0,
+            "fast_lane_adopted": 0,
+            "fast_lane_escalated": 0,
+            "fast_lane_errors": 0,
         }
 
         # dream C3: 标记本次 get_signal 的信号是否来自 reasoning_content 提取(降级)。
@@ -206,6 +213,9 @@ class AIClient:
 
         # 序列化 get_signal，防止并发调用在置位/判定窗口之间串扰降级标志。
         self._signal_lock: Optional[asyncio.Lock] = None
+
+        # Jev 快车道（默认 None = 禁用，零行为变化；失败自动降级 LLM）
+        self.fast_lane = fast_lane
 
     def _get_normalized_fusion_weights(self) -> Dict[str, float]:
         """返回融合提供商完整且归一化的权重。"""
@@ -287,14 +297,32 @@ class AIClient:
                 if cached_signal:
                     return cached_signal
 
+            # Jev 快车道：Jev 高置信度且过安全旗标 → 直接采用并跳过 LLM
+            # （fast_lane=None 时本块不生效，零行为变化）
+            jev_context: Optional[str] = None
+            if self.fast_lane is not None:
+                lane_result = await self.fast_lane.decide(market_data)
+                if lane_result.adopted:
+                    self._metrics["fast_lane_adopted"] += 1
+                    logger.info(
+                        f"[AI信号] 快车道采用 (Jev): signal={lane_result.signal} "
+                        f"conf={lane_result.confidence:.2f} "
+                        f"latency={int(lane_result.latency_ms)}ms"
+                    )
+                    await log_signal_distribution(lane_result.signal, source="jev")
+                    return lane_result.signal.upper()
+                self._metrics["fast_lane_escalated"] += 1
+                if lane_result.jev_context:
+                    jev_context = lane_result.jev_context
+
             # 获取原始信号
             if self.config.mode == "single":
                 original_signal, original_confidence = await self._get_single_signal(
-                    market_data
+                    market_data, jev_context
                 )
             else:
                 original_signal, original_confidence = await self._get_fusion_signal(
-                    market_data
+                    market_data, jev_context
                 )
 
             # 使用集成器优化信号
@@ -339,14 +367,18 @@ class AIClient:
 
             return result.final_signal
 
-    async def _get_single_signal(self, market_data: Dict[str, Any]) -> tuple:
+    async def _get_single_signal(
+        self, market_data: Dict[str, Any], jev_context: Optional[str] = None
+    ) -> tuple:
         """单AI模式，返回 (signal, confidence)"""
         provider = self.config.default_provider
         api_key = self.api_keys.get(provider, "")
         logger.info(f"[AI请求] 单AI模式, 提供商: {provider}")
 
         # 使用带重试的调用
-        response = await self._call_ai_with_retry(provider, market_data, api_key)
+        response = await self._call_ai_with_retry(
+            provider, market_data, api_key, jev_context
+        )
         signal, confidence = parse_response(response)
 
         # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
@@ -363,7 +395,9 @@ class AIClient:
         )
         return signal, confidence_normalized
 
-    async def _get_fusion_signal(self, market_data: Dict[str, Any]) -> tuple:
+    async def _get_fusion_signal(
+        self, market_data: Dict[str, Any], jev_context: Optional[str] = None
+    ) -> tuple:
         """多AI融合模式 - 并行调用多个AI并融合结果"""
         providers = self.config.fusion_providers
         fusion_weights = self._get_normalized_fusion_weights()
@@ -373,7 +407,9 @@ class AIClient:
         tasks = []
         for provider in providers:
             api_key = self.api_keys.get(provider, "")
-            tasks.append(self._call_ai_with_retry(provider, market_data, api_key))
+            tasks.append(
+                self._call_ai_with_retry(provider, market_data, api_key, jev_context)
+            )
 
         logger.info(f"[AI请求] 开始并行调用 {len(tasks)} 个AI提供商...")
         responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -436,7 +472,7 @@ class AIClient:
         # 如果所有提供商都失败，直接返回默认HOLD信号，不再尝试备用方案
         if not signals:
             logger.warning("[AI融合] 所有AI提供商都失败，尝试 fallback 提供商")
-            return await self._fallback_fusion(market_data)
+            return await self._fallback_fusion(market_data, jev_context)
 
         # 使用融合策略
         strategy = self._get_fusion_strategy(self.config.fusion_strategy)
@@ -466,7 +502,9 @@ class AIClient:
         # 返回信号和置信度
         return fused_signal.signal, fused_signal.confidence
 
-    async def _fallback_fusion(self, market_data: Dict[str, Any]) -> tuple:
+    async def _fallback_fusion(
+        self, market_data: Dict[str, Any], jev_context: Optional[str] = None
+    ) -> tuple:
         """备用融合方案 - 当主提供商失败时使用"""
         record_fallback_invocation()
         preferred_order = ["gemini", "qwen", "openai", "deepseek", "kimi", "minimax"]
@@ -503,7 +541,7 @@ class AIClient:
             try:
                 api_key = self.api_keys.get(provider, "")
                 response = await self._call_ai_with_retry(
-                    provider, market_data, api_key
+                    provider, market_data, api_key, jev_context
                 )
                 signal, confidence = parse_response(response)
                 # 归一化置信度: parse_response 返回 0-100 整数，统一转为 0-1 浮点数
@@ -525,14 +563,18 @@ class AIClient:
         return "hold", 0.40
 
     async def _call_ai_with_retry(
-        self, provider: str, market_data: Dict[str, Any], api_key: str
+        self,
+        provider: str,
+        market_data: Dict[str, Any],
+        api_key: str,
+        jev_context: Optional[str] = None,
     ) -> str:
         """带指数退避重试的AI调用"""
         last_error = None
 
         for attempt in range(self.MAX_RETRIES):
             try:
-                return await self._call_ai(provider, market_data, api_key)
+                return await self._call_ai(provider, market_data, api_key, jev_context)
             except Exception as e:
                 last_error = e
 
@@ -606,7 +648,11 @@ class AIClient:
         return False
 
     async def _call_ai(
-        self, provider: str, market_data: Dict[str, Any], api_key: str
+        self,
+        provider: str,
+        market_data: Dict[str, Any],
+        api_key: str,
+        jev_context: Optional[str] = None,
     ) -> str:
         """调用单个AI - 差异化"""
         aiohttp_module = importlib.import_module("aiohttp")
@@ -615,7 +661,8 @@ class AIClient:
         config = get_provider_config(provider)
 
         # 根据 provider 生成差异化 prompt
-        prompt = build_prompt(market_data, provider=provider)
+        # jev_context: Jev 快车道升级时的初读上下文（None → 与旧版 prompt 一致）
+        prompt = build_prompt(market_data, provider=provider, jev_context=jev_context)
 
         headers = {
             "Authorization": f"Bearer {api_key}",

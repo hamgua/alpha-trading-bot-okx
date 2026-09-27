@@ -27,7 +27,9 @@ def _make_client(
     )
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
 
-    async def fake_call(provider: str, market_data: Dict[str, Any], api_key: str) -> str:
+    async def fake_call(
+        provider: str, market_data: Dict[str, Any], api_key: str, jev_context=None
+    ) -> str:
         if degraded:
             client._last_signal_degraded = True  # 模拟 _call_ai reasoning 提取置位
         return "buy | confidence: 70%"
@@ -116,7 +118,7 @@ async def test_c3_g07_flag_resets_across_calls(monkeypatch: pytest.MonkeyPatch) 
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
     state = {"degraded": True, "final": "BUY"}
 
-    async def fake_call(provider, market_data, api_key):
+    async def fake_call(provider, market_data, api_key, jev_context=None):
         if state["degraded"]:
             client._last_signal_degraded = True
         return "buy | confidence: 70%"
@@ -169,7 +171,7 @@ async def test_c3_g09_concurrent_get_signal_does_not_reset_degraded_flag(
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
     gate = asyncio.Event()
 
-    async def fake_single(market_data: Dict[str, Any]) -> tuple:
+    async def fake_single(market_data: Dict[str, Any], jev_context=None) -> tuple:
         # 模拟 _call_ai reasoning 提取成功后的降级状态，并挂起等待。
         client._last_signal_degraded = True
         await gate.wait()
@@ -324,7 +326,7 @@ async def test_c3_e01_reasoning_extraction_sets_degraded_flag(
     monkeypatch.setattr("aiohttp.ClientSession", fake_client_session)
     monkeypatch.setattr(
         "alpha_trading_bot.ai.client.build_prompt",
-        lambda md, provider="default": "prompt",
+        lambda md, provider="default", jev_context=None: "prompt",
     )
 
     result = await client._call_ai("deepseek", {"technical": {"rsi": 45}}, "k")
@@ -357,7 +359,7 @@ async def test_c3_e02_normal_content_keeps_flag_false(
     monkeypatch.setattr("aiohttp.ClientSession", fake_client_session)
     monkeypatch.setattr(
         "alpha_trading_bot.ai.client.build_prompt",
-        lambda md, provider="default": "prompt",
+        lambda md, provider="default", jev_context=None: "prompt",
     )
 
     result = await client._call_ai("deepseek", {"technical": {"rsi": 45}}, "k")

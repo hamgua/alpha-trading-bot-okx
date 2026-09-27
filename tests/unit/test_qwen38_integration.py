@@ -78,7 +78,9 @@ async def test_single_mode_routes_to_qwen38(monkeypatch: pytest.MonkeyPatch) -> 
 
     calls = {"provider": ""}
 
-    async def fake_call(provider: str, market_data: dict, api_key: str) -> str:
+    async def fake_call(
+        provider: str, market_data: dict, api_key: str, jev_context=None
+    ) -> str:
         calls["provider"] = provider
         return '{"signal": "buy", "confidence": 0.72}'
 
@@ -155,9 +157,7 @@ async def test_qwen38_reasoning_fallback_extracts_signal(
         async def __aexit__(self, *args) -> None:
             return None
 
-    monkeypatch.setattr(
-        aiohttp, "ClientSession", lambda *a, **k: _FakeSession()
-    )
+    monkeypatch.setattr(aiohttp, "ClientSession", lambda *a, **k: _FakeSession())
 
     content = await client._call_ai("qwen38", {"technical": {"rsi": 45}}, "sk-anything")
 

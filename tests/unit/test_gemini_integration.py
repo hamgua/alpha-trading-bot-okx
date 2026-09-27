@@ -114,7 +114,9 @@ async def test_single_mode_routes_to_gemini(monkeypatch: pytest.MonkeyPatch) -> 
 
     calls = {"provider": ""}
 
-    async def fake_call(provider: str, market_data: dict, api_key: str) -> str:
+    async def fake_call(
+        provider: str, market_data: dict, api_key: str, jev_context=None
+    ) -> str:
         calls["provider"] = provider
         return "buy | confidence: 72%"
 
@@ -138,7 +140,9 @@ async def test_get_signal_exposes_integrated_risk_metadata(
     )
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
 
-    async def fake_call(provider: str, market_data: dict, api_key: str) -> str:
+    async def fake_call(
+        provider: str, market_data: dict, api_key: str, jev_context=None
+    ) -> str:
         return "buy | confidence: 70%"
 
     def fake_process(market_data, original_signal, original_confidence):
@@ -178,10 +182,12 @@ async def test_fusion_all_failed_triggers_fallback(
     )
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
 
-    async def always_fail(provider: str, market_data: dict, api_key: str) -> str:
+    async def always_fail(
+        provider: str, market_data: dict, api_key: str, jev_context=None
+    ) -> str:
         raise RuntimeError(f"{provider} down")
 
-    async def fallback_ok(market_data: dict) -> tuple:
+    async def fallback_ok(market_data: dict, jev_context=None) -> tuple:
         return "sell", 0.66
 
     monkeypatch.setattr(client, "_call_ai_with_retry", always_fail)
@@ -202,7 +208,9 @@ async def test_gemini_metrics_record_failure_on_http_error(
     )
     client = AIClient(config=config, api_keys=config.api_keys, enable_cache=False)
 
-    async def fake_call(provider: str, market_data: dict, api_key: str) -> str:
+    async def fake_call(
+        provider: str, market_data: dict, api_key: str, jev_context=None
+    ) -> str:
         if provider == "gemini":
             from alpha_trading_bot.utils.observability import record_gemini_request
 
