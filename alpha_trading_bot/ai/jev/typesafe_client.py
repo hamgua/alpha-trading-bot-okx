@@ -11,12 +11,17 @@ TypeSafe (Jev) System One 客户端
 POST {base_url}/v1/systemone。
 """
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
+
+import aiohttp
 
 from alpha_trading_bot.core.exceptions import AIProviderError
+
+from .config import JevFastLaneConfig
 
 logger = logging.getLogger(__name__)
 
@@ -225,3 +230,114 @@ def _redact(text: str) -> str:
         r"\bsk-[a-z0-9]{8,}\b", "[REDACTED]", sanitized, flags=re.IGNORECASE
     )
     return sanitized[:200]
+
+
+# ---------- HTTP 客户端 ----------
+
+
+class JevClient:
+    """TypeSafe System One 异步 HTTP 客户端。
+
+    - 单次 POST {base_url}/v1/systemone（契约见 spec References）
+    - 429/5xx: 指数退避重试，最多 MAX_RETRIES 次
+    - 401/402（欠费/Key 无效/封停）: 不重试，抛 TypeSafeAuthError（熔断器管冷却）
+    - 超时: 不重试，抛 TypeSafeTimeoutError（快车道价值在速度，超时即升级 LLM）
+    """
+
+    MAX_RETRIES = 2
+    BASE_DELAY = 0.5  # 退避基础延迟（秒）；测试可置 0
+
+    def __init__(self, config: JevFastLaneConfig) -> None:
+        self.config = config
+
+    async def system_one(
+        self, state: str, questions: Dict[str, JevQuestion]
+    ) -> SystemOneResponse:
+        """发起一次 system_one 请求，返回类型化响应。
+
+        Raises:
+            TypeSafeAuthError: 401/402 或 Key 未配置
+            TypeSafeTimeoutError: 请求超时
+            TypeSafeAPIError: 其他 API/网络/解析错误
+        """
+        if not self.config.api_key:
+            raise TypeSafeAuthError("TYPESAFE_API_KEY 未配置")
+
+        headers = {
+            "Authorization": f"Bearer {self.config.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: Dict[str, Any] = {
+            "model": self.config.model,
+            "state": state,
+            "questions": {
+                qid: question.to_payload() for qid, question in questions.items()
+            },
+        }
+
+        last_error: Optional[TypeSafeAPIError] = None
+        for attempt in range(self.MAX_RETRIES + 1):
+            try:
+                return await self._post_once(headers, payload)
+            except (TypeSafeAuthError, TypeSafeTimeoutError):
+                # 鉴权失败/超时没有重试价值，直接抛出让熔断器处理
+                raise
+            except TypeSafeAPIError as e:
+                last_error = e
+                if e.retryable and attempt < self.MAX_RETRIES:
+                    delay = self.BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        f"[Jev] 请求失败 ({e})，{delay:.1f}s 后重试 "
+                        f"(第{attempt + 1}次)"
+                    )
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+        # 防御性兜底：循环正常结束意味着未抛错（理论不可达）
+        if last_error is None:
+            raise TypeSafeAPIError("TypeSafe 调用失败且未捕获到明确异常")
+        raise last_error
+
+    async def _post_once(
+        self, headers: Dict[str, str], payload: Dict[str, Any]
+    ) -> SystemOneResponse:
+        """发起单次 HTTP 请求并分类错误；重试策略由 system_one 处理。"""
+        url = f"{self.config.base_url}/v1/systemone"
+        timeout = aiohttp.ClientTimeout(total=self.config.timeout_seconds)
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, headers=headers, json=payload, timeout=timeout
+                ) as response:
+                    if response.status in (401, 402):
+                        body = await response.text()
+                        logger.error(
+                            f"[Jev] 鉴权/欠费失败 status={response.status} "
+                            f"body={_redact(body)}"
+                        )
+                        raise TypeSafeAuthError(
+                            f"TypeSafe HTTP {response.status}: {_redact(body)}"
+                        )
+                    if response.status != 200:
+                        body = await response.text()
+                        logger.error(
+                            f"[Jev] HTTP错误 status={response.status} "
+                            f"body={_redact(body)}"
+                        )
+                        raise TypeSafeAPIError(
+                            f"TypeSafe HTTP {response.status}: {_redact(body)}",
+                            retryable=response.status == 429 or response.status >= 500,
+                        )
+                    result = await response.json()
+        except asyncio.TimeoutError:
+            logger.error(f"[Jev] 请求超时 (>{self.config.timeout_seconds}s)")
+            raise TypeSafeTimeoutError(
+                f"TypeSafe 请求超时 (>{self.config.timeout_seconds}s)"
+            )
+        except aiohttp.ClientError as e:
+            logger.error(f"[Jev] 网络错误: {type(e).__name__}: {e}")
+            raise TypeSafeAPIError(
+                f"TypeSafe 网络错误: {type(e).__name__}: {e}", retryable=True
+            )
+
+        return parse_system_one_response(result)

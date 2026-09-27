@@ -11,6 +11,7 @@ from .config import JevFastLaneConfig
 from .questions import JEV_QUESTIONS, build_state
 from .typesafe_client import (
     ChoiceAnswer,
+    JevClient,
     NoulAnswer,
     ScoreAnswer,
     SystemOneResponse,
@@ -23,6 +24,7 @@ from .typesafe_client import (
 __all__ = [
     "JevFastLaneConfig",
     "ChoiceAnswer",
+    "JevClient",
     "NoulAnswer",
     "ScoreAnswer",
     "SystemOneResponse",
