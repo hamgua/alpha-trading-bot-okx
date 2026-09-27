@@ -8,6 +8,7 @@ Jev (TypeSafe System One) 快车道
 """
 
 from .config import JevFastLaneConfig
+from .fast_lane import FastLaneResult, JevFastLane
 from .questions import JEV_QUESTIONS, build_state
 from .typesafe_client import (
     ChoiceAnswer,
@@ -24,7 +25,9 @@ from .typesafe_client import (
 __all__ = [
     "JevFastLaneConfig",
     "ChoiceAnswer",
+    "FastLaneResult",
     "JevClient",
+    "JevFastLane",
     "NoulAnswer",
     "ScoreAnswer",
     "SystemOneResponse",

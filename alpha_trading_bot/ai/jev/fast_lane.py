@@ -111,3 +111,272 @@ class _CircuitBreaker:
             "circuit_state": self._state,
             "consecutive_failures": self._consecutive_failures,
         }
+
+
+# ---------- 快车道决策 ----------
+
+
+@dataclass
+class FastLaneResult:
+    """快车道决策结果。
+
+    adopted=True: AIClient 直接采用 signal（跳过 LLM）
+    adopted=False: AIClient 调 LLM 做最终判断，jev_context 作为 prompt 上下文
+    """
+
+    adopted: bool
+    signal: str
+    confidence: float
+    probabilities: Dict[str, float]
+    jev_context: Optional[str] = None  # 升级 LLM 时的上下文文本
+    reason: str = ""  # 审计：adopt/low_confidence/risk_gate/timeout/auth_error/
+    # api_error/bad_response/circuit_open/shadow/disabled
+    latency_ms: float = 0.0
+
+
+class JevFastLane:
+    """Jev 快车道门面：熔断检查 + Jev 调用 + 决策矩阵。
+
+    决策矩阵（Review Focus #3 核心）:
+    | Jev 结果 | 动作 |
+    |---|---|
+    | 熔断 OPEN | 跳过 Jev，升级 LLM，reason=circuit_open |
+    | Timeout/APIError | 升级 LLM（记录失败进熔断），LLM 照常决策 |
+    | AuthError | 升级 LLM + 熔断 OPEN（长冷却） |
+    | 响应缺失主问题/类型错 | 升级 LLM（bad_response），不抛异常 |
+    | 反转风险 Noul > 阈值 | 强制升级 LLM（安全旗标一票否决） |
+    | Confidence ≥ 动作对应阈值 | 采用信号，跳过 LLM |
+    | Confidence < 阈值 | 升级 LLM，携带 jev_context |
+    """
+
+    def __init__(
+        self,
+        config: JevFastLaneConfig,
+        client: JevClient,
+        now: Optional[Callable[[], float]] = None,
+    ) -> None:
+        self.config = config
+        self.client = client
+        self._breaker = _CircuitBreaker(config, now=now)
+        self._key_warned = False
+        self._adopted = 0
+        self._escalated = 0
+        self._errors = 0
+
+    @classmethod
+    def from_env(cls) -> "JevFastLane":
+        """从环境变量构建（对齐 providers 的 from_env 惯例）。"""
+        config = JevFastLaneConfig.from_env()
+        errors = config.validate()
+        if errors:
+            for error in errors:
+                logger.warning("[Jev快车道] 配置错误: %s", error)
+            # 配置无效 → 强制 off（快车道失效，主链路不受影响）
+            config = JevFastLaneConfig(mode="off")
+        return cls(config, client=JevClient(config))
+
+    async def decide(self, market_data: Dict[str, Any]) -> FastLaneResult:
+        """执行快车道决策（永不抛异常，失败路径都收敛为升级 LLM）。"""
+        if not self._enabled():
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="disabled",
+            )
+        if self._breaker.is_open():
+            self._escalated += 1
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="circuit_open",
+            )
+
+        state = build_state(market_data)
+        start = time.monotonic()
+        try:
+            response = await self.client.system_one(state, JEV_QUESTIONS)
+        except TypeSafeAuthError as e:
+            self._record_error()
+            self._breaker.record_failure(e)
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="auth_error",
+            )
+        except TypeSafeTimeoutError as e:
+            self._record_error()
+            self._breaker.record_failure(e)
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="timeout",
+            )
+        except Exception as e:  # noqa: B902 防御性兜底：快车道故障永不拖垮主链路
+            self._record_error()
+            self._breaker.record_failure(e)
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="api_error",
+            )
+        latency_ms = (time.monotonic() - start) * 1000.0
+
+        decision = response.answers.get("trade_decision")
+        if not isinstance(decision, ChoiceAnswer):
+            # 响应结构异常不视为网络失败：不驱动熔断，仅升级 LLM
+            logger.warning("[Jev快车道] 响应缺少 trade_decision，升级 LLM")
+            self._escalated += 1
+            return FastLaneResult(
+                adopted=False,
+                signal="",
+                confidence=0.0,
+                probabilities={},
+                reason="bad_response",
+                latency_ms=latency_ms,
+            )
+
+        self._breaker.record_success()
+        # 安全旗标一票否决
+        risk = response.answers.get("is_high_risk_reversal")
+        risk_noul = risk.noul if isinstance(risk, NoulAnswer) else 0.0
+        if risk_noul > self.config.risk_noul_gate:
+            logger.info(
+                "[Jev快车道] 反转风险旗标(%.2f > %.2f)，强制升级 LLM",
+                risk_noul,
+                self.config.risk_noul_gate,
+            )
+            self._escalated += 1
+            return FastLaneResult(
+                adopted=False,
+                signal=decision.choice,
+                confidence=decision.confidence,
+                probabilities=decision.probabilities,
+                jev_context=self._jev_context(decision, risk_noul, response),
+                reason="risk_gate",
+                latency_ms=latency_ms,
+            )
+
+        threshold = self._threshold_for(decision.choice)
+        if decision.confidence >= threshold:
+            if self.config.mode == "shadow":
+                # 观察模式：记录本应采用的结果，但不改变行为
+                logger.info(
+                    "[Jev快车道][shadow] 本可采用 %s (conf=%.2f, %.0fms)，" "仍走 LLM",
+                    decision.choice,
+                    decision.confidence,
+                    latency_ms,
+                )
+                self._escalated += 1
+                return FastLaneResult(
+                    adopted=False,
+                    signal=decision.choice,
+                    confidence=decision.confidence,
+                    probabilities=decision.probabilities,
+                    jev_context=None,
+                    reason="shadow",
+                    latency_ms=latency_ms,
+                )
+            logger.info(
+                "[Jev快车道] 采用 %s (conf=%.2f ≥ 阈值%.2f, %.0fms)",
+                decision.choice,
+                decision.confidence,
+                threshold,
+                latency_ms,
+            )
+            self._adopted += 1
+            return FastLaneResult(
+                adopted=True,
+                signal=decision.choice,
+                confidence=decision.confidence,
+                probabilities=decision.probabilities,
+                reason="adopt",
+                latency_ms=latency_ms,
+            )
+
+        # 置信度不足：升级 LLM 并携带初读上下文
+        logger.info(
+            "[Jev快车道] 置信度不足 (%.2f < %.2f)，升级 LLM",
+            decision.confidence,
+            threshold,
+        )
+        self._escalated += 1
+        return FastLaneResult(
+            adopted=False,
+            signal=decision.choice,
+            confidence=decision.confidence,
+            probabilities=decision.probabilities,
+            jev_context=self._jev_context(decision, risk_noul, response),
+            reason="low_confidence",
+            latency_ms=latency_ms,
+        )
+
+    def _enabled(self) -> bool:
+        """mode 有效且 Key 已配置；Key 缺失时一次性 WARNING（Review Focus #3）。"""
+        if self.config.mode == "off":
+            return False
+        if not self.config.api_key:
+            if not self._key_warned:
+                logger.warning(
+                    "[Jev快车道] AI_FAST_LANE=%s 但 TYPESAFE_API_KEY 未设置，"
+                    "快车道关闭（只走 LLM）。请配置 Key 或设 AI_FAST_LANE=off",
+                    self.config.mode,
+                )
+                self._key_warned = True
+            return False
+        return True
+
+    def _threshold_for(self, signal: str) -> float:
+        """动作对应的非对称置信度阈值（BUY/SELL/SHORT 高，HOLD 低）。"""
+        if signal == "buy":
+            return self.config.conf_buy
+        if signal in ("sell", "short"):
+            return self.config.conf_sell
+        return self.config.conf_hold
+
+    def _jev_context(
+        self,
+        decision: ChoiceAnswer,
+        risk_noul: float,
+        response: SystemOneResponse,
+    ) -> str:
+        """组装升级 LLM 时的初读上下文（Jev 初读仅供参考，不产生交易指令）。"""
+        probs = (
+            ", ".join(
+                f"{key}={value:.2f}" for key, value in decision.probabilities.items()
+            )
+            or "n/a"
+        )
+        choppy = response.answers.get("is_choppy_no_edge")
+        choppy_noul = choppy.noul if isinstance(choppy, NoulAnswer) else 0.0
+        return (
+            "[Jev初读] "
+            f"signal={decision.choice} conf={decision.confidence:.2f} "
+            f"probabilities: {probs}; "
+            f"反转风险Noul={risk_noul:.2f}; "
+            f"震荡无方向Noul={choppy_noul:.2f}. "
+            "以上为快速模型的初步判断，仅供参考，请以你的完整分析为准。"
+        )
+
+    def _record_error(self) -> None:
+        self._errors += 1
+        self._escalated += 1
+
+    def get_stats(self) -> Dict[str, Any]:
+        """统计信息（供 get_metrics() 暴露）。"""
+        return {
+            **self._breaker.get_stats(),
+            "fast_lane_adopted": self._adopted,
+            "fast_lane_escalated": self._escalated,
+            "fast_lane_errors": self._errors,
+            "fast_lane_circuit_open": self._breaker.is_open(),
+        }
