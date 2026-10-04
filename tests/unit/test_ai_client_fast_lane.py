@@ -18,6 +18,10 @@ class _FakeBreakerView:
         return {"circuit_state": "closed", "consecutive_failures": 0}
 
 
+class _FakeConfig:
+    mode = "on"
+
+
 class _FakeFastLane:
     """Mock 快车道：可控 adopt/escalate，记录 decide 调用。"""
 
@@ -25,6 +29,7 @@ class _FakeFastLane:
         self._result = result
         self.decide_calls = 0
         self.breaker = _FakeBreakerView()
+        self.config = _FakeConfig()
 
     async def decide(self, market_data: Dict[str, Any]) -> FastLaneResult:
         self.decide_calls += 1
