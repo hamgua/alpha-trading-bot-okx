@@ -400,14 +400,6 @@ class AIClient:
                 original_signal=original_signal,
                 original_confidence=confidence_float,
             )
-            # P1: 集成器段（记录最终信号/置信度/调整项）
-            self._last_signal_trace["integrator"] = {
-                "original_signal": original_signal,
-                "original_confidence": confidence_float,
-                "final_signal": result.final_signal,
-                "final_confidence": result.final_confidence,
-                "adjustments": list(result.adjustments_made or []),
-            }
             market_data["ai_final_confidence"] = result.final_confidence
             market_data["final_confidence"] = result.final_confidence
             market_data["is_high_risk"] = result.is_high_risk
@@ -433,6 +425,17 @@ class AIClient:
                 )
                 market_data["ai_degraded_buy_blocked"] = True
                 result.final_signal = "HOLD"
+
+            # P1: 集成器段（记录最终信号/置信度/调整项）。
+            # 置于 degraded-buy 改写之后：final_signal 与实际返回严格一致
+            # （降级路径改写为 HOLD 后，trace 记录改写后的值）。
+            self._last_signal_trace["integrator"] = {
+                "original_signal": original_signal,
+                "original_confidence": confidence_float,
+                "final_signal": result.final_signal,
+                "final_confidence": result.final_confidence,
+                "adjustments": list(result.adjustments_made or []),
+            }
 
             # 写入缓存
             if self._enable_cache and self._cache:

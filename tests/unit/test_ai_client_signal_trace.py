@@ -80,6 +80,30 @@ def _escalated_result() -> FastLaneResult:
     )
 
 
+class _FakeIntegratorResult:
+    """mock 集成器结果：final=BUY（用于触发 degraded-buy 改写）。"""
+
+    def __init__(self) -> None:
+        self.final_signal = "BUY"
+        self.final_confidence = 0.5
+        self.is_high_risk = False
+        self.is_low_opportunity = False
+        self.price_level = "mid"
+        self.adjustments_made: list = []
+
+
+class _FakeIntegrator:
+    """mock 集成器：process 返回固定 final=BUY 的结果。"""
+
+    def process(
+        self,
+        market_data: Dict[str, Any] = None,
+        original_signal: str = "",
+        original_confidence: float = 0.5,
+    ) -> _FakeIntegratorResult:
+        return _FakeIntegratorResult()
+
+
 @pytest.mark.asyncio
 async def test_adopted_trace_has_jev_no_llm() -> None:
     client = _make_client(_adopted_result())
@@ -130,3 +154,27 @@ async def test_no_fast_lane_regression() -> None:
     t = client.get_last_signal_trace()
     assert t["jev"] is None
     assert t["llm"] is not None
+
+
+@pytest.mark.asyncio
+async def test_degraded_buy_trace_final_matches_return() -> None:
+    """降级路径：final=BUY 被改写为 HOLD，trace 的 final_signal 必须等于实际返回。"""
+    client = AIClient(
+        config=AIConfig(),
+        api_keys={"qwen38": "fake-key"},
+        enable_cache=False,
+        fast_lane=None,
+    )
+    client.integrator = _FakeIntegrator()  # type: ignore[assignment]
+
+    async def _fake_llm(market_data, jev_context=None):
+        # 模拟 provider 从 reasoning_content 提取信号（降级标记）
+        client._last_signal_degraded = True
+        return "buy", 0.5
+
+    client._get_llm_signal = _fake_llm  # type: ignore[assignment]
+    signal = await client.get_signal(dict(MARKET))
+    t = client.get_last_signal_trace()
+    assert signal == "HOLD"
+    assert t["integrator"]["final_signal"] == signal
+    assert t["integrator"]["final_signal"] == "HOLD"
