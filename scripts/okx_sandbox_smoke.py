@@ -20,9 +20,18 @@ ExchangeClient.create_order 在 TEST_MODE=true 时会跳过真实下单（本地
 
 失败语义 / 退出码:
   0 = 冒烟通过（开平闭环完成，无残留持仓）
-  1 = 验证失败（未成交 / 部分成交 / 平仓失败）；退出前必已尝试清掉残留仓位
-  2 = 环境类问题（403 IP 白名单 / 凭据错误 / 模拟盘未开通 / 余额不足），打印指引
-  3 = 残留仓位未能平掉（需人工立即处理，勿盲目重跑）
+  1 = 验证失败（未成交 / 部分成交 / 平仓失败 / HTTP 层下单异常）；
+      退出前必已尝试清掉残留仓位；失败消息统一附带指引（guide_for_error）
+  2 = 环境类问题（403 IP 白名单 / 凭据错误 / 模拟盘未开通 / 余额不足 / 订单被拒），
+      打印指引
+  3 = 残留仓位未能平掉（需人工立即处理，勿盲目重跑）；
+      如 demo 账户处于双向（hedge）持仓模式时 reduceOnly 平仓单被拒、ensure_flat 平不掉
+
+持仓模式说明:
+  下单 / 平仓基于单向（net）持仓模式（bot 默认）。若 demo 账户为双向（long_short_mode）:
+  - 买单（OPEN）因缺 posSide 被拒 → 退出码 2 + 指引（此时通常尚无残留仓位）
+  - 若已有残留仓位: reduceOnly 平仓单被拒，ensure_flat 平不掉 → 3 次尝试后退出码 3（人工处理）
+  请先在 OKX 将 demo 账户切为单向持仓模式再运行本脚本。
 
 服务器执行（生产容器内）:
   docker exec <容器名> python3 /app/scripts/okx_sandbox_smoke.py
@@ -107,6 +116,11 @@ def guide_for_error(text: Any) -> str:
             f"下单张数低于最小张数: 本脚本用 {CONTRACTS} 张，请检查 {INST_ID} 的 minSz"
         )
     low = t.lower()
+    if "position_side" in low or "hedge" in low or "long_short" in low:
+        return (
+            "demo 账户为双向（hedge）持仓模式，本脚本下单/平仓按单向（net）模式设计；"
+            "请先在 OKX（账户 → 持仓模式）切为单向模式后重跑，残留仓位请人工处理"
+        )
     if "simulated" in low or "demo" in low or "mock" in low:
         return (
             "模拟盘未开通 / API Key 无模拟交易权限: "
@@ -173,12 +187,24 @@ async def fetch_price(client: "ExchangeClient") -> float:
 
 
 async def poll_order(client: "ExchangeClient", order_id: str) -> "OrderResult":
-    """轮询订单状态至终态或 POLL_TIMEOUT 秒，返回最新 OrderResult。"""
+    """轮询订单状态至终态或 POLL_TIMEOUT 秒，返回最新 OrderResult。
+
+    超时且订单仍未终态（挂单 / 部分成交）时，先调 cancel_order 撤单再返回
+    （对齐 bot create_confirmed_market_order 的超时撤单模式，防理论残留挂单）；
+    撤单失败只记 WARNING 不中断，由调用方的清仓收尾兜底。
+    """
     deadline = time.monotonic() + POLL_TIMEOUT
     result = await client.get_order_status(order_id, SYMBOL)
     while not result.is_terminal and time.monotonic() < deadline:
         await asyncio.sleep(POLL_INTERVAL)
         result = await client.get_order_status(order_id, SYMBOL)
+    if not result.is_terminal:
+        try:
+            ok, reason = await client.cancel_order(order_id, SYMBOL)
+            note = "已发撤单" if ok else f"撤单结果: {reason}"
+            print(f"[SMOKE] 订单 {order_id} 超时未终态，{note}（防残留挂单）")
+        except Exception as e:
+            print(f"[SMOKE][WARNING] 超时撤单失败（不中断，继续清仓收尾）: {e}")
     return result
 
 
@@ -238,7 +264,7 @@ async def ensure_flat(client: "ExchangeClient", stage: str) -> bool:
 
 
 async def snapshot_margin(client: "ExchangeClient") -> Dict[str, Any]:
-    """持仓期间保证金占用快照（摘要用）：名义 / imr / 原始 margin 字段。"""
+    """持仓期间保证金占用快照（摘要用）：名义 / imr（绝对 USDT 金额，非比率）/ 原始 margin 字段。"""
     from alpha_trading_bot.exchange.okx_raw import to_float
 
     out: Dict[str, Any] = {
@@ -273,8 +299,12 @@ async def snapshot_margin(client: "ExchangeClient") -> Dict[str, Any]:
 
 
 async def abort_with_cleanup(client: "ExchangeClient", code: int, msg: str) -> int:
-    """失败退出前幂等清仓（保证绝不留仓），返回退出码。"""
+    """失败退出前幂等清仓（保证绝不留仓），返回退出码。
+
+    失败消息统一过 guide_for_error 附带指引（被拒 / 余额不足 / 持仓模式类等给出可操作文案）。
+    """
     print(f"[SMOKE][FAIL] {msg}")
+    print(f"[SMOKE][FAIL] 指引: {guide_for_error(msg)}")
     if not await ensure_flat(client, "失败收尾"):
         print(
             "[SMOKE][严重] 残留仓位未能平掉，请立即人工处理！"
@@ -436,9 +466,11 @@ async def run_smoke(env: Dict[str, str]) -> int:
         return await abort_with_cleanup(client, 3, "收尾验证: 平仓后仍有残留仓位")
 
     # 10) 结果摘要
+    # 注: OKX 持仓 imr 字段为保证金占用的绝对金额（USDT），不是比率，
+    #     摘要直接展示，不做 名义×imr 乘法（量纲错误）
     notional = snap.get("notional")
     imr = snap.get("imr")
-    est_margin = notional * imr if (notional is not None and imr is not None) else None
+    raw_m = snap.get("margin")
     print("")
     print("=" * 62)
     print("OKX 沙盒冒烟测试 —— 结果摘要")
@@ -453,16 +485,19 @@ async def run_smoke(env: Dict[str, str]) -> int:
         f"平仓卖单:    id={sell.order_id}, 成交 {sell.filled_amount} 张, "
         f"均价 {sell_avg}, 手续费 {sell_fee} USDT"
     )
+    margin_shown = False
     if notional is not None:
         print(f"保证金占用:  名义 {notional:.2f} USDT @ 峰值价 {snap.get('mark')}")
-        if est_margin is not None:
-            pct = est_margin / balance * 100 if balance > 0 else None
-            pct_s = f"（≈余额的 {pct:.1f}%）" if pct is not None else ""
-            print(f"            imr={imr}, 估算保证金 {est_margin:.4f} USDT {pct_s}")
-        raw_m = snap.get("margin")
-        if raw_m is not None:
-            print(f"            持仓原始 margin 字段: {raw_m} USDT")
-    else:
+        margin_shown = True
+    if imr is not None:
+        pct = imr / balance * 100 if balance > 0 else None
+        pct_s = f"（≈余额的 {pct:.1f}%）" if pct is not None else ""
+        print(f"保证金占用:  实际占用 imr={imr:.4f} USDT {pct_s}")
+        margin_shown = True
+    if raw_m is not None:
+        print(f"保证金占用:  持仓原始 margin 字段: {raw_m} USDT")
+        margin_shown = True
+    if not margin_shown:
         print("保证金占用:  快照不可用（不影响开平验证结论）")
     print("残留持仓:    0（已确认归零）")
     print("结果:        ✅ 冒烟通过（开平闭环完成，无残留仓位）")
