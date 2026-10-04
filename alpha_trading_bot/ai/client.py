@@ -11,6 +11,7 @@ AI客户端 - 支持单AI/多AI融合
 """
 
 import asyncio
+import copy
 import hashlib
 import importlib
 import logging
@@ -924,8 +925,6 @@ class AIClient:
 
     def get_last_signal_trace(self) -> Dict[str, Any]:
         """返回本次 get_signal 的信号溯源（P1 决策日志数据源；未调用过返回 {}）。"""
-        import copy
-
         return copy.deepcopy(self._last_signal_trace)
 
     def get_metrics(self) -> Dict[str, int]:

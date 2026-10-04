@@ -137,8 +137,9 @@ def test_trace_empty_before_any_call() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_fast_lane_regression() -> None:
+async def test_no_fast_lane_regression(monkeypatch: pytest.MonkeyPatch) -> None:
     """fast_lane=None（AI_FAST_LANE=off）：trace 无 jev 段，行为回归不变。"""
+    monkeypatch.setenv("AI_FAST_LANE", "off")
     client = AIClient(
         config=AIConfig(),
         api_keys={"qwen38": "fake-key"},
@@ -157,8 +158,11 @@ async def test_no_fast_lane_regression() -> None:
 
 
 @pytest.mark.asyncio
-async def test_degraded_buy_trace_final_matches_return() -> None:
+async def test_degraded_buy_trace_final_matches_return(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """降级路径：final=BUY 被改写为 HOLD，trace 的 final_signal 必须等于实际返回。"""
+    monkeypatch.setenv("AI_FAST_LANE", "off")
     client = AIClient(
         config=AIConfig(),
         api_keys={"qwen38": "fake-key"},
