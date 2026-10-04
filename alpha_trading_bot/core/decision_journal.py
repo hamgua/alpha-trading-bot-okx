@@ -61,6 +61,9 @@ class DecisionJournal:
         """
         if not self._enabled:
             return 0
+        # ticker 拉取失败时 current_price 可能为 0/None/NaN，此时前向收益无意义，跳过回填
+        if current_price is None or not current_price > 0:
+            return 0
         days = {
             current_ts.strftime("%Y-%m-%d"),
             (current_ts - timedelta(days=1)).strftime("%Y-%m-%d"),
@@ -71,7 +74,8 @@ class DecisionJournal:
             if not f.exists():
                 continue
             try:
-                lines = f.read_text(encoding="utf-8").splitlines()
+                # 逐行容错：半写产生的坏字节降级为 U+FFFD，所在行 JSON 解析失败被跳过，好行保留
+                lines = f.read_bytes().decode("utf-8", errors="replace").splitlines()
             except (OSError, UnicodeDecodeError) as e:
                 logger.warning("[决策日志] 读取 %s 失败: %s", f.name, e)
                 continue

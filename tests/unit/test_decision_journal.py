@@ -97,8 +97,28 @@ def test_backfill_across_day_boundary(tmp_path) -> None:
     assert n == 1
 
 
+def test_backfill_skips_invalid_current_price(tmp_path) -> None:
+    # F1: current_price 为 0/None/NaN 时前向收益无意义，跳过回填且不写 outcome 行
+    j = DecisionJournal(enabled=True, data_dir=tmp_path)
+    now = datetime.now()
+    old_ts = (now - timedelta(hours=4)).strftime(TS_FMT)
+    day = (now - timedelta(hours=4)).strftime("%Y-%m-%d")
+    with open(tmp_path / f"decision_journal-{day}.jsonl", "a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {"type": "cycle", "ts": old_ts, "price": 84000.0, "final": "BUY"}
+            )
+            + "\n"
+        )
+    assert j.backfill(now, 0.0) == 0
+    outcomes = [
+        l for l in _read(tmp_path, now.strftime("%Y-%m-%d")) if l["type"] == "outcome"
+    ]
+    assert outcomes == []
+
+
 def test_backfill_survives_invalid_utf8(tmp_path) -> None:
-    # F1: 文件含非法 UTF-8 字节（半写/损坏）→ backfill 不抛异常且返回 0
+    # F2: 文件含非法 UTF-8 字节（半写/损坏）→ 逐行容错，好行仍被回填，坏行跳过
     j = DecisionJournal(enabled=True, data_dir=tmp_path)
     now = datetime.now()
     old = now - timedelta(hours=4)
@@ -110,7 +130,7 @@ def test_backfill_survives_invalid_utf8(tmp_path) -> None:
         + b"\xff\xfe"
     )
     n = j.backfill(now, 86000.0)
-    assert n == 0
+    assert n == 1
 
 
 def test_backfill_no_double_write(tmp_path) -> None:

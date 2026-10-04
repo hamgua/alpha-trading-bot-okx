@@ -1,5 +1,6 @@
 """开仓单笔风险反查测试（P1：止损触发预期亏损 ≤ 账户 10%）"""
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -58,3 +59,34 @@ async def test_balance_fetch_error_skips_backcheck(tmp_path) -> None:
     bot = _make_bot(tmp_path)
     bot._exchange.get_balance = AsyncMock(side_effect=RuntimeError("down"))
     assert await bot._apply_risk_backcheck(84000.0, 0.03) == 0.03
+
+
+def _make_live_bot(tmp_path: Path) -> TradingBot:
+    config = Config(
+        exchange=ExchangeConfig(api_key="k", secret="s", password="p"),
+        trading=TradingConfig(
+            test_mode=False,
+            real_trading_confirmed=True,
+            runtime_environment="prod",
+            decision_journal_enabled=False,
+        ),
+        stop_loss=StopLossConfig(stop_loss_percent=0.5),
+    )
+    bot = TradingBot(config)
+    bot._exchange = MagicMock()
+    return bot
+
+
+@pytest.mark.asyncio
+async def test_open_position_aborts_below_min_contracts(tmp_path, caplog) -> None:
+    """风险反查后仓位 < 0.01 张 → 放弃开仓：不下单 + WARNING + 不抛异常。"""
+    bot = _make_live_bot(tmp_path)
+    bot._exchange.calculate_max_contracts = AsyncMock(return_value=0.1)
+    bot._exchange.get_balance = AsyncMock(return_value=100.0)
+    bot._exchange.create_order = AsyncMock(return_value="order-1")
+
+    with caplog.at_level(logging.WARNING):
+        await bot._open_position(84000.0)
+
+    bot._exchange.create_order.assert_not_awaited()
+    assert "风险反查后仓位" in caplog.text
