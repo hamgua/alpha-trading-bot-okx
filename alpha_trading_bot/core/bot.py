@@ -10,8 +10,9 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
+from .decision_journal import DecisionJournal
 from .drawdown_guard import DrawdownGuard, DrawdownStatus
 from .position_manager import PositionManager
 from .signal_processor import SignalProcessor
@@ -51,6 +52,13 @@ class TradingBot:
             resume=self.config.trading.risk_resume,
         )
         self._drawdown_status: Optional[DrawdownStatus] = None
+
+        # P1 决策日志（各层信号 + T+4h/24h 结果回填）
+        self._decision_journal = (
+            DecisionJournal(enabled=self.config.trading.decision_journal_enabled)
+            if self.config.trading.decision_journal_enabled
+            else None
+        )
 
     @property
     def exchange(self):
@@ -235,6 +243,12 @@ class TradingBot:
         logger.info(f"[市场数据] RSI: {rsi_str}")
         logger.info(f"[市场数据] ATR: {atr_str}")
 
+        # P1: 回填 4h/24h 前向收益（用本周期最新价格）
+        if self._decision_journal is not None:
+            from datetime import datetime as _dt
+
+            self._decision_journal.backfill(_dt.now(), current_price)
+
         # 3. 检查当前持仓状态
         try:
             position_data = await self._exchange.get_position()
@@ -294,6 +308,7 @@ class TradingBot:
         logger.info(f"[交易决策] 当前价格: {current_price}")
 
         # 4. 获取AI信号
+        signal: Optional[str] = None
         try:
             logger.info("[AI信号] 正在获取交易信号...")
             signal = await self._ai_client.get_signal(market_data)
@@ -301,10 +316,18 @@ class TradingBot:
             logger.info(f"[AI信号] 原始信号: {signal}")
 
             # 5. 处理信号
-            await self._execute_signal(signal, current_price, has_position)
+            execution_result = await self._execute_signal(
+                signal, current_price, has_position
+            )
+
+            # P1: 记录本周期决策日志
+            await self._record_decision(market_data, signal, execution_result)
         except Exception as e:
             logger.error(f"[交易周期] 获取/处理AI信号时出错: {e}")
             logger.exception("详细错误:")
+            await self._record_decision(
+                market_data, signal, ExecutionResult("error", f"{e}")
+            )
             return  # 直接返回，跳过后续处理
 
         logger.info("交易周期完成")
@@ -324,6 +347,50 @@ class TradingBot:
                 e,
             )
             self._drawdown_status = self._drawdown_guard.snapshot()
+
+    async def _record_decision(
+        self,
+        market_data: Dict[str, Any],
+        signal: Optional[str],
+        execution: Optional[ExecutionResult],
+    ) -> None:
+        """记录本周期决策日志（P1）：任何异常都不得中断周期。"""
+        if self._decision_journal is None:
+            return
+        try:
+            trace = (
+                self._ai_client.get_last_signal_trace()
+                if self._ai_client is not None
+                else {}
+            )
+            integrator = trace.get("integrator") or {}
+            final = integrator.get("final_signal") or signal
+            entry = {
+                "price": market_data.get("price"),
+                "market": {
+                    "price": market_data.get("price"),
+                    "rsi": (market_data.get("technical") or {}).get("rsi")
+                    or market_data.get("rsi"),
+                    "atr": (market_data.get("technical") or {}).get("atr")
+                    or market_data.get("atr"),
+                    "change_24h": market_data.get("change_percent"),
+                },
+                "jev": trace.get("jev"),
+                "llm": trace.get("llm"),
+                "integrator": integrator,
+                "cache_hit": bool(trace.get("cache_hit")),
+                "final": str(final).upper(),
+                "execution": {
+                    "action": execution.action if execution else "error",
+                    "detail": execution.detail if execution else "",
+                },
+                "drawdown_halted": bool(
+                    self._drawdown_status is not None and self._drawdown_status.halted
+                ),
+            }
+            self._decision_journal.record_cycle(entry)
+        except Exception as e:
+            logger.warning("[决策日志] 记录失败（周期不受影响）: %s", e)
 
     async def _execute_signal(
         self, signal: str, current_price: float, has_position: bool
