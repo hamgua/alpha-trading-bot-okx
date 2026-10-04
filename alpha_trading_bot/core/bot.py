@@ -9,16 +9,27 @@
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Optional
 
-from .trading_scheduler import TradingScheduler
-from .signal_processor import SignalProcessor
+from .drawdown_guard import DrawdownGuard, DrawdownStatus
 from .position_manager import PositionManager
+from .signal_processor import SignalProcessor
 from .stop_loss_manager import StopLossManager
+from .trading_scheduler import TradingScheduler
 from ..config.models import Config
 from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ExecutionResult:
+    """信号执行结果（P1：供决策日志记录）"""
+
+    # open_long / update_stop / close / none / blocked_drawdown / blocked_other / error
+    action: str
+    detail: str = ""
 
 
 class TradingBot:
@@ -33,6 +44,13 @@ class TradingBot:
         self.scheduler = TradingScheduler(config)
         self.position_manager = PositionManager(config)
         self._stop_loss_manager: Optional[StopLossManager] = None
+
+        # P1 回撤停机总闸（30% 回撤禁止新开仓；高水位持久化，手动恢复）
+        self._drawdown_guard = DrawdownGuard(
+            threshold=self.config.trading.risk_drawdown_halt,
+            resume=self.config.trading.risk_resume,
+        )
+        self._drawdown_status: Optional[DrawdownStatus] = None
 
     @property
     def exchange(self):
@@ -270,6 +288,9 @@ class TradingBot:
             logger.info("[持仓状态] 无持仓")
             market_data["position"] = {}
 
+        # 3.5 回撤总闸检查（P1）
+        await self._check_drawdown()
+
         logger.info(f"[交易决策] 当前价格: {current_price}")
 
         # 4. 获取AI信号
@@ -289,9 +310,21 @@ class TradingBot:
         logger.info("交易周期完成")
         logger.info("=" * 60)
 
+    async def _check_drawdown(self) -> None:
+        """周期内回撤总闸检查（P1）：只拦新开仓，不影响已持仓管理。
+
+        余额获取失败时跳过本轮（不中断周期、不误停机）。
+        """
+        try:
+            equity = await self._exchange.get_balance()
+            self._drawdown_status = self._drawdown_guard.check(equity)
+        except Exception as e:
+            logger.warning("[风控总闸] 权益获取失败，跳过本轮检查: %s", e)
+            self._drawdown_status = None
+
     async def _execute_signal(
         self, signal: str, current_price: float, has_position: bool
-    ) -> None:
+    ) -> ExecutionResult:
         """执行信号"""
         logger.info(
             f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, "
@@ -300,32 +333,46 @@ class TradingBot:
 
         if signal == "BUY":
             if not has_position:
+                # P1 回撤总闸：停机期间禁止新开仓（已持仓管理不受影响）
+                if self._drawdown_status is not None and self._drawdown_status.halted:
+                    logger.warning(
+                        "[信号执行] BUY信号 + 无持仓 + 回撤总闸生效 -> 禁止新开仓"
+                        "（回撤 %.1f%%）",
+                        self._drawdown_status.drawdown * 100,
+                    )
+                    return ExecutionResult(
+                        "blocked_drawdown",
+                        f"drawdown={self._drawdown_status.drawdown:.2%}",
+                    )
                 logger.info("[信号执行] BUY信号 + 无持仓 -> 执行开仓")
                 await self._open_position(current_price)
-            else:
-                logger.info("[信号执行] BUY信号 + 有持仓 -> 更新止损")
-                await self._update_stop_loss(current_price)
+                return ExecutionResult("open_long", f"price={current_price}")
+            logger.info("[信号执行] BUY信号 + 有持仓 -> 更新止损")
+            await self._update_stop_loss(current_price)
+            return ExecutionResult("update_stop")
 
-        elif signal == "HOLD":
+        if signal == "HOLD":
             if has_position:
                 logger.info("[信号执行] HOLD信号 + 有持仓 -> 更新止损")
                 await self._update_stop_loss(current_price)
-            else:
-                logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
-                logger.info(
-                    "[机会评估] 当前为HOLD信号，系统持续监控中。"
-                    "如需更多交易机会，可考虑: 1)缩短CYCLE_MINUTES 2)切换AI_FUSION模式 3)调整INVESTMENT_TYPE=aggressive"
-                )
+                return ExecutionResult("update_stop")
+            logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
+            logger.info(
+                "[机会评估] 当前为HOLD信号，系统持续监控中。如需更多交易机会，可考虑: "
+                "1)缩短CYCLE_MINUTES 2)切换AI_FUSION模式 3)调整INVESTMENT_TYPE=aggressive"
+            )
+            return ExecutionResult("none")
 
-        elif signal == "SELL":
+        if signal == "SELL":
             if has_position:
                 logger.info("[信号执行] SELL信号 + 有持仓 -> 执行平仓")
                 await self._close_position(current_price)
-            else:
-                logger.info("[信号执行] SELL信号 + 无持仓 -> 不操作")
+                return ExecutionResult("close", f"price={current_price}")
+            logger.info("[信号执行] SELL信号 + 无持仓 -> 不操作")
+            return ExecutionResult("none")
 
-        else:
-            logger.warning(f"[信号执行] 未知信号: {signal}")
+        logger.warning(f"[信号执行] 未知信号: {signal}")
+        return ExecutionResult("error", f"unknown_signal={signal}")
 
     async def _open_position(self, price: float) -> None:
         """开仓 - 根据余额动态计算交易量
@@ -338,6 +385,14 @@ class TradingBot:
         if not live_allowed:
             logger.warning(f"[实盘闸门] 拒绝开仓: {reason}")
             record_live_guard_block()
+            return
+
+        # P1 回撤总闸纵深防线（周期级检查之外的兜底）
+        if self._drawdown_status is not None and self._drawdown_status.halted:
+            logger.warning(
+                "[开仓] 回撤总闸生效，拒绝新开仓（回撤 %.1f%%）",
+                self._drawdown_status.drawdown * 100,
+            )
             return
 
         amount = await self._exchange.calculate_max_contracts(
