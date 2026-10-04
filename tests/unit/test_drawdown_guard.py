@@ -81,3 +81,14 @@ def test_corrupted_baseline_file(tmp_path) -> None:
     g = DrawdownGuard(threshold=0.30, data_dir=tmp_path)
     s = g.check(1000.0)
     assert not s.halted and s.high_water == 1000.0
+
+
+def test_wrong_shape_baseline_json_starts_clean(tmp_path) -> None:
+    """Review Fix 1/5: 合法 JSON 但形状错误（顶层非 dict / 值类型错）也不得抛异常。"""
+    for i, content in enumerate(["[1, 2, 3]", '{"high_water": []}']):
+        case_dir = tmp_path / f"case{i}"
+        case_dir.mkdir()
+        (case_dir / "drawdown_baseline.json").write_text(content, encoding="utf-8")
+        g = DrawdownGuard(threshold=0.30, data_dir=case_dir)
+        s = g.check(1000.0)
+        assert not s.halted and s.high_water == 1000.0, f"content={content!r}"

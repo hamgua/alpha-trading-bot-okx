@@ -57,6 +57,8 @@ class DrawdownGuard:
                     "（高水位 %.2f 保留）",
                     self._high_water,
                 )
+                # 闩清除仅内存生效，随下次 check() 落盘；若构造后未 check 即退出，
+                # 磁盘仍保留停机闩，下次非 resume 启动会重新停机（风险保守方向）
                 self._halted_since = None
         elif self._halted_since is not None:
             logger.warning(
@@ -112,10 +114,12 @@ class DrawdownGuard:
             if self._file.exists():
                 raw = self._file.read_text(encoding="utf-8")
                 data = json.loads(raw)
+                if not isinstance(data, dict):
+                    raise ValueError("baseline 形状错误")
                 self._high_water = float(data.get("high_water", 0.0))
                 halted = data.get("halted_since")
                 self._halted_since = float(halted) if halted else None
-        except (ValueError, OSError, json.JSONDecodeError) as e:
+        except (ValueError, TypeError, OSError) as e:
             # 文件损坏/半写：以干净状态启动（Review Focus #2）
             logger.warning("[风控总闸] 基准文件读取失败，以干净高水位启动: %s", e)
             self._high_water = 0.0
