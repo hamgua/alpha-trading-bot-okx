@@ -319,8 +319,11 @@ class TradingBot:
             equity = await self._exchange.get_balance()
             self._drawdown_status = self._drawdown_guard.check(equity)
         except Exception as e:
-            logger.warning("[风控总闸] 权益获取失败，跳过本轮检查: %s", e)
-            self._drawdown_status = None
+            logger.warning(
+                "[风控总闸] 权益获取失败，跳过本轮检查（fail-closed：保留既有停机状态）: %s",
+                e,
+            )
+            self._drawdown_status = self._drawdown_guard.snapshot()
 
     async def _execute_signal(
         self, signal: str, current_price: float, has_position: bool

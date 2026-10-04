@@ -92,3 +92,16 @@ def test_wrong_shape_baseline_json_starts_clean(tmp_path) -> None:
         g = DrawdownGuard(threshold=0.30, data_dir=case_dir)
         s = g.check(1000.0)
         assert not s.halted and s.high_water == 1000.0, f"content={content!r}"
+
+
+def test_snapshot_preserves_latch_without_equity_read(tmp_path) -> None:
+    """Fix Round 1/5: snapshot() 不刷新权益/高水位，仅镜像当前 latch 状态。"""
+    g = DrawdownGuard(threshold=0.30, data_dir=tmp_path)
+    g.check(1000.0)
+    s = g.snapshot()
+    assert s.skipped and not s.halted and not s.just_tripped
+    g.check(700.0)  # trip → latch 落盘
+    s = g.snapshot()
+    assert s.skipped and s.halted and not s.just_tripped
+    assert s.high_water == 1000.0
+    assert s.drawdown == 0.0

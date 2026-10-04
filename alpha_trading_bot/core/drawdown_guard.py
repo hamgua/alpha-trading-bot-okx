@@ -104,6 +104,20 @@ class DrawdownGuard:
             skipped=False,
         )
 
+    def snapshot(self) -> DrawdownStatus:
+        """返回当前状态（无新权益读取；余额获取失败时 fail-closed 兜底）。
+
+        语义镜像 check(equity<=0) 的跳过路径：保留既有 latch，
+        drawdown/high_water 不刷新，skipped=True。
+        """
+        return DrawdownStatus(
+            halted=self._halted_since is not None,
+            drawdown=0.0,
+            high_water=self._high_water,
+            just_tripped=False,
+            skipped=True,
+        )
+
     # ---- 持久化 ----
 
     def _load(self) -> None:

@@ -59,12 +59,32 @@ async def test_close_and_stop_update_allowed_when_halted(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_cycle_survives_balance_fetch_error(tmp_path) -> None:
-    # Review Focus #1: get_balance 抛异常 → 跳过本轮总闸检查，周期继续
+    # Review Focus #1: get_balance 抛异常 → fail-closed 保留既有状态，周期继续
     bot = _make_bot(tmp_path)
     bot._exchange.get_balance = AsyncMock(side_effect=RuntimeError("api down"))
     bot._drawdown_guard.check(1000.0)  # 正常状态
     await bot._check_drawdown()
-    assert bot._drawdown_status is None or not bot._drawdown_status.halted
+    assert (
+        bot._drawdown_status is not None
+        and bot._drawdown_status.skipped
+        and not bot._drawdown_status.halted
+    )
+
+
+@pytest.mark.asyncio
+async def test_balance_failure_during_halt_fails_closed(tmp_path) -> None:
+    # Fix Round 1/5: halt latch 已落盘但本轮 get_balance 抛异常 → 保留停机状态，
+    # 总闸不得被绕过（BUY 仍返回 blocked_drawdown，create_order 不被调用）
+    bot = _make_bot(tmp_path)
+    bot._drawdown_guard.check(1000.0)
+    bot._drawdown_guard.check(700.0)  # trip → latch 落盘
+    bot._exchange.get_balance = AsyncMock(side_effect=RuntimeError("api down"))
+    await bot._check_drawdown()
+    assert bot._drawdown_status.halted is True
+    assert bot._drawdown_status.skipped is True
+    result = await bot._execute_signal("BUY", 84000.0, has_position=False)
+    assert result.action == "blocked_drawdown"
+    bot._exchange.create_order.assert_not_awaited()
 
 
 @pytest.mark.asyncio
