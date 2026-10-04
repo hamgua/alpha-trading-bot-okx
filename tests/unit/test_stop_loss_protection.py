@@ -36,6 +36,9 @@ async def test_open_position_closes_when_stop_loss_fails():
         async def calculate_max_contracts(self, price, leverage):
             return 0.01
 
+        def normalize_order_size(self, amount):
+            return amount
+
         async def create_order(self, symbol, side, amount, price=None, order_type="market"):
             if side == "buy":
                 order_created["open"] = True
@@ -74,6 +77,9 @@ async def test_open_position_succeeds_with_stop_loss():
 
         async def calculate_max_contracts(self, price, leverage):
             return 0.01
+
+        def normalize_order_size(self, amount):
+            return amount
 
         async def create_order(self, symbol, side, amount, price=None, order_type="market"):
             if side == "buy":
@@ -122,6 +128,9 @@ async def test_open_position_skips_state_for_simulated_order():
 
         async def calculate_max_contracts(self, price, leverage):
             return 0.01
+
+        def normalize_order_size(self, amount):
+            return amount
 
         async def create_order(self, symbol, side, amount, price=None, order_type="market"):
             return "SIMULATED_ORDER_BUY_123"

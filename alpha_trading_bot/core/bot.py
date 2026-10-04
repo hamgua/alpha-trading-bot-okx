@@ -451,8 +451,11 @@ class TradingBot:
         """单笔风险反查（P1）：止损触发时的预期亏损 ≤ 账户 risk_per_trade_max。
 
         止损距离 d 取 StopLossManager 入场式止损同一口径（stop_loss_percent），
-        避免双套止损价口径。余额无效/获取失败时跳过反查（不阻断开仓，
-        与回撤总闸的"跳过"语义一致；此时风险由止损单本身兜底）。
+        避免双套止损价口径。预期亏损按真实名义计算（张数 × ctVal × 价格，
+        经 ExchangeClient.calculate_notional_usdt）；合约规格不可用时回退旧公式
+        （amount×price×d，张数当 BTC 数量，高估亏损 → 保守方向）。余额无效/
+        获取失败时跳过反查（不阻断开仓，与回撤总闸的"跳过"语义一致；此时风险
+        由止损单本身兜底）。
 
         Args:
             price: 当前入场价格。
@@ -471,11 +474,23 @@ class TradingBot:
             return amount
         if balance <= 0:
             return amount
-        expected_loss = amount * price * d
         max_loss = balance * self.config.trading.risk_per_trade_max
-        if expected_loss <= max_loss:
-            return amount
-        shrunk = float(f"{max_loss / (price * d):.4f}")
+        try:
+            # 真实名义（张数 → USDT，走 spec.notional_usdt 的 ctVal 换算）
+            notional = self._exchange.calculate_notional_usdt(amount, price)
+            expected_loss = notional * d
+            if expected_loss <= max_loss:
+                return amount
+            # 缩仓到风险上限：单张名义 = 总名义 / 张数（上方已保证 amount > 0）
+            notional_per_unit = notional / amount
+            shrunk = float(f"{max_loss / (notional_per_unit * d):.4f}")
+        except (RuntimeError, ValueError) as e:
+            # 合约规格不可用：回退旧公式（张数当 BTC 数量，高估亏损 → 保守方向）
+            logger.warning("[开仓][风险反查] 合约规格不可用，回退旧公式（保守）: %s", e)
+            expected_loss = amount * price * d
+            if expected_loss <= max_loss:
+                return amount
+            shrunk = float(f"{max_loss / (price * d):.4f}")
         logger.warning(
             "[开仓][风险反查] 止损距离 %.2f%% 下预期亏损 %.2f USDT 超过账户 "
             "%.0f%% (%.2f USDT)，仓位 %s → %s 张",
@@ -519,6 +534,18 @@ class TradingBot:
 
         # P1 单笔风险反查：止损触发预期亏损 ≤ 账户 10%（超限缩仓，缩到最小 1 手以下则放弃）
         amount = await self._apply_risk_backcheck(price, amount)
+
+        # 张数截断（ROUND_FLOOR 到 lotSz）：以真实张数下单；截断后低于最小张数
+        # 则取消开仓（保守方向）。规格不可用时保持修正前行为（不截断，由下方
+        # amount < 0.01 检查兜底，绝不放大仓位）。
+        try:
+            amount = self._exchange.normalize_order_size(amount)
+        except ValueError:
+            logger.warning("[开仓] 张数截断后低于最小张数，取消开仓 (原 %.4f)", amount)
+            return
+        except RuntimeError:
+            logger.warning("[开仓] 合约规格不可用，跳过张数截断（保守回退）")
+
         if amount < 0.01:
             logger.warning(
                 "[开仓] 风险反查后仓位 %.4f 张 < 最小 0.01 张，取消开仓", amount
