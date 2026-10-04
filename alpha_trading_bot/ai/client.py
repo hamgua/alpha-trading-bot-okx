@@ -705,6 +705,9 @@ class AIClient:
                 return False
 
         # 始终重试的错误类型
+        # 注意：_call_ai 抛出的包装消息是中文（如"请求超时"/"网络错误"），
+        # 英文关键词必须与中文关键词并存，否则重试逻辑对全部包装错误失效
+        # （2026-10-04 生产事故：qwen38 超时"尝试1次"即放弃，整周期中止）
         retry_keywords = [
             "connection",
             "timeout",
@@ -715,6 +718,9 @@ class AIClient:
             "temporary",
             "too many requests",
             "429",
+            "超时",
+            "网络错误",
+            "http 50",  # 500-509 服务端瞬时错误（502/503/504 代理/过载/超时）
         ]
 
         for keyword in retry_keywords:
@@ -893,7 +899,9 @@ class AIClient:
         }
 
         timeout_seconds = timeout_map.get(provider, 60)
-        return aiohttp_module.ClientTimeout(total=timeout_seconds)
+        # 连接阶段独立短超时：端点 TCP 挂起时 15s 快速失败而非耗完推理预算，
+        # 为周期内的指数退避重试留出空间；健康端点连接 <1s，正常路径无影响
+        return aiohttp_module.ClientTimeout(total=timeout_seconds, sock_connect=15)
 
     @staticmethod
     def _extract_signal_from_reasoning(reasoning_text: str) -> str:
