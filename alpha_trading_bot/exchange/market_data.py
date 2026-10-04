@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from typing import Dict, Any, List
+from typing import Any, Awaitable, Callable, Dict, List
 
 from .okx_raw import (
     ensure_okx_success,
@@ -251,10 +251,14 @@ class MarketDataService:
         self,
         price: float,
         leverage: int,
-        get_balance_func,
+        get_balance_func: Callable[[], Awaitable[float]],
         max_position_usage: float = 0.30,
     ) -> float:
-        """根据余额和杠杆计算最大可开合约数
+        """根据余额和杠杆计算最大可交易 BTC 数量（非 OKX 张数）
+
+        返回值量纲为 BTC 数量 = 余额 × max_position_usage × leverage ÷ price；
+        张数（OKX sz，1 张 = ctVal BTC）换算与最小张数检查由 ExchangeClient 层负责，
+        本层不做张数截断，也不按最小张数拒绝小数值。
 
         Args:
             price: 当前价格
@@ -263,7 +267,7 @@ class MarketDataService:
             max_position_usage: 最大使用余额比例 (默认30%)
 
         Returns:
-            可开合约数量
+            最大可交易 BTC 数量（全精度公式值）；余额非正时返回 0.0
         """
         try:
             balance = await get_balance_func()
@@ -272,23 +276,17 @@ class MarketDataService:
                 return 0.0
 
             safe_balance = balance * max_position_usage
-            max_contracts = (safe_balance * leverage) / price
-
-            contracts = float(f"{max_contracts:.4f}")
-
-            if contracts < 0.01:
-                logger.warning(f"计算所得合约数 {contracts} 小于最小单位0.01，无法交易")
-                return 0.0
+            btc_amount = (safe_balance * leverage) / price
 
             logger.info(
-                f"最大可开合约数: {contracts} "
+                f"最大可交易 BTC 数量: {btc_amount:.8f} "
                 f"(余额:{balance} USDT, 使用比例:{max_position_usage * 100:.0f}%, "
                 f"杠杆:{leverage}x, 价格:{price})"
             )
-            return contracts
+            return btc_amount
 
         except Exception as e:
-            logger.error(f"计算最大合约数失败: {e}")
+            logger.error(f"计算最大可交易 BTC 数量失败: {e}")
             return 0.0
 
 

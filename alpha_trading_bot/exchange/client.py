@@ -208,10 +208,50 @@ class ExchangeClient:
         return await self._market_data_service.get_market_data()
 
     async def calculate_max_contracts(self, price: float, leverage: int) -> float:
-        """根据余额和杠杆计算最大可开合约数"""
-        return await self._market_data_service.calculate_max_contracts(
+        """根据余额和杠杆计算最大可开合约数（OKX sz 单位，即张数）
+
+        先经 MarketDataService 取最大可交易 BTC 数量
+        （余额 × 使用比例 × 杠杆 ÷ 价格），再除以合约面值 ctVal 换算为
+        张数并向下截断到 lotSz；合约规格不可用时保守回退，直接返回旧公式
+        的 BTC 数量值（与修正前行为一致）。
+
+        Args:
+            price: 当前价格
+            leverage: 杠杆倍数
+
+        Returns:
+            最大可开合约数（张）；低于最小张数时返回 0.0；
+            规格不可用时返回旧公式的 BTC 数量值
+        """
+        btc_amount = await self._market_data_service.calculate_max_contracts(
             price, leverage, self.get_balance, self._max_position_usage
         )
+        try:
+            # 规格未初始化时抛 RuntimeError
+            spec = self.instrument_spec
+            contracts = float(f"{btc_amount / float(spec.contract_value):.4f}")
+            # 先检查最小张数再截断（normalize_order_size 低于 minSz 直接抛 ValueError）
+            if contracts < float(spec.minimum_size):
+                logger.warning(
+                    "可开张数 %.4f < 最小 %.4f，无法交易",
+                    contracts,
+                    float(spec.minimum_size),
+                )
+                return 0.0
+            contracts = self.normalize_order_size(contracts)  # ROUND_FLOOR 截断到 lotSz
+            notional = spec.notional_usdt(contracts, price)
+            logger.info(
+                "最大可开合约数: %.4f 张 (名义 %.2f USDT, BTC数量 %.8f, %s)",
+                contracts,
+                notional,
+                btc_amount,
+                spec.inst_id,
+            )
+            return contracts
+        except (RuntimeError, ValueError) as e:
+            # 规格不可用时回退旧公式值（BTC 数量），与修正前行为一致
+            logger.warning("合约规格不可用，回退旧仓位公式（保守）: %s", e)
+            return btc_amount
 
     @staticmethod
     def is_simulated_order(order_id: str) -> bool:
@@ -468,9 +508,7 @@ class ExchangeClient:
                     collected.append(order)
             except Exception as e:
                 last_error = e
-                logger.warning(
-                    f"[算法订单查询] ordType={ord_type} 查询失败: {e}"
-                )
+                logger.warning(f"[算法订单查询] ordType={ord_type} 查询失败: {e}")
 
         if last_error and not collected:
             logger.error(f"[算法订单查询] 全部 ordType 查询失败: {last_error}")
