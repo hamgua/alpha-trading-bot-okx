@@ -11,7 +11,9 @@ from alpha_trading_bot.config.models import AIConfig
 def test_provider_registry_contains_qwen38() -> None:
     """qwen38 必须在 provider 注册表中，指向自建 ninfer 服务。"""
     config = get_provider_config("qwen38")
-    assert config["base_url"] == "http://140.206.177.114:16078/v1/chat/completions"
+    assert config["base_url"] == (
+        "https://test-qwen38-27b.xxfcloud.com/v1/chat/completions"
+    )
     assert config["model"] == "qwen3.8-27b"
 
 

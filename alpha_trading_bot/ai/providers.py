@@ -33,9 +33,11 @@ PROVIDERS = {
         "model": "MiniMax-M2.7",
     },
     # 自建 Qwen3.8-27B (ninfer 部署，OpenAI 兼容接口)，默认替代 deepseek 使用
+    # 2026-10-04 起走反向代理域名（原直连 140.206.177.114:16078 有 TCP 挂起问题）
     # 注意: 模型默认开启思考模式 (reasoning_content)，max_tokens 需按推理模型处理
+    # 注意: 新端点校验 API key，QWEN38_API_KEY 必须配置真实 key（占位 sk-anything 会被拒）
     "qwen38": {
-        "base_url": "http://140.206.177.114:16078/v1/chat/completions",
+        "base_url": "https://test-qwen38-27b.xxfcloud.com/v1/chat/completions",
         "model": "qwen3.8-27b",
     },
 }
