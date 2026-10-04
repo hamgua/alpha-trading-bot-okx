@@ -59,6 +59,10 @@
     "mtime": 1791084530.807759,
     "hash": "03e757f342a4d9ba62284b357dce082d"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/drawdown_guard.py": {
+    "mtime": 1791093630.2744586,
+    "hash": "38226172441ccd27a59317a8e5db1218"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/stop_loss_manager.py": {
     "mtime": 1791084530.8064456,
     "hash": "e8c00b5f2d06eb2dc778863d7f1cbab6"
@@ -78,6 +82,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/trading_scheduler.py": {
     "mtime": 1791084530.806795,
     "hash": "4e9f1597c5c6023b00273da9b370c4c7"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/decision_journal.py": {
+    "mtime": 1791094510.7305048,
+    "hash": "55124f9aa44cabedf753402d8505a822"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/position_recovery.py": {
     "mtime": 1791084530.8060348,
@@ -104,8 +112,8 @@
     "hash": "3cc79fe05d31788227c684283eef6bf8"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/bot.py": {
-    "mtime": 1791084530.8040633,
-    "hash": "4c4a593e31f16777ad99816b8f9f76d0"
+    "mtime": 1791092477.5965683,
+    "hash": "3956af447864756ca58f29522a64029f"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/core/signal_processor.py": {
     "mtime": 1791084530.806124,
@@ -164,8 +172,8 @@
     "hash": "405cd05470b6cb36f16cae5731c8d712"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/config/models.py": {
-    "mtime": 1791084960.1488988,
-    "hash": "1f5fc2e09dd0ab5f13bd6aeced0a27b2"
+    "mtime": 1791085319.419544,
+    "hash": "d9de414df2ba15a21262a7ab3299e099"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/config/thresholds.py": {
     "mtime": 1791084530.8029358,
@@ -236,8 +244,8 @@
     "hash": "6fc7c45567e37d9908349927ee86938e"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/ai/client.py": {
-    "mtime": 1791084530.7939646,
-    "hash": "4bad7495716acd750477d93c86e31c05"
+    "mtime": 1791091000.5726118,
+    "hash": "3200eafdaa1f6a77cfeba4c1bc522442"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/ai/backtest_validator.py": {
     "mtime": 1791084530.7933283,
@@ -396,8 +404,8 @@
     "hash": "b2ea62c9fbb3f8987fe0198793a8e6e9"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/ai/jev/fast_lane.py": {
-    "mtime": 1791084530.7975473,
-    "hash": "9a6c3c8004844311bb9cfcbe52a1ea62"
+    "mtime": 1791090126.2124937,
+    "hash": "a62fd1863836caf60672b2028d50bf0f"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/alpha_trading_bot/ai/adaptive/market_regime.py": {
     "mtime": 1791084530.791746,
@@ -466,6 +474,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_prompt_builder_jev_context.py": {
     "mtime": 1791084530.8491354,
     "hash": "a0a59a187b01c65bb2453f67422f8cdb"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_bot_drawdown_guard.py": {
+    "mtime": 1791087784.6728213,
+    "hash": "ee6b7ef05b6e537fa721947237ace90a"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_zero_behavior_golden.py": {
     "mtime": 1791084530.8528566,
@@ -540,8 +552,8 @@
     "hash": "321eb6c25ba3a6732dbb74b560e469dc"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_p1_risk_config.py": {
-    "mtime": 1791084970.519139,
-    "hash": "4523ae0e5e72228f7410084fcf8fda69"
+    "mtime": 1791085316.2676523,
+    "hash": "ba2449118560047769b1e34503fc2d53"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_opportunity_audit_suppressed_signal.py": {
     "mtime": 1791084530.8477345,
@@ -583,6 +595,10 @@
     "mtime": 1791084530.847671,
     "hash": "e2ea3355585d93f3066837729aa79b8a"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_bot_risk_backcheck.py": {
+    "mtime": 1791094530.6734717,
+    "hash": "03a7a38aa4b6da58c0e911cb5a65a0e6"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/__init__.py": {
     "mtime": 1791084530.840073,
     "hash": "ac55021ca3dfca2a6bc7dd80e407c73d"
@@ -594,6 +610,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_adaptive_execution_safety.py": {
     "mtime": 1791084530.840746,
     "hash": "9a74bfbf25eeae605a7d65b20e09ab36"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_bot_decision_journal.py": {
+    "mtime": 1791092512.2352235,
+    "hash": "08551627b417aa42eb304b0cc0ceea0b"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_adaptive_bot_position_sync.py": {
     "mtime": 1791084530.8403618,
@@ -643,6 +663,10 @@
     "mtime": 1791084530.8474896,
     "hash": "e060531e81b25810649546a3641704fa"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_decision_journal.py": {
+    "mtime": 1791094517.3073053,
+    "hash": "82961b935deecaedf8143f7e974c86f0"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_volatility_scenario_matrix.py": {
     "mtime": 1791084530.8525176,
     "hash": "a8be4b45f20e20b253df03c51ce25494"
@@ -650,6 +674,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_order_confirmation.py": {
     "mtime": 1791084530.84783,
     "hash": "5008e64578fa999c01a2bb9619fc7c5e"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_decision_journal_report.py": {
+    "mtime": 1791093218.399019,
+    "hash": "16b416ea2fd728fd786afbf07f70fa31"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_decision_engine_gate_audit.py": {
     "mtime": 1791084530.8420672,
@@ -695,6 +723,10 @@
     "mtime": 1791084530.8427267,
     "hash": "e6a417bbadb037b90246b121c0f5fd16"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_ai_client_signal_trace.py": {
+    "mtime": 1791091000.5725272,
+    "hash": "b206647c72693a25fce606b411cb8473"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_position_manager_clear_position_pnl.py": {
     "mtime": 1791084530.848195,
     "hash": "179730c11010f1fd69bbecfea25b871a"
@@ -719,6 +751,10 @@
     "mtime": 1791084530.8412306,
     "hash": "2aa46bd4dfce02c36d25b1799d9cbc6e"
   },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_drawdown_guard.py": {
+    "mtime": 1791087791.8795989,
+    "hash": "50354af3e5111466450a274fd1a71874"
+  },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_sustained_decline_detector.py": {
     "mtime": 1791084530.851538,
     "hash": "7a1fadfb79943bfd12ddf4b276d34e2d"
@@ -728,8 +764,8 @@
     "hash": "15f231497b98722f3c3eb22d2165ed1a"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_ai_client_fast_lane.py": {
-    "mtime": 1791084530.8411613,
-    "hash": "e65dadd26599bdd0e80dbcb9a98005c6"
+    "mtime": 1791090315.1152527,
+    "hash": "5b486be2a837ec4ce8fab0c5dde4706d"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/tests/unit/test_loss_structure_fixes.py": {
     "mtime": 1791084530.84716,
@@ -778,6 +814,10 @@
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/scripts/jev_fast_lane_report.py": {
     "mtime": 1791084530.8392196,
     "hash": "6175b9a151cac0a566e2f903168b7b02"
+  },
+  "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/scripts/decision_journal_report.py": {
+    "mtime": 1791093225.2143219,
+    "hash": "dcea33841476eb77681e05a389c1e604"
   },
   "/Users/hamgua/code/github/alpha-trading-bot-okx/.worktrees/p1-journal-drawdown-risk/scripts/analyze_logs.py": {
     "mtime": 1791084530.8389065,
