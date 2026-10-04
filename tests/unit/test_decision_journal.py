@@ -110,10 +110,11 @@ def test_backfill_no_double_write(tmp_path) -> None:
             + "\n"
         )
     j.backfill(now, 86000.0)
-    j.backfill(now + timedelta(minutes=15), 86100.0)  # 第二次同窗口
+    # 第二次仍在同一 4h 窗口内（age=4h05m），去重集合防重复写
+    j.backfill(now + timedelta(minutes=5), 86100.0)
     outcomes = [
         l
-        for l in _read(tmp_path, (now + timedelta(minutes=15)).strftime("%Y-%m-%d"))
+        for l in _read(tmp_path, (now + timedelta(minutes=5)).strftime("%Y-%m-%d"))
         if l["type"] == "outcome"
     ]
     assert len(outcomes) == 1  # 已有 outcome 的不重复写
@@ -131,7 +132,8 @@ def test_write_failure_does_not_raise(tmp_path) -> None:
 
 def test_retention_prunes_old_files(tmp_path) -> None:
     j = DecisionJournal(enabled=True, data_dir=tmp_path)
-    old = tmp_path / "decision_journal-2026-01-01.jsonl"
+    old_day = (datetime.now() - timedelta(days=91)).strftime("%Y-%m-%d")
+    old = tmp_path / f"decision_journal-{old_day}.jsonl"
     old.write_text("{}\n", encoding="utf-8")
     DecisionJournal(enabled=True, data_dir=tmp_path)  # 重新 init 触发清理
     assert not old.exists()

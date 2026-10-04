@@ -136,9 +136,11 @@ class DecisionJournal:
             if not line:
                 continue
             try:
-                out.append(json.loads(line))
+                obj = json.loads(line)
             except json.JSONDecodeError:
                 continue  # 半写/损坏行跳过
+            if isinstance(obj, dict):
+                out.append(obj)  # 合法 JSON 但非对象（数组/标量）跳过
         return out
 
     def _append(self, record: Dict[str, Any], ts: datetime) -> None:
@@ -159,5 +161,5 @@ class DecisionJournal:
             if day < cutoff:
                 try:
                     f.unlink()
-                except OSError:
-                    pass
+                except OSError as e:
+                    logger.warning("[决策日志] 清理 %s 失败: %s", f.name, e)
