@@ -29,7 +29,7 @@ ExchangeClient.create_order 在 TEST_MODE=true 时会跳过真实下单（本地
 
 持仓模式说明:
   下单 / 平仓基于单向（net）持仓模式（bot 默认）。若 demo 账户为双向（long_short_mode）:
-  - 买单（OPEN）因缺 posSide 被拒 → 退出码 2 + 指引（此时通常尚无残留仓位）
+  - 买单（OPEN）因缺 posSide 被拒 → 退出码 1 + 指引（异常归一为空 order_id，此时通常尚无残留仓位）
   - 若已有残留仓位: reduceOnly 平仓单被拒，ensure_flat 平不掉 → 3 次尝试后退出码 3（人工处理）
   请先在 OKX 将 demo 账户切为单向持仓模式再运行本脚本。
 

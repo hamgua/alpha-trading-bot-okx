@@ -163,7 +163,7 @@ async def test_small_balance_passes_with_real_notional(tmp_path) -> None:
     """$7.295 / 0.02 张 / 5bp 止损：真实名义 $17.02 → 预期亏损 $0.00851 ≤ $0.7295。
 
     通过不缩仓。旧公式（张数当 BTC 数量）会算出 $0.851 > $0.7295 → 误缩到
-    0.0017 张 → <0.01 放弃开仓；本测试钉死名义修正。
+    0.0171 张（≠0.02，本测试失败）；本测试钉死名义修正。
     """
     bot = _make_bot(tmp_path)
     bot._exchange.get_balance = AsyncMock(return_value=7.295)
