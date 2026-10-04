@@ -11,6 +11,7 @@ AI客户端 - 支持单AI/多AI融合
 """
 
 import asyncio
+import copy
 import hashlib
 import importlib
 import logging
@@ -219,6 +220,11 @@ class AIClient:
             fast_lane if fast_lane is not None else self._init_fast_lane()
         )
 
+        # P1 决策日志：本次 get_signal 的信号溯源（各层中间结果）
+        self._last_signal_trace: Dict[str, Any] = {}
+        # P1: 最近一次实际使用的 LLM provider（single=default_provider，fusion="fusion"）
+        self._last_llm_provider: str = ""
+
     def _init_fast_lane(self) -> Optional[JevFastLane]:
         """启用时从 env 构建 Jev 快车道；禁用时返回 None（保持现状行为）。"""
         mode = os.getenv("AI_FAST_LANE", "off").strip().lower()
@@ -319,16 +325,36 @@ class AIClient:
             # dream C3: 重置降级标记，保证只反映本次 get_signal 的信号来源
             self._last_signal_degraded = False
 
+            # P1: 重置信号溯源（只反映本次 get_signal）
+            self._last_signal_trace = {
+                "cache_hit": False,
+                "jev": None,
+                "llm": None,
+                "integrator": None,
+            }
+
             # 检查缓存
             if self._enable_cache and self._cache:
                 cached_signal = self._cache.get(market_data)
                 if cached_signal:
+                    self._last_signal_trace["cache_hit"] = True
                     return cached_signal
 
             # 获取原始信号（Jev 快车道优先；低置信/故障时升级 LLM）
             # _fast_lane=None（默认）时本分支不生效，零行为变化
             if self._fast_lane is not None:
                 fast_result = await self._fast_lane.decide(market_data)
+                # P1: Jev 段（adopted/escalated 都记录）
+                self._last_signal_trace["jev"] = {
+                    "choice": fast_result.signal,
+                    "confidence": fast_result.confidence,
+                    "probabilities": fast_result.probabilities,
+                    "reason": fast_result.reason,
+                    "latency_ms": fast_result.latency_ms,
+                    "mode": self._fast_lane.config.mode,
+                    "risk_noul": fast_result.risk_noul,
+                    "choppy_noul": fast_result.choppy_noul,
+                }
                 if fast_result.adopted:
                     # 采用路径：跳过 LLM，但信号仍走下游集成器安全层
                     # （adopted 与 escalated 共用同一下游，spec 关键不变式）
@@ -347,10 +373,25 @@ class AIClient:
                     original_signal, original_confidence = await self._get_llm_signal(
                         market_data, jev_context=fast_result.jev_context
                     )
+                    # P1: LLM 段（升级路径）
+                    self._last_signal_trace["llm"] = {
+                        "provider": self._last_llm_provider
+                        or self.config.default_provider,
+                        "signal": original_signal,
+                        "confidence": original_confidence,
+                        "jev_context_injected": fast_result.jev_context is not None,
+                    }
             else:
                 original_signal, original_confidence = await self._get_llm_signal(
                     market_data
                 )
+                # P1: LLM 段（快车道关闭时）
+                self._last_signal_trace["llm"] = {
+                    "provider": self._last_llm_provider or self.config.default_provider,
+                    "signal": original_signal,
+                    "confidence": original_confidence,
+                    "jev_context_injected": False,
+                }
 
             # 使用集成器优化信号
             # 注意：融合器返回的 confidence 已经是 0-1 范围，不需要再除以 100
@@ -386,6 +427,17 @@ class AIClient:
                 market_data["ai_degraded_buy_blocked"] = True
                 result.final_signal = "HOLD"
 
+            # P1: 集成器段（记录最终信号/置信度/调整项）。
+            # 置于 degraded-buy 改写之后：final_signal 与实际返回严格一致
+            # （降级路径改写为 HOLD 后，trace 记录改写后的值）。
+            self._last_signal_trace["integrator"] = {
+                "original_signal": original_signal,
+                "original_confidence": confidence_float,
+                "final_signal": result.final_signal,
+                "final_confidence": result.final_confidence,
+                "adjustments": list(result.adjustments_made or []),
+            }
+
             # 写入缓存
             if self._enable_cache and self._cache:
                 self._cache.set(
@@ -399,6 +451,7 @@ class AIClient:
     ) -> tuple:
         """单AI模式，返回 (signal, confidence)"""
         provider = self.config.default_provider
+        self._last_llm_provider = provider
         api_key = self.api_keys.get(provider, "")
         logger.info(f"[AI请求] 单AI模式, 提供商: {provider}")
 
@@ -426,6 +479,7 @@ class AIClient:
         self, market_data: Dict[str, Any], jev_context: Optional[str] = None
     ) -> tuple:
         """多AI融合模式 - 并行调用多个AI并融合结果"""
+        self._last_llm_provider = "fusion"
         providers = self.config.fusion_providers
         fusion_weights = self._get_normalized_fusion_weights()
         logger.info(f"[AI请求] 多AI融合模式, 提供商列表: {providers}")
@@ -868,6 +922,10 @@ class AIClient:
                 return f"{signal} confidence:70%"
 
         return ""
+
+    def get_last_signal_trace(self) -> Dict[str, Any]:
+        """返回本次 get_signal 的信号溯源（P1 决策日志数据源；未调用过返回 {}）。"""
+        return copy.deepcopy(self._last_signal_trace)
 
     def get_metrics(self) -> Dict[str, int]:
         """返回当前累计的监控指标快照（用于诊断和报告）。"""

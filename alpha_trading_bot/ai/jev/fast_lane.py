@@ -131,6 +131,8 @@ class FastLaneResult:
     reason: str = ""  # 审计：adopt/low_confidence/risk_gate/timeout/auth_error/
     # api_error/bad_response/circuit_open/shadow/disabled
     latency_ms: float = 0.0
+    risk_noul: Optional[float] = None  # is_high_risk_reversal 的 Noul（有响应时填充）
+    choppy_noul: Optional[float] = None  # is_choppy_no_edge 的 Noul（有响应时填充）
 
 
 class JevFastLane:
@@ -235,6 +237,9 @@ class JevFastLane:
             )
         latency_ms = (time.monotonic() - start) * 1000.0
 
+        choppy = response.answers.get("is_choppy_no_edge")
+        choppy_noul = choppy.noul if isinstance(choppy, NoulAnswer) else None
+
         decision = response.answers.get("trade_decision")
         if not isinstance(decision, ChoiceAnswer):
             # 响应结构异常不视为网络失败：不驱动熔断，仅升级 LLM
@@ -288,6 +293,8 @@ class JevFastLane:
                 ),
                 reason="risk_gate",
                 latency_ms=latency_ms,
+                risk_noul=risk_noul,
+                choppy_noul=choppy_noul,
             )
 
         threshold = self._threshold_for(decision.choice)
@@ -309,6 +316,8 @@ class JevFastLane:
                     jev_context=None,
                     reason="shadow",
                     latency_ms=latency_ms,
+                    risk_noul=risk_noul,
+                    choppy_noul=choppy_noul,
                 )
             logger.info(
                 "[Jev快车道] 采用 %s (conf=%.2f ≥ 阈值%.2f, %.0fms)",
@@ -325,6 +334,8 @@ class JevFastLane:
                 probabilities=decision.probabilities,
                 reason="adopt",
                 latency_ms=latency_ms,
+                risk_noul=risk_noul,
+                choppy_noul=choppy_noul,
             )
 
         # 置信度不足：升级 LLM 并携带初读上下文（shadow 模式不注入）
@@ -368,6 +379,8 @@ class JevFastLane:
             ),
             reason="low_confidence",
             latency_ms=latency_ms,
+            risk_noul=risk_noul,
+            choppy_noul=choppy_noul,
         )
 
     def _enabled(self) -> bool:

@@ -128,6 +128,11 @@ class TradingConfig:
     # 2026-09-18 日志: +5.22% 大阳线日逆势做空 -1.02% 止损）。
     # 0=关闭门禁。
     short_entry_max_daily_change: float = 1.5
+    # ---- P1 风控与决策日志（2026-10-04 双向交易 spec）----
+    decision_journal_enabled: bool = True  # 决策日志开关（DECISION_JOURNAL）
+    risk_drawdown_halt: float = 0.30  # 回撤停机阈值：权益相对高水位回撤≥30% 禁止新开仓
+    risk_per_trade_max: float = 0.10  # 单笔风险上限：止损触发预期亏损 ≤ 账户 10%
+    risk_resume: bool = False  # 手动恢复：RISK_RESUME=true 或 1 + 重启后清除停机状态
 
     VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
     LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
@@ -162,6 +167,14 @@ class TradingConfig:
             errors.append(
                 "short_entry_max_daily_change "
                 f"({self.short_entry_max_daily_change}) 不能为负数 (0=关闭门禁)"
+            )
+        if not 0 < self.risk_drawdown_halt < 1:
+            errors.append(
+                f"risk_drawdown_halt ({self.risk_drawdown_halt}) 不在有效范围 (0-1)"
+            )
+        if not 0 < self.risk_per_trade_max <= 1:
+            errors.append(
+                f"risk_per_trade_max ({self.risk_per_trade_max}) 不在有效范围 (0-1]"
             )
         if (
             self.order_confirm_poll_interval_seconds
@@ -595,6 +608,11 @@ class Config:
                 order_confirm_poll_interval_seconds=float(
                     os.getenv("ORDER_CONFIRM_POLL_INTERVAL_SECONDS", "0.25")
                 ),
+                decision_journal_enabled=os.getenv("DECISION_JOURNAL", "true").lower()
+                == "true",
+                risk_drawdown_halt=float(os.getenv("RISK_DRAWDOWN_HALT", "0.30")),
+                risk_per_trade_max=float(os.getenv("RISK_PER_TRADE_MAX", "0.10")),
+                risk_resume=os.getenv("RISK_RESUME", "false").lower() in ("true", "1"),
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(
