@@ -53,8 +53,7 @@ class DrawdownGuard:
         if resume:
             if self._halted_since is not None:
                 logger.warning(
-                    "[风控总闸] RISK_RESUME=1 手动恢复，清除停机状态"
-                    "（高水位 %.2f 保留）",
+                    "[风控总闸] RISK_RESUME=1 手动恢复，清除停机状态（高水位 %.2f 保留）",
                     self._high_water,
                 )
                 # 闩清除仅内存生效，随下次 check() 落盘；若构造后未 check 即退出，
@@ -62,8 +61,7 @@ class DrawdownGuard:
                 self._halted_since = None
         elif self._halted_since is not None:
             logger.warning(
-                "[风控总闸] 从上次运行恢复停机状态（触发于 %s），"
-                "新开仓继续禁止；恢复需 RISK_RESUME=1 + 重启",
+                "[风控总闸] 从上次运行恢复停机状态（触发于 %s），新开仓继续禁止；恢复需 RISK_RESUME=1 + 重启",
                 time.strftime("%Y-%m-%d %H:%M", time.localtime(self._halted_since)),
             )
 
