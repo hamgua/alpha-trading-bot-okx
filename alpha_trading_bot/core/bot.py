@@ -247,7 +247,10 @@ class TradingBot:
         if self._decision_journal is not None:
             from datetime import datetime as _dt
 
-            self._decision_journal.backfill(_dt.now(), current_price)
+            try:
+                self._decision_journal.backfill(_dt.now(), current_price)
+            except Exception as e:
+                logger.warning("[决策日志] 回填失败（周期不受影响）: %s", e)
 
         # 3. 检查当前持仓状态
         try:

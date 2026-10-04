@@ -10,10 +10,12 @@ from alpha_trading_bot.config.models import Config, ExchangeConfig, TradingConfi
 from alpha_trading_bot.core.bot import TradingBot
 
 
-def _make_bot(tmp_path: Path) -> TradingBot:
+def _make_bot(tmp_path: Path, decision_journal_enabled: bool = True) -> TradingBot:
     config = Config(
         exchange=ExchangeConfig(api_key="k", secret="s", password="p"),
-        trading=TradingConfig(test_mode=True),
+        trading=TradingConfig(
+            test_mode=True, decision_journal_enabled=decision_journal_enabled
+        ),
     )
     bot = TradingBot(config)
     bot._exchange = MagicMock()
@@ -58,7 +60,7 @@ async def test_cycle_writes_journal_entry(tmp_path) -> None:
         "price": 84000.0,
         "rsi": 50.0,
         "atr": 300.0,
-        "change_24h_percent": 0.5,
+        "change_percent": 0.5,
     }
     await bot._record_decision(market_data, "HOLD", None)
     # 无持仓路径：execution 由调用方传入
@@ -68,21 +70,21 @@ async def test_cycle_writes_journal_entry(tmp_path) -> None:
     entries = [l for l in _journal_lines(tmp_path) if l["type"] == "cycle"]
     assert len(entries) == 2
     e = entries[-1]
+    assert e["price"] == 84000.0
     assert e["market"]["price"] == 84000.0
+    assert e["market"]["change_24h"] == 0.5
     assert e["jev"]["choice"] == "hold"
     assert e["execution"]["action"] == "none"
     assert e["final"] == "HOLD"
 
 
 @pytest.mark.asyncio
-async def test_journal_disabled_writes_nothing(tmp_path, monkeypatch) -> None:
-    bot = _make_bot(tmp_path)
-    bot.config.trading.decision_journal_enabled = False
-    bot._decision_journal = None  # 模拟未启用
-    market_data = {"price": 84000.0}
+async def test_journal_disabled_writes_nothing(tmp_path) -> None:
+    bot = _make_bot(tmp_path, decision_journal_enabled=False)
+    assert bot._decision_journal is None
     from alpha_trading_bot.core.bot import ExecutionResult
 
-    await bot._record_decision(market_data, "HOLD", ExecutionResult("none"))
+    await bot._record_decision({"price": 84000.0}, "HOLD", ExecutionResult("none"))
     assert _journal_lines(tmp_path) == []
 
 

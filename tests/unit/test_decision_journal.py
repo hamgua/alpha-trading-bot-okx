@@ -97,6 +97,22 @@ def test_backfill_across_day_boundary(tmp_path) -> None:
     assert n == 1
 
 
+def test_backfill_survives_invalid_utf8(tmp_path) -> None:
+    # F1: 文件含非法 UTF-8 字节（半写/损坏）→ backfill 不抛异常且返回 0
+    j = DecisionJournal(enabled=True, data_dir=tmp_path)
+    now = datetime.now()
+    old = now - timedelta(hours=4)
+    f = tmp_path / f"decision_journal-{old.strftime('%Y-%m-%d')}.jsonl"
+    f.write_bytes(
+        b'{"type": "cycle", "ts": "'
+        + old.strftime(TS_FMT).encode("utf-8")
+        + b'", "price": 84000.0, "final": "BUY"}\n'
+        + b"\xff\xfe"
+    )
+    n = j.backfill(now, 86000.0)
+    assert n == 0
+
+
 def test_backfill_no_double_write(tmp_path) -> None:
     j = DecisionJournal(enabled=True, data_dir=tmp_path)
     now = datetime.now()

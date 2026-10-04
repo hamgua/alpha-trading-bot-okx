@@ -72,7 +72,7 @@ class DecisionJournal:
                 continue
             try:
                 lines = f.read_text(encoding="utf-8").splitlines()
-            except OSError as e:
+            except (OSError, UnicodeDecodeError) as e:
                 logger.warning("[决策日志] 读取 %s 失败: %s", f.name, e)
                 continue
             all_records.extend(self._parse(lines))
