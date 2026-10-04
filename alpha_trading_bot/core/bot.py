@@ -377,6 +377,47 @@ class TradingBot:
         logger.warning(f"[信号执行] 未知信号: {signal}")
         return ExecutionResult("error", f"unknown_signal={signal}")
 
+    async def _apply_risk_backcheck(self, price: float, amount: float) -> float:
+        """单笔风险反查（P1）：止损触发时的预期亏损 ≤ 账户 risk_per_trade_max。
+
+        止损距离 d 取 StopLossManager 入场式止损同一口径（stop_loss_percent），
+        避免双套止损价口径。余额无效/获取失败时跳过反查（不阻断开仓，
+        与回撤总闸的"跳过"语义一致；此时风险由止损单本身兜底）。
+
+        Args:
+            price: 当前入场价格。
+            amount: 原始可开合约数（张）。
+
+        Returns:
+            反查后的合约数（张）；未触发反查时原样返回 amount。
+        """
+        d = self.config.stop_loss.stop_loss_percent
+        if d <= 0 or price <= 0 or amount <= 0:
+            return amount
+        try:
+            balance = await self._exchange.get_balance()
+        except Exception as e:
+            logger.warning("[开仓] 风险反查: 余额获取失败，跳过反查: %s", e)
+            return amount
+        if balance <= 0:
+            return amount
+        expected_loss = amount * price * d
+        max_loss = balance * self.config.trading.risk_per_trade_max
+        if expected_loss <= max_loss:
+            return amount
+        shrunk = float(f"{max_loss / (price * d):.4f}")
+        logger.warning(
+            "[开仓][风险反查] 止损距离 %.2f%% 下预期亏损 %.2f USDT 超过账户 "
+            "%.0f%% (%.2f USDT)，仓位 %s → %s 张",
+            d * 100,
+            expected_loss,
+            self.config.trading.risk_per_trade_max * 100,
+            max_loss,
+            amount,
+            shrunk,
+        )
+        return shrunk
+
     async def _open_position(self, price: float) -> None:
         """开仓 - 根据余额动态计算交易量
 
@@ -404,6 +445,14 @@ class TradingBot:
 
         if amount <= 0:
             logger.warning("[开仓] 无法计算有效交易量，取消开仓")
+            return
+
+        # P1 单笔风险反查：止损触发预期亏损 ≤ 账户 10%（超限缩仓，缩到最小 1 手以下则放弃）
+        amount = await self._apply_risk_backcheck(price, amount)
+        if amount < 0.01:
+            logger.warning(
+                "[开仓] 风险反查后仓位 %.4f 张 < 最小 0.01 张，取消开仓", amount
+            )
             return
 
         logger.info(
