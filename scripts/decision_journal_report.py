@@ -31,7 +31,8 @@ def load_journal(
     """读取 journal 文件，返回 (cycle 记录列表[已 join outcome], ts→outcome 映射)。
 
     两遍扫描：先收集全部 cycle 与 outcome（outcome 行总是晚于对应 cycle 行
-    写入，可能落在更晚的文件），再按 ts join。坏行（JSON 解析失败）跳过。
+    写入，可能落在更晚的文件），再按 ts join。坏行（JSON 解析失败 / 非对象）
+    与坏文件（半写多字节的非法 UTF-8 / OSError）跳过，不中断统计。
     """
     cutoff = None
     if since:
@@ -39,7 +40,14 @@ def load_journal(
     cycles: List[Dict[str, Any]] = []
     outcomes: Dict[str, Dict[str, Any]] = {}
     for f in sorted(days_dir.glob("decision_journal-*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as e:
+            # 文件级损坏（半写多字节/权限）：跳过该文件，不影响整份周报
+            # （与 DecisionJournal.backfill 的容错一致）
+            print(f"[warn] 跳过 {f.name}: {e}", file=sys.stderr)
+            continue
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
@@ -47,6 +55,8 @@ def load_journal(
                 rec = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(rec, dict):
+                continue  # 合法 JSON 但非对象（数组/标量）跳过
             if rec.get("type") == "outcome":
                 ts = rec.get("ts")
                 if ts:

@@ -62,3 +62,24 @@ def test_agg_by_jev_conf_buckets(tmp_path) -> None:
     assert by_key["jev:buy:0.55-0.75"]["count"] == 1
     assert by_key["jev:buy:>=0.75"]["count"] == 1
     assert by_key["jev:buy:0.55-0.75"]["avg_fwd_4h"] == 0.02
+
+
+def test_load_journal_tolerates_broken_file_and_non_dict_lines(
+    tmp_path, capsys
+) -> None:
+    """文件级坏 UTF-8（半写多字节）+ 非对象 JSON 行跳过不抛，好行仍可读。"""
+    # 坏文件：合法行 + 半写多字节字符（\xe4\xb8 是不完整的 3 字节序列）
+    (tmp_path / "decision_journal-2026-10-01.jsonl").write_bytes(
+        json.dumps(_cycle("2026-10-01 09:00:00", 99.0, "BUY")).encode("utf-8")
+        + b'\n{"type": "cycle", "final": "\xe4\xb8'
+    )
+    # 好文件：合法 cycle 行 + 合法 JSON 但非对象（数组）行
+    (tmp_path / "decision_journal-2026-10-02.jsonl").write_text(
+        json.dumps(_cycle("2026-10-02 09:00:00", 100.0, "HOLD"))
+        + "\n[1, 2, 3]\n",
+        encoding="utf-8",
+    )
+    cycles, outcomes = load_journal(tmp_path)  # 不抛
+    assert [c["ts"] for c in cycles] == ["2026-10-02 09:00:00"]
+    assert outcomes == {}
+    assert "[warn]" in capsys.readouterr().err
