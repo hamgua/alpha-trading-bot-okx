@@ -132,7 +132,7 @@ class TradingConfig:
     decision_journal_enabled: bool = True  # 决策日志开关（DECISION_JOURNAL）
     risk_drawdown_halt: float = 0.30  # 回撤停机阈值：权益相对高水位回撤≥30% 禁止新开仓
     risk_per_trade_max: float = 0.10  # 单笔风险上限：止损触发预期亏损 ≤ 账户 10%
-    risk_resume: bool = False  # 手动恢复：RISK_RESUME=1 + 重启后清除停机状态
+    risk_resume: bool = False  # 手动恢复：RISK_RESUME=true 或 1 + 重启后清除停机状态
 
     VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
     LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
@@ -612,7 +612,7 @@ class Config:
                 == "true",
                 risk_drawdown_halt=float(os.getenv("RISK_DRAWDOWN_HALT", "0.30")),
                 risk_per_trade_max=float(os.getenv("RISK_PER_TRADE_MAX", "0.10")),
-                risk_resume=os.getenv("RISK_RESUME", "false").lower() == "true",
+                risk_resume=os.getenv("RISK_RESUME", "false").lower() in ("true", "1"),
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(

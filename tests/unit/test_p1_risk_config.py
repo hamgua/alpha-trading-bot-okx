@@ -28,6 +28,16 @@ def test_from_env_overrides(monkeypatch) -> None:
     assert cfg.trading.risk_resume is True
 
 
+def test_from_env_risk_resume_accepts_one(monkeypatch) -> None:
+    """RISK_RESUME=1 同样视为开启（spec 与注释均写 1）。"""
+    # from_env 末尾 validate_or_raise 需要 OKX 凭据，按既有测试模式补齐
+    monkeypatch.setenv("OKX_API_KEY", "t")
+    monkeypatch.setenv("OKX_SECRET", "t")
+    monkeypatch.setenv("OKX_PASSWORD", "t")
+    monkeypatch.setenv("RISK_RESUME", "1")
+    assert Config.from_env().trading.risk_resume is True
+
+
 def test_validate_rejects_bad_values() -> None:
     assert any(
         "risk_drawdown_halt" in e
