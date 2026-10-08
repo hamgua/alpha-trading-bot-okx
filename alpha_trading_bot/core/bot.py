@@ -12,14 +12,14 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
+from ..config.models import Config
+from ..utils.observability import record_live_guard_block
 from .decision_journal import DecisionJournal
 from .drawdown_guard import DrawdownGuard, DrawdownStatus
 from .position_manager import PositionManager
 from .signal_processor import SignalProcessor
 from .stop_loss_manager import StopLossManager
 from .trading_scheduler import TradingScheduler
-from ..config.models import Config
-from ..utils.observability import record_live_guard_block
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +141,12 @@ class TradingBot:
             logger.warning("[止损恢复] 有持仓但无止损单，需要重建止损单")
             await self._recreate_stop_order()
 
+        # P1-3: 止盈单恢复（与止损恢复对称）：有持仓但本地无止盈单 ID →
+        # 按入场价重建。持久化已有止盈单 ID 时视为仍在生效（止盈单若已
+        # 触发，仓位已平，不会走到这里）。
+        if not self.position_manager.take_profit_order_id:
+            await self._recreate_take_profit_order()
+
     async def _recreate_stop_order(self) -> None:
         """重建止损单"""
         position = self.position_manager.position
@@ -173,6 +179,35 @@ class TradingBot:
             logger.info(f"[止损恢复] 止损单重建成功: {stop_order_id}")
         except Exception as e:
             logger.error(f"[止损恢复] 止损单重建失败: {e}")
+
+    async def _recreate_take_profit_order(self) -> None:
+        """按入场价重建止盈单（P1-3，与止损单重建对称）"""
+        position = self.position_manager.position
+        if not position:
+            return
+
+        entry_price = self.position_manager.entry_price
+        tp_price = self._calculate_take_profit_price(entry_price, position.amount)
+        if tp_price <= 0:
+            return
+
+        logger.warning(
+            f"[止盈恢复] 有持仓但无止盈单，重建: 止盈价={tp_price}, 数量={position.amount}"
+        )
+        try:
+            tp_order_id = await self._exchange.create_take_profit(
+                symbol=self.config.exchange.symbol,
+                side="sell",
+                amount=position.amount,
+                take_profit_price=tp_price,
+            )
+            if tp_order_id:
+                self.position_manager.set_take_profit_order(tp_order_id, tp_price)
+                logger.info(f"[止盈恢复] 止盈单重建成功: {tp_order_id}")
+            else:
+                logger.error("[止盈恢复] 止盈单重建失败: 仓位由止损单兜底")
+        except Exception as e:
+            logger.error(f"[止盈恢复] 止盈单重建异常: {e}")
 
     async def run(self) -> None:
         """主循环"""
@@ -275,6 +310,9 @@ class TradingBot:
                     f"方向={self.position_manager.position.side if self.position_manager.position else 'N/A'}, "
                     f"入场价={self.position_manager.entry_price}"
                 )
+                # P0-2: 仓位在交易所侧被平掉（止损/止盈单触发），
+                # 同样盖平仓时间戳，冷却门禁对两类平仓路径一视同仁
+                self.position_manager.mark_last_close()
             self.position_manager.update_from_exchange({})
         has_position = self.position_manager.has_position()
 
@@ -318,9 +356,18 @@ class TradingBot:
             signal = SignalProcessor.process(signal)
             logger.info(f"[AI信号] 原始信号: {signal}")
 
+            # 执行层置信度门禁（P0-1）：取最终置信度（0-1），解析失败→None（门禁不生效）
+            final_conf_raw = market_data.get("final_confidence")
+            try:
+                final_confidence: Optional[float] = (
+                    float(final_conf_raw) if final_conf_raw is not None else None
+                )
+            except (TypeError, ValueError):
+                final_confidence = None
+
             # 5. 处理信号
             execution_result = await self._execute_signal(
-                signal, current_price, has_position
+                signal, current_price, has_position, final_confidence
             )
 
             # P1: 记录本周期决策日志
@@ -396,13 +443,59 @@ class TradingBot:
             logger.warning("[决策日志] 记录失败（周期不受影响）: %s", e)
 
     async def _execute_signal(
-        self, signal: str, current_price: float, has_position: bool
+        self,
+        signal: str,
+        current_price: float,
+        has_position: bool,
+        final_confidence: Optional[float] = None,
     ) -> ExecutionResult:
-        """执行信号"""
+        """执行信号
+
+        final_confidence: 信号最终置信度（0-1）。非 None 时执行层置信度门禁生效：
+        - BUY + 无持仓: 低于 min_confidence_open → 禁止开仓（P0-1）
+        - SELL + 有持仓: 低于 min_confidence_close → 禁止平仓（仓位由止损单保护）
+        None（旧 3 参调用路径）：门禁不生效并 WARNING 提示（零回归）。
+        """
         logger.info(
             f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, "
             f"持仓状态: {'有持仓' if has_position else '无持仓'}"
         )
+
+        # 执行层置信度门禁（2026-10-08 手续费出血修复 / P0-1）：
+        # 低置信度往返单的成本 ≈ 11.5bp，而 54-67% 置信度信号的毛利 ≈ 0，
+        # 只放行有把握（>= 门禁）的开/平仓，其余交给止损/止盈单管理。
+        if final_confidence is None:
+            if signal in ("BUY", "SELL"):
+                logger.warning(
+                    "[信号执行] 未提供置信度 (final_confidence=None)，"
+                    "置信度门禁本轮不生效（旧调用路径）"
+                )
+        elif signal == "BUY" and not has_position:
+            min_conf = self.config.trading.min_confidence_open
+            if min_conf > 0 and final_confidence < min_conf:
+                logger.info(
+                    "[信号执行] BUY信号 + 置信度 %.2f < 门禁 %.2f -> 禁止开仓 "
+                    "(P0-1 置信度门禁)",
+                    final_confidence,
+                    min_conf,
+                )
+                return ExecutionResult(
+                    "blocked_low_confidence",
+                    f"buy_conf={final_confidence:.2f}<min={min_conf:.2f}",
+                )
+        elif signal == "SELL" and has_position:
+            min_conf = self.config.trading.min_confidence_close
+            if min_conf > 0 and final_confidence < min_conf:
+                logger.info(
+                    "[信号执行] SELL信号 + 置信度 %.2f < 门禁 %.2f -> 禁止平仓 "
+                    "(P0-1 置信度门禁，仓位由止损单保护)",
+                    final_confidence,
+                    min_conf,
+                )
+                return ExecutionResult(
+                    "blocked_low_confidence",
+                    f"sell_conf={final_confidence:.2f}<min={min_conf:.2f}",
+                )
 
         if signal == "BUY":
             if not has_position:
@@ -416,6 +509,20 @@ class TradingBot:
                     return ExecutionResult(
                         "blocked_drawdown",
                         f"drawdown={self._drawdown_status.drawdown:.2%}",
+                    )
+                # P0-2 平仓后冷却：平仓后 N 分钟内禁止重新开仓
+                # （斩断"平仓后 5 分钟即重开"式 churn，每 churn 一次 ≈ -0.23% 账户成本）
+                cooldown = self.config.trading.post_close_cooldown_minutes
+                if cooldown > 0 and self.position_manager.is_in_post_close_cooldown(
+                    cooldown
+                ):
+                    logger.info(
+                        "[信号执行] BUY信号 + 无持仓 + 处于平仓后冷却期 (%d分钟) "
+                        "-> 禁止重新开仓 (P0-2 冷却)",
+                        cooldown,
+                    )
+                    return ExecutionResult(
+                        "blocked_cooldown", f"cooldown_minutes={cooldown}"
                     )
                 logger.info("[信号执行] BUY信号 + 无持仓 -> 执行开仓")
                 await self._open_position(current_price)
@@ -502,6 +609,32 @@ class TradingBot:
             shrunk,
         )
         return shrunk
+
+    def _calculate_take_profit_price(self, entry_price: float, amount: float) -> float:
+        """计算多头止盈价（P1-3，standard bot 1-2R 止盈单）。
+
+        TP 距离 = 止损距离 × max(take_profit_rr_multiple, take_profit_min_rr_ratio)
+        （R/R 下限不变式复用既有 take_profit_min_rr_ratio，默认 2R）。
+        take_profit_rr_multiple <= 0（禁用）或名义低于 take_profit_min_notional
+        时返回 0.0；名义计算失败 → fail-open（照挂，默认阈值 0 本就不拦）。
+        """
+        mult = self.config.stop_loss.take_profit_rr_multiple
+        if mult <= 0 or entry_price <= 0 or amount <= 0:
+            return 0.0
+        stop_dist = self.config.stop_loss.stop_loss_percent
+        tp_dist = stop_dist * max(mult, self.config.stop_loss.take_profit_min_rr_ratio)
+        try:
+            notional = self._exchange.calculate_notional_usdt(amount, entry_price)
+            if notional < self.config.stop_loss.take_profit_min_notional:
+                logger.info(
+                    f"[止盈单] 名义 {notional:.2f} USDT 低于下限 "
+                    f"{self.config.stop_loss.take_profit_min_notional:.2f}，"
+                    "不挂止盈单（仅止损单）"
+                )
+                return 0.0
+        except (RuntimeError, ValueError, AttributeError) as e:
+            logger.warning("[止盈单] 名义计算不可用，跳过年名义检查 (fail-open): %s", e)
+        return entry_price * (1 + tp_dist)
 
     async def _open_position(self, price: float) -> None:
         """开仓 - 根据余额动态计算交易量
@@ -605,6 +738,33 @@ class TradingBot:
             logger.info(
                 f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, 止损:{stop_price}"
             )
+            # P1-3 止盈单（standard bot）：止损单就绪后挂 1-2R 止盈，
+            # 交易所侧由止损/止盈单兜底仓位。失败不回滚仓位（止损单兜底，
+            # 安全不变式保持）。数量与止损单同一截断值（同一 amount）。
+            tp_price = self._calculate_take_profit_price(price, amount)
+            if tp_price > 0:
+                try:
+                    tp_order_id = await self._exchange.create_take_profit(
+                        symbol=self.config.exchange.symbol,
+                        side="sell",
+                        amount=amount,
+                        take_profit_price=tp_price,
+                    )
+                except Exception as e:
+                    logger.warning(f"[止盈保护] 止盈单创建异常（止损单兜底）: {e}")
+                    tp_order_id = None
+                if tp_order_id:
+                    self.position_manager.set_take_profit_order(tp_order_id, tp_price)
+                    logger.info(
+                        "[开仓] 止盈单已创建: ID=%s, 止盈价:%s (R倍数=%.1f, P1-3)",
+                        tp_order_id,
+                        tp_price,
+                        self.config.stop_loss.take_profit_rr_multiple,
+                    )
+                else:
+                    logger.warning(
+                        "[止盈保护] 止盈单创建失败: 仓位由止损单兜底，不回滚"
+                    )
         else:
             logger.critical(
                 f"[止损保护] 止损单创建失败！立即市价平仓保护资金安全。"
@@ -707,7 +867,29 @@ class TradingBot:
             except Exception as e:
                 logger.warning(f"[平仓] 取消止损单异常: {e}")
 
+        # P1-3: 同步取消旧止盈单（与止损单同一 cancel_algo_order 路径）
+        if self.position_manager.take_profit_order_id:
+            logger.info(
+                f"[平仓] 取消旧止盈单: {self.position_manager.take_profit_order_id}"
+            )
+            try:
+                cancel_result = await self._exchange.cancel_algo_order(
+                    self.position_manager.take_profit_order_id,
+                    self.config.exchange.symbol,
+                )
+                cancel_success, cancel_reason = cancel_result
+                if cancel_success:
+                    logger.info("[平仓] 止盈单取消成功")
+                elif cancel_reason == "already_gone":
+                    logger.info("[平仓] 止盈单已不存在(可能已触发)")
+                else:
+                    logger.warning("[平仓] 取消止盈单失败")
+            except Exception as e:
+                logger.warning(f"[平仓] 取消止盈单异常: {e}")
+
         self.position_manager.clear_position()
+        # P0-2: 盖平仓时间戳（平仓后冷却门禁，重启可恢复）
+        self.position_manager.mark_last_close()
         logger.info(f"[平仓] 平仓完成 - 价格:{price}, 数量:{amount}张")
 
     async def cleanup(self) -> None:

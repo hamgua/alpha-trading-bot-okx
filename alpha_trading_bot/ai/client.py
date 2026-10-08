@@ -18,20 +18,21 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, Optional, Tuple
 from collections import defaultdict
+from typing import Any, Dict, Optional, Tuple
 
 from alpha_trading_bot.config.models import AIConfig
-from .providers import get_provider_config
-from .prompt_builder import build_prompt
-from .response_parser import parse_response
-from .integrator import AISignalIntegrator
-from .integrator_config import IntegrationConfig
-from .jev.fast_lane import JevFastLane
 from alpha_trading_bot.utils.observability import (
     record_fallback_invocation,
     record_gemini_request,
 )
+
+from .integrator import AISignalIntegrator
+from .integrator_config import IntegrationConfig
+from .jev.fast_lane import JevFastLane
+from .prompt_builder import build_prompt
+from .providers import get_provider_config
+from .response_parser import parse_response
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,17 @@ class SignalCache:
 
     def get(self, market_data: Dict[str, Any]) -> Optional[str]:
         """获取缓存的信号"""
+        hit = self.get_with_confidence(market_data)
+        return hit[0] if hit is not None else None
+
+    def get_with_confidence(
+        self, market_data: Dict[str, Any]
+    ) -> Optional[Tuple[str, float]]:
+        """获取缓存的信号及其置信度（命中返回 (signal, confidence)）。
+
+        P0-1 执行层置信度门禁需要缓存命中路径同样提供置信度，
+        否则缓存的 SELL/BUY 信号永远拿不到 final_confidence。
+        """
         key = self._generate_key(market_data)
         if key in self._cache:
             entry = self._cache[key]
@@ -91,7 +103,7 @@ class SignalCache:
             entry_ttl = entry[3] if len(entry) > 3 else self._ttl
             if time.time() - timestamp < entry_ttl:
                 logger.info(f"[AI缓存] 命中缓存: {signal} (置信度: {confidence:.0%})")
-                return signal
+                return signal, confidence
         return None
 
     def set(self, market_data: Dict[str, Any], signal: str, confidence: float) -> None:
@@ -232,8 +244,7 @@ class AIClient:
             return None
         fast_lane = JevFastLane.from_env()
         logger.info(
-            "[Jev快车道] 已启用 mode=%s model=%s "
-            "阈值=buy:%s/sell:%s/hold:%s risk_gate:%s",
+            "[Jev快车道] 已启用 mode=%s model=%s " "阈值=buy:%s/sell:%s/hold:%s risk_gate:%s",
             mode,
             fast_lane.config.model,
             fast_lane.config.conf_buy,
@@ -335,9 +346,20 @@ class AIClient:
 
             # 检查缓存
             if self._enable_cache and self._cache:
-                cached_signal = self._cache.get(market_data)
-                if cached_signal:
+                cached = self._cache.get_with_confidence(market_data)
+                if cached is not None:
+                    cached_signal, cached_confidence = cached
+                    # P0-1: 缓存命中同样补齐执行层门禁需要的置信度/溯源
+                    market_data["final_confidence"] = cached_confidence
+                    market_data["ai_final_confidence"] = cached_confidence
                     self._last_signal_trace["cache_hit"] = True
+                    self._last_signal_trace["integrator"] = {
+                        "original_signal": cached_signal,
+                        "original_confidence": cached_confidence,
+                        "final_signal": cached_signal,
+                        "final_confidence": cached_confidence,
+                        "adjustments": ["cache_hit"],
+                    }
                     return cached_signal
 
             # 获取原始信号（Jev 快车道优先；低置信/故障时升级 LLM）
@@ -674,9 +696,7 @@ class AIClient:
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(
-                        f"[AI重试] {provider} 最终失败 (尝试{attempt + 1}次): {e}"
-                    )
+                    logger.error(f"[AI重试] {provider} 最终失败 (尝试{attempt + 1}次): {e}")
                     break
 
         if last_error is None:
@@ -805,9 +825,7 @@ class AIClient:
                                 f"AI[{provider}]余额不足: "
                                 f"{_redact_sensitive_text(error_msg)}"
                             )
-                            raise ValueError(
-                                f"AI[{provider}]余额不足，请检查API账户余额"
-                            )
+                            raise ValueError(f"AI[{provider}]余额不足，请检查API账户余额")
                         elif error_msg:
                             sanitized_error = _redact_sensitive_text(error_msg)
                             # Gemini 常见鉴权错误映射
@@ -860,8 +878,7 @@ class AIClient:
                         else:
                             self._metrics["reasoning_fallback_misses"] += 1
                             logger.warning(
-                                f"AI[{provider}] reasoning_content中也无法提取信号，"
-                                "将触发重试"
+                                f"AI[{provider}] reasoning_content中也无法提取信号，" "将触发重试"
                             )
                     if provider == "gemini":
                         record_gemini_request(True)

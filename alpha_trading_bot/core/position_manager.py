@@ -5,10 +5,10 @@
 """
 
 import logging
-from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from ..config.models import Config
 from .state_persistence import StatePersistence, create_state_persistence
@@ -44,6 +44,8 @@ class PositionManager:
         self._last_stop_price: float = 0.0  # 上次设置的止损价，用于容错比较
         self._take_profit_order_id: Optional[str] = None  # 止盈单ID
         self._last_take_profit_price: float = 0.0  # 上次设置的止盈价
+        # 最近平仓时间戳（ISO；P0-2 平仓后冷却门禁）
+        self._last_close_at: str = ""
 
         self._entry_time: Optional[str] = None  # 入场时间ISO格式
         # 追踪持仓期间的最高价/最低价（真正的追踪止损）
@@ -93,6 +95,41 @@ class PositionManager:
                 )
         except Exception as e:
             logger.warning(f"[持久化恢复] 恢复状态失败: {e}")
+        finally:
+            # 平仓时间戳独立于持仓存在与否（平仓后本地已无持仓，
+            # 冷却状态必须跨重启保留 —— P0-2；load_state 有内存缓存）
+            try:
+                self._last_close_at = self._persistence.load_state().last_close_at
+            except Exception:
+                self._last_close_at = ""
+
+    @property
+    def last_close_at(self) -> str:
+        """最近平仓时间戳（ISO，无则空串）。"""
+        return self._last_close_at
+
+    def mark_last_close(self) -> None:
+        """标记平仓时间并持久化（P0-2 平仓后冷却门禁）。"""
+        self._persistence.mark_last_close()
+        try:
+            self._last_close_at = self._persistence.load_state().last_close_at
+        except Exception:
+            self._last_close_at = ""
+        logger.info(f"[平仓冷却] 已标记平仓时间: {self._last_close_at or 'N/A'}")
+
+    def is_in_post_close_cooldown(self, minutes: int) -> bool:
+        """是否处于平仓后冷却窗口内（P0-2）。
+
+        无记录 / 冷却时长 ≤ 0 / 时间戳解析失败 → False（fail-open：
+        冷却是成本优化，不是安全门）。
+        """
+        if minutes <= 0 or not self._last_close_at:
+            return False
+        try:
+            last_close = datetime.fromisoformat(self._last_close_at)
+        except ValueError:
+            return False
+        return (datetime.now() - last_close).total_seconds() < minutes * 60
 
     @property
     def position(self) -> Optional[Position]:
@@ -161,18 +198,14 @@ class PositionManager:
         if position_side == "long":
             if current_price > self._highest_price_since_entry:
                 self._highest_price_since_entry = current_price
-                logger.info(
-                    f"[价格追踪] 更新做多最高价: {self._highest_price_since_entry}"
-                )
+                logger.info(f"[价格追踪] 更新做多最高价: {self._highest_price_since_entry}")
         elif position_side == "short":
             if (
                 current_price < self._lowest_price_since_entry
                 or self._lowest_price_since_entry == 0
             ):
                 self._lowest_price_since_entry = current_price
-                logger.info(
-                    f"[价格追踪] 更新做空最低价: {self._lowest_price_since_entry}"
-                )
+                logger.info(f"[价格追踪] 更新做空最低价: {self._lowest_price_since_entry}")
 
     def reset_price_tracking(self) -> None:
         """重置价格追踪（新开仓时调用）"""
@@ -290,14 +323,10 @@ class PositionManager:
             # 当从交易所恢复持仓时，用入场价初始化最高/最低价
             if self._position.side == "long" and self._highest_price_since_entry == 0:
                 self._highest_price_since_entry = self._entry_price
-                logger.info(
-                    f"[仓位更新] 初始化做多最高价: {self._highest_price_since_entry}"
-                )
+                logger.info(f"[仓位更新] 初始化做多最高价: {self._highest_price_since_entry}")
             elif self._position.side == "short" and self._lowest_price_since_entry == 0:
                 self._lowest_price_since_entry = self._entry_price
-                logger.info(
-                    f"[仓位更新] 初始化做空最低价: {self._lowest_price_since_entry}"
-                )
+                logger.info(f"[仓位更新] 初始化做空最低价: {self._lowest_price_since_entry}")
 
             # 持久化保存
             self._persistence.save_position(
@@ -365,9 +394,7 @@ class PositionManager:
         # 远离市价导致开仓即被止损。
         try:
             atr_value = (
-                float(dynamic_atr_percent)
-                if dynamic_atr_percent is not None
-                else None
+                float(dynamic_atr_percent) if dynamic_atr_percent is not None else None
             )
         except (TypeError, ValueError):
             atr_value = None
@@ -704,9 +731,7 @@ class PositionManager:
                 lowest_price_since_entry=self._lowest_price_since_entry,
             )
 
-        logger.debug(
-            f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}"
-        )
+        logger.debug(f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}")
 
     def clear_protection_orders(self) -> None:
         """清理本地止损/止盈保护单状态。"""
@@ -862,9 +887,7 @@ class PositionManager:
             reason="signal_open",
         )
 
-        logger.info(
-            f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}"
-        )
+        logger.info(f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}")
 
 
 def create_position_manager(

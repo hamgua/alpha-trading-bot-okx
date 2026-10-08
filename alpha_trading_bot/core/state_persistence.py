@@ -58,6 +58,8 @@ class TradingState:
     total_trades: int = 0
     daily_pnl: float = 0.0
     version: str = "1.0"
+    # 平仓时间戳（ISO；P0-2 平仓后冷却门禁用，重启可恢复）
+    last_close_at: str = ""
 
 
 class StatePersistence:
@@ -156,9 +158,7 @@ class StatePersistence:
             # 保存到文件
             self._save_state(state)
 
-            logger.info(
-                f"[持久化] 持仓状态已保存: {symbol} {side} {amount}@{entry_price}"
-            )
+            logger.info(f"[持久化] 持仓状态已保存: {symbol} {side} {amount}@{entry_price}")
             return True
 
         except Exception as e:
@@ -190,6 +190,21 @@ class StatePersistence:
         except Exception as e:
             logger.error(f"[持久化] 清空持仓状态失败: {e}")
             return False
+
+    def mark_last_close(self) -> None:
+        """标记最近一次平仓时间（P0-2 平仓后冷却门禁用）。
+
+        所有平仓路径（手动 SELL 平仓、交易所侧止损/止盈触发后的周期对账）
+        都应调用；重启后由 TradingState.last_close_at 恢复。
+        任何异常不中断主流程（冷却是成本优化，不是安全门）。
+        """
+        try:
+            state = self.load_state()
+            state.last_close_at = datetime.now().isoformat()
+            self._save_state(state)
+            logger.debug(f"[持久化] 平仓时间已标记: {state.last_close_at}")
+        except Exception as e:
+            logger.warning(f"[持久化] 记录平仓时间失败（不影响主流程）: {e}")
 
     def update_stop_order(self, stop_order_id: Optional[str]) -> bool:
         """
@@ -264,6 +279,7 @@ class StatePersistence:
                     total_trades=data.get("total_trades", 0),
                     daily_pnl=data.get("daily_pnl", 0.0),
                     version=data.get("version", "1.0"),
+                    last_close_at=data.get("last_close_at", ""),
                 )
 
                 if position:
@@ -299,6 +315,7 @@ class StatePersistence:
             "total_trades": state.total_trades,
             "daily_pnl": state.daily_pnl,
             "version": state.version,
+            "last_close_at": state.last_close_at,
             "saved_at": datetime.now().isoformat(),
         }
 
@@ -327,6 +344,7 @@ class StatePersistence:
             "total_trades": state.total_trades,
             "daily_pnl": state.daily_pnl,
             "version": state.version,
+            "last_close_at": state.last_close_at,
             "backup_at": datetime.now().isoformat(),
         }
 
@@ -410,9 +428,7 @@ class StatePersistence:
             # 保存
             self._save_history(history)
 
-            logger.info(
-                f"[持久化] 记录交易: {trade_type} {symbol} {side} {amount}@{price}"
-            )
+            logger.info(f"[持久化] 记录交易: {trade_type} {symbol} {side} {amount}@{price}")
             return True
 
         except Exception as e:

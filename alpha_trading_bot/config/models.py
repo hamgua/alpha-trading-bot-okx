@@ -133,6 +133,17 @@ class TradingConfig:
     risk_drawdown_halt: float = 0.30  # 回撤停机阈值：权益相对高水位回撤≥30% 禁止新开仓
     risk_per_trade_max: float = 0.10  # 单笔风险上限：止损触发预期亏损 ≤ 账户 10%
     risk_resume: bool = False  # 手动恢复：RISK_RESUME=true 或 1 + 重启后清除停机状态
+    # ---- 执行层置信度门禁（2026-10-08 手续费出血修复 / P0-1）----
+    # BUY 开仓 / SELL 平仓仅在最终置信度 >= 门禁时执行（0=关闭该门禁）。
+    # 证据: 4 天 8 个往返信号毛利 +$0.0005 / 手续费 -$0.1351；8 笔 SELL
+    # 平仓最终置信度 54-67%（全部 <0.75）直接触发市价平仓，8 笔 BUY
+    # 开仓全部为 LLM hold 翻转（最终 51-79%）。执行层此前零门禁。
+    min_confidence_open: float = 0.75
+    min_confidence_close: float = 0.75
+    # ---- 平仓后冷却（2026-10-08 手续费出血修复 / P0-2）----
+    # 平仓后 N 分钟内禁止重新开仓（0=关闭），斩断"平仓后 5 分钟即重开"
+    # 式 churn（证据: T3→T4 间隔 5 分钟，T7 持仓仅 4.4 分钟）。
+    post_close_cooldown_minutes: int = 30
 
     VALID_RUNTIME_ENVIRONMENTS = ["dev", "test", "staging", "prod", "production"]
     LIVE_ALLOWED_ENVIRONMENTS = ["prod", "production"]
@@ -182,6 +193,20 @@ class TradingConfig:
         ):
             errors.append("订单确认轮询间隔不能大于确认超时")
 
+        if not 0 <= self.min_confidence_open <= 1:
+            errors.append(
+                f"min_confidence_open ({self.min_confidence_open}) 不在有效范围 [0-1]"
+            )
+        if not 0 <= self.min_confidence_close <= 1:
+            errors.append(
+                f"min_confidence_close ({self.min_confidence_close}) 不在有效范围 [0-1]"
+            )
+        if not 0 <= self.post_close_cooldown_minutes <= 1440:
+            errors.append(
+                f"post_close_cooldown_minutes ({self.post_close_cooldown_minutes}) "
+                "不在有效范围 [0-1440]"
+            )
+
         if self.runtime_environment not in self.VALID_RUNTIME_ENVIRONMENTS:
             errors.append(
                 "运行环境 "
@@ -195,9 +220,7 @@ class TradingConfig:
                 if reason == "real_trading_not_confirmed":
                     errors.append("实盘模式需要显式确认: REAL_TRADING_CONFIRMED=true")
                 elif reason == "runtime_environment_not_allowed":
-                    errors.append(
-                        "实盘模式仅允许在受控环境运行: RUNTIME_ENVIRONMENT=prod|production"
-                    )
+                    errors.append("实盘模式仅允许在受控环境运行: RUNTIME_ENVIRONMENT=prod|production")
 
         return errors
 
@@ -406,9 +429,7 @@ class StopLossConfig:
     min_net_profit_to_close_percent: float = 0.003
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
-    price_vs_entry_tolerance_percent: float = (
-        0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
-    )
+    price_vs_entry_tolerance_percent: float = 0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
     # OKX 止损触发价 tick size（用于比较新/旧止损价时对齐精度，
     # 避免 OKX 把 62501.4225 截为 62501.4 后误判 "新值更紧" 造成每周期重复取消+重建算法单）
     stop_loss_tick_tolerance: float = 0.1
@@ -432,6 +453,12 @@ class StopLossConfig:
     # 手续费级"虚假盈利"被提前落袋。
     # 2026-09-20 loss-structure-fix / R2。
     taker_fee_rate: float = 0.0005
+    # 止盈单 R 倍数（standard bot，2026-10-08 手续费出血修复 / P1-3）：
+    # TP 距离 = 止损距离 × max(本值, take_profit_min_rr_ratio)。
+    # 默认 2.0 = 2R（止损 0.5% → TP 1.0%）；0 = 不挂止盈单。
+    # 注: .env 的 TAKE_PROFIT_PERCENT(12R) 只被 adaptive 模式消费，standard
+    # 此前从不下止盈单，本字段是其唯一开关。
+    take_profit_rr_multiple: float = 2.0
 
     def validate(self) -> List[str]:
         """验证配置，返回错误列表"""
@@ -439,21 +466,15 @@ class StopLossConfig:
         if self.stop_loss_percent <= 0 or self.stop_loss_percent > 1:
             errors.append(f"止损比例 {self.stop_loss_percent} 不在有效范围 (0-1)")
         if self.stop_loss_profit_percent <= 0 or self.stop_loss_profit_percent > 1:
-            errors.append(
-                f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)"
-            )
+            errors.append(f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)")
         if self.stop_loss_tolerance_percent < 0:
             errors.append(f"止损容错比例 {self.stop_loss_tolerance_percent} 不能为负数")
         if self.take_profit_percent <= 0 or self.take_profit_percent > 1:
             errors.append(f"止盈比例 {self.take_profit_percent} 不在有效范围 (0-1)")
         if self.take_profit_min_notional < 0:
-            errors.append(
-                f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数"
-            )
+            errors.append(f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数")
         if self.take_profit_mode not in ["adaptive", "fixed"]:
-            errors.append(
-                f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed"
-            )
+            errors.append(f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed")
         if self.take_profit_atr_multiplier <= 0:
             errors.append(f"止盈ATR倍数 {self.take_profit_atr_multiplier} 必须大于0")
         if self.take_profit_min_percent < 0:
@@ -463,24 +484,17 @@ class StopLossConfig:
         if self.take_profit_max_percent < self.take_profit_min_percent:
             errors.append("止盈最大距离不能小于最小距离")
         if self.take_profit_structure_buffer_percent < 0:
-            errors.append(
-                f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数"
-            )
+            errors.append(f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数")
         if self.take_profit_partial_ratio <= 0 or self.take_profit_partial_ratio > 1:
-            errors.append(
-                f"止盈分批比例 {self.take_profit_partial_ratio} 不在有效范围 (0-1]"
-            )
+            errors.append(f"止盈分批比例 {self.take_profit_partial_ratio} 不在有效范围 (0-1]")
         if self.take_profit_min_amount < 0:
             errors.append(f"止盈最小数量 {self.take_profit_min_amount} 不能为负数")
         if self.min_profit_to_tighten_stop_percent < 0:
             errors.append(
-                "止损收紧最小盈利比例 "
-                f"{self.min_profit_to_tighten_stop_percent} 不能为负数"
+                "止损收紧最小盈利比例 " f"{self.min_profit_to_tighten_stop_percent} 不能为负数"
             )
         if self.price_vs_entry_tolerance_percent < 0:
-            errors.append(
-                f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数"
-            )
+            errors.append(f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数")
         if self.min_net_profit_to_close_percent < 0:
             errors.append(
                 f"min_net_profit_to_close_percent "
@@ -488,13 +502,10 @@ class StopLossConfig:
             )
         if self.stop_loss_tick_tolerance < 0:
             errors.append(
-                f"stop_loss_tick_tolerance "
-                f"{self.stop_loss_tick_tolerance} 不能为负数"
+                f"stop_loss_tick_tolerance " f"{self.stop_loss_tick_tolerance} 不能为负数"
             )
         if self.take_profit_min_rr_ratio < 0:
-            errors.append(
-                f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)"
-            )
+            errors.append(f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)")
         if self.take_profit_max_atr_multiplier < 0:
             errors.append(
                 f"take_profit_max_atr_multiplier "
@@ -511,6 +522,11 @@ class StopLossConfig:
             )
         if self.taker_fee_rate < 0 or self.taker_fee_rate > 0.05:
             errors.append(f"taker手续费率 {self.taker_fee_rate} 不在有效范围 [0, 0.05)")
+        if self.take_profit_rr_multiple < 0:
+            errors.append(
+                f"take_profit_rr_multiple ({self.take_profit_rr_multiple}) "
+                "不能为负数 (0=不挂止盈单)"
+            )
         return errors
 
 
@@ -526,9 +542,7 @@ class SystemConfig:
         """验证配置，返回错误列表"""
         errors = []
         if self.log_level.upper() not in self.VALID_LOG_LEVELS:
-            errors.append(
-                f"日志级别 '{self.log_level}' 无效，可选: {self.VALID_LOG_LEVELS}"
-            )
+            errors.append(f"日志级别 '{self.log_level}' 无效，可选: {self.VALID_LOG_LEVELS}")
         return errors
 
 
@@ -613,6 +627,11 @@ class Config:
                 risk_drawdown_halt=float(os.getenv("RISK_DRAWDOWN_HALT", "0.30")),
                 risk_per_trade_max=float(os.getenv("RISK_PER_TRADE_MAX", "0.10")),
                 risk_resume=os.getenv("RISK_RESUME", "false").lower() in ("true", "1"),
+                min_confidence_open=float(os.getenv("MIN_CONFIDENCE_OPEN", "0.75")),
+                min_confidence_close=float(os.getenv("MIN_CONFIDENCE_CLOSE", "0.75")),
+                post_close_cooldown_minutes=int(
+                    os.getenv("POST_CLOSE_COOLDOWN_MINUTES", "30")
+                ),
             ),
             ai=AIConfig.from_env(),
             stop_loss=StopLossConfig(
@@ -666,6 +685,9 @@ class Config:
                 ),
                 take_profit_max_atr_multiplier=float(
                     os.getenv("TAKE_PROFIT_MAX_ATR_MULTIPLIER", "4.0")
+                ),
+                take_profit_rr_multiple=float(
+                    os.getenv("TAKE_PROFIT_RR_MULTIPLE", "2.0")
                 ),
             ),
             system=SystemConfig(
