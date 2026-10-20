@@ -1,6 +1,7 @@
 """OKX raw endpoint regression tests for ccxt load_markets avoidance."""
 
 import sys
+import time
 import types
 from unittest.mock import AsyncMock
 
@@ -514,7 +515,7 @@ async def test_exchange_client_loads_instrument_metadata_for_order_arithmetic(
 
         def fetch_time(self):
             calls.append(("time", None))
-            return 0
+            return int(time.time() * 1000)
 
         def public_get_public_instruments(self, params):
             calls.append(("instruments", params))

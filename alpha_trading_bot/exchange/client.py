@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 import ccxt
 
+from ..core.exceptions import NetworkError
 from .account_service import AccountService, create_account_service
 from .instrument_service import InstrumentService
 from .market_data import MarketDataService, create_market_data_service
@@ -95,9 +96,27 @@ class ExchangeClient:
         self._instrument_service = InstrumentService(self.exchange, self.symbol)
         self._instrument_spec = await self._instrument_service.load()
 
-        await asyncio.get_event_loop().run_in_executor(
+        # 与 OKX 服务器时间对时：本地时钟偏移超过 30s 时，签名请求会被拒绝
+        # （错误码 50102 "Timestamp request expired"）。新服务器部署常见
+        # 问题（未启用 NTP），这里提前检测并给出明确提示。
+        server_time_ms = await asyncio.get_event_loop().run_in_executor(
             None, lambda: self.exchange.fetch_time()
         )
+        local_time_ms = int(time.time() * 1000)
+        drift_ms = abs(server_time_ms - local_time_ms)
+        if drift_ms > 25_000:
+            logger.error(
+                f"服务器时间偏移 {drift_ms}ms 超过 OKX 容差 30s，"
+                "请先同步系统时钟（NTP/chrony）后重启"
+            )
+            raise NetworkError(
+                f"服务器时间偏移 {drift_ms}ms 超过 OKX 容差 30s，"
+                "请先同步系统时钟（NTP/chrony）后重启"
+            )
+        if drift_ms > 10_000:
+            logger.warning(
+                f"服务器时间偏移 {drift_ms}ms，接近 OKX 容差 30s，建议检查系统时钟"
+            )
         logger.info("交易所客户端初始化完成")
 
     @property
