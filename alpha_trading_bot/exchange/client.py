@@ -396,7 +396,17 @@ class ExchangeClient:
         amount: float,
         take_profit_price: float,
     ) -> str:
-        """创建止盈单"""
+        """创建止盈单
+
+        Returns:
+            止盈单ID (str); 创建失败返回空串。
+            2026-11 修复: order_service 返回 StopOrderResult dataclass
+            (含 OrderStatus 枚举), 此前直接透传导致 bot 把整个对象当
+            order_id 存入 PositionState → state_persistence JSON 序列化
+            失败 ("Object of type OrderStatus is not JSON serializable",
+            11-19 连发 6 条, 持仓/平仓冷却状态丢失)。现与 create_stop_loss
+            同口径返回字符串 ID。
+        """
         if self.test_mode:
             simulated_id = f"SIMULATED_TAKE_PROFIT_{int(time.time())}"
             logger.warning(
@@ -406,9 +416,16 @@ class ExchangeClient:
             )
             return simulated_id
 
-        return await self._order_service.create_take_profit(
+        result = await self._order_service.create_take_profit(
             symbol, side, amount, take_profit_price
         )
+        if result.is_success:
+            return result.order_id
+        logger.error(
+            f"[止盈单] 创建未成功: {result.error_message} "
+            f"(status={result.status.value})"
+        )
+        return ""
 
     async def cancel_order(self, order_id: str, symbol: str) -> tuple[bool, str]:
         """取消订单

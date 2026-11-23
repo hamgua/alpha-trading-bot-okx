@@ -248,6 +248,7 @@ class PromptBuilder:
             mkt_resistance=mkt_resistance,
             mkt_pos_factor=mkt_pos_factor,
             crash_bounce_guide=crash_bounce_guide,
+            recent_15m_summary=market_data.get("recent_15m_summary"),
         )
         # Jev 快车道初读：仅升级路径注入；None 时保持旧输出逐字节一致
         if jev_context:
@@ -291,6 +292,7 @@ class PromptBuilder:
         mkt_resistance: float = 0.0,
         mkt_pos_factor: float = 0.0,
         crash_bounce_guide: str = "",
+        recent_15m_summary: Optional[Dict[str, float]] = None,
     ) -> str:
         """格式化Prompt - 差异化系统"""
         crash_warning = (
@@ -300,6 +302,18 @@ class PromptBuilder:
         oversold_rebound = (
             "🎯 检测到超卖区域（RSI<30），可考虑超卖反弹策略！" if is_oversold else ""
         )
+
+        # 2026-11 底部捕获: 15m 双窗口摘要 (100×1H 对急跌/急涨太慢)
+        recent_15m_line = ""
+        if recent_15m_summary:
+            recent_15m_line = (
+                f"- 近24h(15m粒度) 最低: {recent_15m_summary['low_24h_15m']:.2f} / "
+                f"最高: {recent_15m_summary['high_24h_15m']:.2f} "
+                f"(当前价处于区间 {recent_15m_summary['position_pct']:.0f}% 位置, "
+                f"<15%贴近低点)\n"
+                f"- 近4h(15m粒度) 涨跌幅: {recent_15m_summary['change_4h_pct']:+.2f}% "
+                f"(急跌后贴底企稳/V型反转的早期信号)"
+            )
 
         # Deepseek 低位反弹模式提示
         deepseek_rebound_warning = ""
@@ -369,6 +383,7 @@ class PromptBuilder:
 - 布林带位置: {bb_pos:.1f}% （<20超卖, >80超买, 50为中轨）
 - 趋势方向: {trend_dir}
 - 趋势强度: {trend_strength:.2f} （0-1，>0.2为有效趋势）
+{recent_15m_line}
 
 {crash_warning}
 {oversold_rebound}

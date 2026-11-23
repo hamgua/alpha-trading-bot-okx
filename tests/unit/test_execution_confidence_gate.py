@@ -161,10 +161,17 @@ class TestSellConfidenceGate:
 
 
 class TestConfigDefaultsAndEnv:
-    def test_defaults_are_075(self) -> None:
+    def test_defaults_are_065_060(self) -> None:
+        # 2026-11 底部捕获调参: 门禁 0.75→0.65/0.60 (折扣瀑布修复后, 高门禁
+        # 曾导致 55k 底部 6 天 0 交易); 平仓门禁 < 开仓门禁 (离场应比开仓容易)
         cfg = TradingConfig()
-        assert cfg.min_confidence_open == 0.75
-        assert cfg.min_confidence_close == 0.75
+        assert cfg.min_confidence_open == 0.65
+        assert cfg.min_confidence_close == 0.60
+        assert cfg.daily_open_limit == 2
+        assert cfg.oversold_buy_enabled is True
+        assert cfg.oversold_buy_rsi_max == 20.0
+        assert cfg.oversold_buy_position_factor == 0.5
+        assert cfg.oversold_buy_daily_limit == 1
 
     def test_env_mapping(self, monkeypatch) -> None:
         monkeypatch.setenv("MIN_CONFIDENCE_OPEN", "0.6")

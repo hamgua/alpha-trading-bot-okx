@@ -99,6 +99,16 @@ class SustainedDeclineConfig:
     block_buy_at_severe: bool = True  # 严重下跌时完全阻断BUY信号
     block_buy_at_moderate: bool = False  # 中度下跌时是否阻断BUY信号
 
+    # ---- 衰竭反转（2026-11 底部捕获 / P1-6）----
+    # severe 下跌 + 显著反弹 + RSI 超卖 = 下跌衰竭窗口, 解除 BUY 惩罚
+    # 并小幅反哺 (buy_penalty 取负值), 替代原先 "底部时罚得最重" 的单向逻辑。
+    # 回放: 11-21 14:14 底部 (severe 9.1% + 反弹 1.36%→后续 2%+ + RSI 16)
+    # 原逻辑 BUY 惩罚 40% 且 should_block_buy=True, 恰好压制抄底信号。
+    exhaustion_enabled: bool = True
+    exhaustion_min_rebound_percent: float = 2.0  # 反弹幅度阈值 (%)
+    exhaustion_rsi_max: float = 25.0  # RSI 超卖上限
+    exhaustion_buy_boost: float = 0.10  # BUY 置信度加成 (buy_penalty = -boost)
+
 
 @dataclass
 class DeclineDetectionResult:
@@ -112,9 +122,10 @@ class DeclineDetectionResult:
     metrics: Optional[DeclineMetrics] = None
 
     # 信号调整建议
-    buy_penalty: float = 0.0  # BUY置信度惩罚值
+    buy_penalty: float = 0.0  # BUY置信度惩罚值 (负值=衰竭反转入加成)
     sell_boost: float = 0.0  # SELL置信度加成值
     should_block_buy: bool = False  # 是否应该阻断BUY信号
+    exhaustion_reversal: bool = False  # 衰竭反转: severe下跌+反弹+超卖=底部窗口
     suggested_signal_adjustment: str = ""  # 建议的信号调整
 
     # 日志信息
@@ -256,16 +267,37 @@ class SustainedDeclineDetector:
         buy_penalty = 0.0
         sell_boost = 0.0
         should_block_buy = False
+        exhaustion_reversal = False
         suggested_adjustment = ""
 
         if is_sustained:
             level = metrics.decline_level
 
             if level == DeclineLevel.SEVERE.value:
-                buy_penalty = self.config.buy_confidence_penalty_severe
-                sell_boost = self.config.sell_confidence_boost_severe
-                should_block_buy = self.config.block_buy_at_severe
-                suggested_adjustment = f"严重下跌趋势，BUY信号降低{buy_penalty:.0%}，SELL信号增强{sell_boost:.0%}"
+                # 2026-11 衰竭反转: severe 级别下若已出现显著反弹且 RSI 超卖,
+                # 说明下跌动能衰竭 (底部窗口), 解除 BUY 惩罚并小幅反哺,
+                # 避免 "底部时罚得最重" 的单向压制。
+                rsi = market_data.get("technical", {}).get("rsi", 50.0)
+                if (
+                    self.config.exhaustion_enabled
+                    and metrics.max_rebound_percent
+                    >= self.config.exhaustion_min_rebound_percent
+                    and rsi < self.config.exhaustion_rsi_max
+                ):
+                    buy_penalty = -self.config.exhaustion_buy_boost
+                    sell_boost = 0.0
+                    should_block_buy = False
+                    exhaustion_reversal = True
+                    suggested_adjustment = (
+                        f"衰竭反转: 严重下跌{metrics.cumulative_decline_percent:.1f}% + "
+                        f"反弹{metrics.max_rebound_percent:.2f}% + RSI={rsi:.0f}超卖, "
+                        f"解除BUY惩罚并加成{self.config.exhaustion_buy_boost:.0%} (底部窗口)"
+                    )
+                else:
+                    buy_penalty = self.config.buy_confidence_penalty_severe
+                    sell_boost = self.config.sell_confidence_boost_severe
+                    should_block_buy = self.config.block_buy_at_severe
+                    suggested_adjustment = f"严重下跌趋势，BUY信号降低{buy_penalty:.0%}，SELL信号增强{sell_boost:.0%}"
 
             elif level == DeclineLevel.MODERATE.value:
                 buy_penalty = self.config.buy_confidence_penalty_moderate
@@ -302,6 +334,7 @@ class SustainedDeclineDetector:
             buy_penalty=buy_penalty,
             sell_boost=sell_boost,
             should_block_buy=should_block_buy,
+            exhaustion_reversal=exhaustion_reversal,
             suggested_signal_adjustment=suggested_adjustment,
             log_message=log_msg,
         )
@@ -382,9 +415,7 @@ class SustainedDeclineDetector:
 
         # 计算下跌周期占比
         down_periods = sum(1 for change in recent_changes if change < -0.001)
-        down_ratio = (
-            down_periods / len(recent_changes) if recent_changes else 0
-        )
+        down_ratio = down_periods / len(recent_changes) if recent_changes else 0
 
         # 3. 反弹分析
         rebounds = [c for c in hourly_changes if c > 0.003]  # 超过0.3%视为反弹

@@ -159,26 +159,26 @@ class TestAIClientDeepSeekHandling:
     """测试 AIClient 对 DeepSeek 的特殊处理"""
 
     def test_deepseek_max_tokens_increased(self):
-        """验证 DeepSeek 的 max_tokens 设为 2000"""
+        """验证 DeepSeek 的 max_tokens 设为 3000 (2026-11 起由
+        _reasoning_max_tokens 统一管理, 原内联逻辑已重构)。"""
         from alpha_trading_bot.ai.client import AIClient
 
         client = AIClient(enable_cache=False)
-        import inspect
-
-        source = inspect.getsource(client._call_ai)
-        assert '"deepseek"' in source or "'deepseek'" in source
-        assert "2000" in source
+        assert client._reasoning_max_tokens("deepseek") == 3000
 
     def test_minimax_max_tokens_unchanged(self):
-        """T19: MiniMax 的 max_tokens 也设为 2000（回归测试）"""
+        """T19: MiniMax 的 max_tokens 3000 (回归测试, 2026-11 重构后)"""
         from alpha_trading_bot.ai.client import AIClient
 
         client = AIClient(enable_cache=False)
-        import inspect
+        assert client._reasoning_max_tokens("minimax") == 3000
 
-        source = inspect.getsource(client._call_ai)
-        assert "minimax" in source
-        assert "2000" in source
+    def test_qwen38_max_tokens_raised_8000(self):
+        """2026-11: qwen38 3000→8000 (11-19/11-21 两次思考截断降级)。"""
+        from alpha_trading_bot.ai.client import AIClient
+
+        client = AIClient(enable_cache=False)
+        assert client._reasoning_max_tokens("qwen38") == 8000
 
 
 class TestReasoningContentHandling:
@@ -234,7 +234,9 @@ class TestResponseParserThinkTagRemoval:
 
     def test_invalid_signal_returns_none(self):
         """验证无效信号的 JSON 返回 None"""
-        result = ResponseParser._parse_json_response('{"signal":"unknown","confidence":50}')
+        result = ResponseParser._parse_json_response(
+            '{"signal":"unknown","confidence":50}'
+        )
         assert result is None
 
     def test_json_confidence_as_string(self):
@@ -247,8 +249,6 @@ class TestResponseParserThinkTagRemoval:
 
     def test_json_confidence_missing(self):
         """验证 JSON 中缺少置信度字段"""
-        signal, confidence = ResponseParser._parse_json_response(
-            '{"signal":"hold"}'
-        )
+        signal, confidence = ResponseParser._parse_json_response('{"signal":"hold"}')
         assert signal == "hold"
         assert confidence is None

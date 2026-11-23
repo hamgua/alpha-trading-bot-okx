@@ -918,14 +918,14 @@ SCENARIOS: List[Scenario] = [
     Scenario(
         name="G1-明确HOLD不翻转",
         group="G-集成流水线",
-        description="AI HOLD 56% + 技术买入条件 → 保持 HOLD (翻转守卫)",
+        description="AI HOLD 62% (明确, >=0.60 高可信模式上限) + 技术买入条件 → 保持 HOLD (翻转守卫)。2026-11 翻转守卫分级: 强模式上限 0.55→0.60, 本场景用 0.62 验证守卫仍生效",
         atr_percent=0.0015,
         rsi=52.0,
         trend_direction="up",
         trend_strength=0.3,
         price_shape="up",
         ai_signal="hold",
-        ai_confidence=0.56,
+        ai_confidence=0.62,
         expect={"ai_final_signal": "HOLD"},
     ),
     Scenario(

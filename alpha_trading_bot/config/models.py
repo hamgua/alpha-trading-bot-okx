@@ -138,8 +138,25 @@ class TradingConfig:
     # 证据: 4 天 8 个往返信号毛利 +$0.0005 / 手续费 -$0.1351；8 笔 SELL
     # 平仓最终置信度 54-67%（全部 <0.75）直接触发市价平仓，8 笔 BUY
     # 开仓全部为 LLM hold 翻转（最终 51-79%）。执行层此前零门禁。
-    min_confidence_open: float = 0.75
-    min_confidence_close: float = 0.75
+    min_confidence_open: float = 0.65
+    min_confidence_close: float = 0.60
+    # ---- 每日新开仓上限（2026-11 底部捕获配套 / 成本防护）----
+    # 门禁下调 (0.75→0.65) 后配套的成本控制: 每日最多新开仓 N 笔 (0=关闭)。
+    # 手续费出血的根源是高频 churn, 而非单笔开仓; 限频 + 置信度门禁
+    # 双保险, 比单一高门禁更精细 (高门禁曾导致 55k 底部 6 天零交易)。
+    daily_open_limit: int = 2
+    # ---- 超卖抄底独立通道（2026-11 底部捕获 / P1-5）----
+    # RSI≤rsi_max 且价格位于 24h 低点 near_low_pct 以内 → 技术独立触发
+    # 抄底 (固定置信度 + 半仓 + 每日最多 1 次), 绕过 AI 置信度门禁。
+    # 回放: 11-21 14:14 RSI=16.2 / 55647=24h 最低区, 原流水线 5 层折扣后
+    # 66.5% < 0.75 被拦, 错过 55.6k→60.7k (+9.1%) 反弹。
+    # 仅保留: 回撤总闸 / 平仓冷却 / 每日开仓上限 / 实盘闸门。
+    oversold_buy_enabled: bool = True
+    oversold_buy_rsi_max: float = 20.0
+    oversold_buy_near_low_pct: float = 0.01  # 价格 ≤ 24h低点×(1+1%)
+    oversold_buy_confidence: float = 0.70  # 通道固定置信度 (仅用于审计日志)
+    oversold_buy_position_factor: float = 0.5  # 半仓
+    oversold_buy_daily_limit: int = 1  # 每日最多触发次数
     # ---- 平仓后冷却（2026-10-08 手续费出血修复 / P0-2）----
     # 平仓后 N 分钟内禁止重新开仓（0=关闭），斩断"平仓后 5 分钟即重开"
     # 式 churn（证据: T3→T4 间隔 5 分钟，T7 持仓仅 4.4 分钟）。
@@ -201,6 +218,30 @@ class TradingConfig:
             errors.append(
                 f"min_confidence_close ({self.min_confidence_close}) 不在有效范围 [0-1]"
             )
+        if self.daily_open_limit < 0:
+            errors.append(
+                f"daily_open_limit ({self.daily_open_limit}) 不能为负数 (0=关闭)"
+            )
+        if not 0 < self.oversold_buy_rsi_max <= 100:
+            errors.append(
+                f"oversold_buy_rsi_max ({self.oversold_buy_rsi_max}) "
+                "不在有效范围 (0-100]"
+            )
+        if not 0 <= self.oversold_buy_near_low_pct <= 0.2:
+            errors.append(
+                f"oversold_buy_near_low_pct ({self.oversold_buy_near_low_pct}) "
+                "不在有效范围 [0-0.2]"
+            )
+        if not 0 < self.oversold_buy_position_factor <= 1:
+            errors.append(
+                f"oversold_buy_position_factor ({self.oversold_buy_position_factor}) "
+                "不在有效范围 (0-1]"
+            )
+        if self.oversold_buy_daily_limit < 0:
+            errors.append(
+                f"oversold_buy_daily_limit ({self.oversold_buy_daily_limit}) "
+                "不能为负数"
+            )
         if not 0 <= self.post_close_cooldown_minutes <= 1440:
             errors.append(
                 f"post_close_cooldown_minutes ({self.post_close_cooldown_minutes}) "
@@ -220,7 +261,9 @@ class TradingConfig:
                 if reason == "real_trading_not_confirmed":
                     errors.append("实盘模式需要显式确认: REAL_TRADING_CONFIRMED=true")
                 elif reason == "runtime_environment_not_allowed":
-                    errors.append("实盘模式仅允许在受控环境运行: RUNTIME_ENVIRONMENT=prod|production")
+                    errors.append(
+                        "实盘模式仅允许在受控环境运行: RUNTIME_ENVIRONMENT=prod|production"
+                    )
 
         return errors
 
@@ -429,7 +472,9 @@ class StopLossConfig:
     min_net_profit_to_close_percent: float = 0.003
     # 智能止损模式：基于建仓价计算止损
     stop_loss_entry_based: bool = True  # 是否基于建仓价计算止损
-    price_vs_entry_tolerance_percent: float = 0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
+    price_vs_entry_tolerance_percent: float = (
+        0.001  # 当前价与建仓价容错 (0.1%, 低于此值不更新止损)
+    )
     # OKX 止损触发价 tick size（用于比较新/旧止损价时对齐精度，
     # 避免 OKX 把 62501.4225 截为 62501.4 后误判 "新值更紧" 造成每周期重复取消+重建算法单）
     stop_loss_tick_tolerance: float = 0.1
@@ -466,15 +511,21 @@ class StopLossConfig:
         if self.stop_loss_percent <= 0 or self.stop_loss_percent > 1:
             errors.append(f"止损比例 {self.stop_loss_percent} 不在有效范围 (0-1)")
         if self.stop_loss_profit_percent <= 0 or self.stop_loss_profit_percent > 1:
-            errors.append(f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)")
+            errors.append(
+                f"盈利止损比例 {self.stop_loss_profit_percent} 不在有效范围 (0-1)"
+            )
         if self.stop_loss_tolerance_percent < 0:
             errors.append(f"止损容错比例 {self.stop_loss_tolerance_percent} 不能为负数")
         if self.take_profit_percent <= 0 or self.take_profit_percent > 1:
             errors.append(f"止盈比例 {self.take_profit_percent} 不在有效范围 (0-1)")
         if self.take_profit_min_notional < 0:
-            errors.append(f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数")
+            errors.append(
+                f"止盈最小名义金额 {self.take_profit_min_notional} 不能为负数"
+            )
         if self.take_profit_mode not in ["adaptive", "fixed"]:
-            errors.append(f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed")
+            errors.append(
+                f"止盈模式 '{self.take_profit_mode}' 无效，可选: adaptive, fixed"
+            )
         if self.take_profit_atr_multiplier <= 0:
             errors.append(f"止盈ATR倍数 {self.take_profit_atr_multiplier} 必须大于0")
         if self.take_profit_min_percent < 0:
@@ -484,17 +535,24 @@ class StopLossConfig:
         if self.take_profit_max_percent < self.take_profit_min_percent:
             errors.append("止盈最大距离不能小于最小距离")
         if self.take_profit_structure_buffer_percent < 0:
-            errors.append(f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数")
+            errors.append(
+                f"止盈结构缓冲 {self.take_profit_structure_buffer_percent} 不能为负数"
+            )
         if self.take_profit_partial_ratio <= 0 or self.take_profit_partial_ratio > 1:
-            errors.append(f"止盈分批比例 {self.take_profit_partial_ratio} 不在有效范围 (0-1]")
+            errors.append(
+                f"止盈分批比例 {self.take_profit_partial_ratio} 不在有效范围 (0-1]"
+            )
         if self.take_profit_min_amount < 0:
             errors.append(f"止盈最小数量 {self.take_profit_min_amount} 不能为负数")
         if self.min_profit_to_tighten_stop_percent < 0:
             errors.append(
-                "止损收紧最小盈利比例 " f"{self.min_profit_to_tighten_stop_percent} 不能为负数"
+                "止损收紧最小盈利比例 "
+                f"{self.min_profit_to_tighten_stop_percent} 不能为负数"
             )
         if self.price_vs_entry_tolerance_percent < 0:
-            errors.append(f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数")
+            errors.append(
+                f"建仓价容错比例 {self.price_vs_entry_tolerance_percent} 不能为负数"
+            )
         if self.min_net_profit_to_close_percent < 0:
             errors.append(
                 f"min_net_profit_to_close_percent "
@@ -502,10 +560,13 @@ class StopLossConfig:
             )
         if self.stop_loss_tick_tolerance < 0:
             errors.append(
-                f"stop_loss_tick_tolerance " f"{self.stop_loss_tick_tolerance} 不能为负数"
+                f"stop_loss_tick_tolerance "
+                f"{self.stop_loss_tick_tolerance} 不能为负数"
             )
         if self.take_profit_min_rr_ratio < 0:
-            errors.append(f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)")
+            errors.append(
+                f"止盈R/R下限 {self.take_profit_min_rr_ratio} 不能为负数 (0=关闭保护)"
+            )
         if self.take_profit_max_atr_multiplier < 0:
             errors.append(
                 f"take_profit_max_atr_multiplier "
@@ -542,7 +603,9 @@ class SystemConfig:
         """验证配置，返回错误列表"""
         errors = []
         if self.log_level.upper() not in self.VALID_LOG_LEVELS:
-            errors.append(f"日志级别 '{self.log_level}' 无效，可选: {self.VALID_LOG_LEVELS}")
+            errors.append(
+                f"日志级别 '{self.log_level}' 无效，可选: {self.VALID_LOG_LEVELS}"
+            )
         return errors
 
 
@@ -627,8 +690,24 @@ class Config:
                 risk_drawdown_halt=float(os.getenv("RISK_DRAWDOWN_HALT", "0.30")),
                 risk_per_trade_max=float(os.getenv("RISK_PER_TRADE_MAX", "0.10")),
                 risk_resume=os.getenv("RISK_RESUME", "false").lower() in ("true", "1"),
-                min_confidence_open=float(os.getenv("MIN_CONFIDENCE_OPEN", "0.75")),
-                min_confidence_close=float(os.getenv("MIN_CONFIDENCE_CLOSE", "0.75")),
+                min_confidence_open=float(os.getenv("MIN_CONFIDENCE_OPEN", "0.65")),
+                min_confidence_close=float(os.getenv("MIN_CONFIDENCE_CLOSE", "0.60")),
+                daily_open_limit=int(os.getenv("DAILY_OPEN_LIMIT", "2")),
+                oversold_buy_enabled=os.getenv("OVERSOLD_BUY_ENABLED", "true").lower()
+                == "true",
+                oversold_buy_rsi_max=float(os.getenv("OVERSOLD_BUY_RSI_MAX", "20.0")),
+                oversold_buy_near_low_pct=float(
+                    os.getenv("OVERSOLD_BUY_NEAR_LOW_PCT", "0.01")
+                ),
+                oversold_buy_confidence=float(
+                    os.getenv("OVERSOLD_BUY_CONFIDENCE", "0.70")
+                ),
+                oversold_buy_position_factor=float(
+                    os.getenv("OVERSOLD_BUY_POSITION_FACTOR", "0.5")
+                ),
+                oversold_buy_daily_limit=int(
+                    os.getenv("OVERSOLD_BUY_DAILY_LIMIT", "1")
+                ),
                 post_close_cooldown_minutes=int(
                     os.getenv("POST_CLOSE_COOLDOWN_MINUTES", "30")
                 ),

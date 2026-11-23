@@ -10,6 +10,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from ..config.models import Config
@@ -59,6 +60,11 @@ class TradingBot:
             if self.config.trading.decision_journal_enabled
             else None
         )
+
+        # 2026-11 开仓频度控制（内存态, 重启清零——冷却/总闸是更强的防线）:
+        # 每日新开仓计数 + 超卖抄底独立通道每日触发计数 (key=YYYY-MM-DD)
+        self._daily_open_counts: Dict[str, int] = {}
+        self._oversold_buy_counts: Dict[str, int] = {}
 
     @property
     def exchange(self):
@@ -304,6 +310,11 @@ class TradingBot:
             )
         else:
             if self.position_manager.has_position():
+                # 2026-11 P2-12 保护单成交归因: 仓位在交易所侧被止损/止盈单
+                # 平掉后, 原先要等下一周期对账才发现 (15 分钟盲区) 且不知
+                # 是哪张单触发的。此处按 当前价 vs 止损/止盈价 做 best-effort
+                # 归因, 明确盈亏路径 (仅审计日志, 不改状态)。
+                self._log_protection_order_fill(current_price)
                 logger.warning(
                     "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
                     f"清理本地缓存。本地持仓: "
@@ -369,6 +380,24 @@ class TradingBot:
             execution_result = await self._execute_signal(
                 signal, current_price, has_position, final_confidence
             )
+
+            # 5.5 超卖抄底独立通道（2026-11 底部捕获 / P1-5）:
+            # AI 路径未开仓 (HOLD / 被门禁拦) 且技术极端超卖条件满足时,
+            # 独立规则抄底 (半仓, 每日 1 次)。回放: 11-21 14:14 RSI=16
+            # 底部原路径 66.5%<0.75 被拦, 错过 55.6k→60.7k 反弹。
+            if (
+                not has_position
+                and signal != "BUY"
+                and execution_result.action in ("none", "blocked_low_confidence")
+            ):
+                oversold_result = await self._maybe_oversold_bottom_buy(
+                    market_data, current_price
+                )
+                if oversold_result is not None:
+                    logger.info(
+                        "[超卖抄底] 独立通道开仓成功 (AI信号=%s 路径未开仓)" % signal
+                    )
+                    execution_result = oversold_result
 
             # P1: 记录本周期决策日志
             await self._record_decision(market_data, signal, execution_result)
@@ -473,11 +502,14 @@ class TradingBot:
         elif signal == "BUY" and not has_position:
             min_conf = self.config.trading.min_confidence_open
             if min_conf > 0 and final_confidence < min_conf:
+                # 2026-11 机会审计: 记录 最终置信度 vs 门禁 的 gap, 复盘时
+                # 一行 grep 即可定位漏单 (而非翻 5000 行日志)
                 logger.info(
                     "[信号执行] BUY信号 + 置信度 %.2f < 门禁 %.2f -> 禁止开仓 "
-                    "(P0-1 置信度门禁)",
+                    "(P0-1 置信度门禁) [机会审计] gap=%.1fpt",
                     final_confidence,
                     min_conf,
+                    (min_conf - final_confidence) * 100,
                 )
                 return ExecutionResult(
                     "blocked_low_confidence",
@@ -488,9 +520,10 @@ class TradingBot:
             if min_conf > 0 and final_confidence < min_conf:
                 logger.info(
                     "[信号执行] SELL信号 + 置信度 %.2f < 门禁 %.2f -> 禁止平仓 "
-                    "(P0-1 置信度门禁，仓位由止损单保护)",
+                    "(P0-1 置信度门禁，仓位由止损单保护) [机会审计] gap=%.1fpt",
                     final_confidence,
                     min_conf,
+                    (min_conf - final_confidence) * 100,
                 )
                 return ExecutionResult(
                     "blocked_low_confidence",
@@ -499,6 +532,21 @@ class TradingBot:
 
         if signal == "BUY":
             if not has_position:
+                # 2026-11 每日新开仓上限: 门禁下调后的成本控制 (0=关闭)
+                daily_limit = self.config.trading.daily_open_limit
+                if daily_limit > 0:
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    if self._daily_open_counts.get(today, 0) >= daily_limit:
+                        logger.info(
+                            "[信号执行] BUY信号 + 无持仓 + 已达每日开仓上限 "
+                            "(%d笔) -> 禁止新开仓 (成本防护)",
+                            daily_limit,
+                        )
+                        return ExecutionResult(
+                            "blocked_daily_limit",
+                            f"daily_opens={self._daily_open_counts.get(today, 0)}"
+                            f">=limit={daily_limit}",
+                        )
                 # P1 回撤总闸：停机期间禁止新开仓（已持仓管理不受影响）
                 if self._drawdown_status is not None and self._drawdown_status.halted:
                     logger.warning(
@@ -525,7 +573,12 @@ class TradingBot:
                         "blocked_cooldown", f"cooldown_minutes={cooldown}"
                     )
                 logger.info("[信号执行] BUY信号 + 无持仓 -> 执行开仓")
-                await self._open_position(current_price)
+                opened = await self._open_position(current_price)
+                if opened:
+                    today = datetime.now().strftime("%Y-%m-%d")
+                    self._daily_open_counts[today] = (
+                        self._daily_open_counts.get(today, 0) + 1
+                    )
                 return ExecutionResult("open_long", f"price={current_price}")
             logger.info("[信号执行] BUY信号 + 有持仓 -> 更新止损")
             await self._update_stop_loss(current_price)
@@ -553,6 +606,135 @@ class TradingBot:
 
         logger.warning(f"[信号执行] 未知信号: {signal}")
         return ExecutionResult("error", f"unknown_signal={signal}")
+
+    def _log_protection_order_fill(self, current_price: float) -> None:
+        """保护单成交归因 (2026-11 P2-12, best-effort 仅审计日志)。
+
+        对账发现仓位已在交易所侧消失时, 按 当前价 vs 上次止损/止盈价
+        推断是哪张保护单触发了平仓, 消除 "15 分钟后才发现且不知原因"
+        的盲区。任何异常不中断主流程。
+        """
+        try:
+            pm = self.position_manager
+            pos = pm.position
+            if pos is None or current_price <= 0:
+                return
+            side = pos.side
+            entry = pm.entry_price
+            last_sl = pm.last_stop_price
+            last_tp = pm.last_take_profit_price
+
+            attribution = "未知保护单"
+            pnl_hint = ""
+            if side == "long":
+                if last_tp > 0 and current_price >= last_tp * 0.999:
+                    attribution = f"止盈单 (触发价 {last_tp:.1f})"
+                elif last_sl > 0 and current_price <= last_sl * 1.001:
+                    attribution = f"止损单 (触发价 {last_sl:.1f})"
+                if entry > 0:
+                    pnl_pct = (current_price - entry) / entry * 100
+                    pnl_hint = f", 约 {pnl_pct:+.2f}% (入场 {entry:.1f})"
+            else:  # short
+                if last_tp > 0 and current_price <= last_tp * 1.001:
+                    attribution = f"止盈单 (触发价 {last_tp:.1f})"
+                elif last_sl > 0 and current_price >= last_sl * 0.999:
+                    attribution = f"止损单 (触发价 {last_sl:.1f})"
+                if entry > 0:
+                    pnl_pct = (entry - current_price) / entry * 100
+                    pnl_hint = f", 约 {pnl_pct:+.2f}% (入场 {entry:.1f})"
+
+            logger.info(
+                "[保护单归因] 仓位已在交易所侧平仓, 推断触发源: %s, " "当前价 %.1f%s",
+                attribution,
+                current_price,
+                pnl_hint,
+            )
+        except Exception as e:
+            logger.debug("[保护单归因] 失败 (不影响主流程): %s", e)
+
+    async def _maybe_oversold_bottom_buy(
+        self, market_data: Dict[str, Any], current_price: float
+    ) -> Optional[ExecutionResult]:
+        """超卖抄底独立通道（2026-11 底部捕获 / P1-5）。
+
+        技术极端超卖独立触发: RSI ≤ oversold_buy_rsi_max 且价格位于
+        24h 低点 near_low_pct 以内 → 逆势抄底 (半仓, 每日最多 1 次),
+        绕过 AI 置信度门禁。保留门禁: 实盘闸门 / 回撤总闸 /
+        平仓冷却 / 每日开仓上限 (均在 _open_position 或本方法内)。
+
+        回放依据: 11-21 14:14 (RSI=16.2, 55647=24h 最低区) 原流水线
+        5 层折扣后 66.5% < 0.75 门禁被拦, 错过 55.6k→60.7k (+9.1%)
+        反弹。本通道半仓 + 每日 1 次, 成本可控; 触发后由止损单兜底。
+        """
+        cfg = self.config.trading
+        if not cfg.oversold_buy_enabled:
+            return None
+        if not current_price or current_price <= 0:
+            return None
+
+        rsi = market_data.get("technical", {}).get("rsi", 50.0)
+        if rsi > cfg.oversold_buy_rsi_max:
+            return None
+
+        low_24h = market_data.get("low", 0)
+        if not low_24h or low_24h <= 0:
+            return None
+        if current_price > low_24h * (1 + cfg.oversold_buy_near_low_pct):
+            return None
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._oversold_buy_counts.get(today, 0) >= cfg.oversold_buy_daily_limit:
+            logger.info(
+                "[超卖抄底] 技术条件满足但今日已触发 %d 次 (上限 %d) → 跳过",
+                self._oversold_buy_counts.get(today, 0),
+                cfg.oversold_buy_daily_limit,
+            )
+            return None
+
+        # 既有门禁复用 (与 BUY 分支同口径)
+        if self._drawdown_status is not None and self._drawdown_status.halted:
+            logger.info(
+                "[超卖抄底] 技术条件满足但回撤总闸生效 → 跳过 (回撤 %.1f%%)",
+                self._drawdown_status.drawdown * 100,
+            )
+            return None
+        cooldown = cfg.post_close_cooldown_minutes
+        if cooldown > 0 and self.position_manager.is_in_post_close_cooldown(cooldown):
+            logger.info("[超卖抄底] 技术条件满足但处于平仓后冷却期 → 跳过")
+            return None
+        daily_limit = cfg.daily_open_limit
+        if daily_limit > 0 and self._daily_open_counts.get(today, 0) >= daily_limit:
+            logger.info(
+                "[超卖抄底] 技术条件满足但已达每日开仓上限 (%d笔) → 跳过",
+                daily_limit,
+            )
+            return None
+
+        logger.warning(
+            "[超卖抄底] 独立通道触发: RSI=%.1f ≤ %.0f, 价格 %.1f 位于 24h 低点 "
+            "%.1f 的 %.0f%% 以内 → 逆势抄底 (半仓, 审计置信度 %.2f)",
+            rsi,
+            cfg.oversold_buy_rsi_max,
+            current_price,
+            low_24h,
+            cfg.oversold_buy_near_low_pct * 100,
+            cfg.oversold_buy_confidence,
+        )
+
+        opened = await self._open_position(
+            current_price, size_factor=cfg.oversold_buy_position_factor
+        )
+        if opened:
+            self._oversold_buy_counts[today] = (
+                self._oversold_buy_counts.get(today, 0) + 1
+            )
+            self._daily_open_counts[today] = self._daily_open_counts.get(today, 0) + 1
+            return ExecutionResult(
+                "open_long_oversold",
+                f"price={current_price},rsi={rsi:.1f},"
+                f"audit_conf={cfg.oversold_buy_confidence:.2f}",
+            )
+        return None
 
     async def _apply_risk_backcheck(self, price: float, amount: float) -> float:
         """单笔风险反查（P1）：止损触发时的预期亏损 ≤ 账户 risk_per_trade_max。
@@ -636,10 +818,18 @@ class TradingBot:
             logger.warning("[止盈单] 名义计算不可用，跳过年名义检查 (fail-open): %s", e)
         return entry_price * (1 + tp_dist)
 
-    async def _open_position(self, price: float) -> None:
+    async def _open_position(self, price: float, size_factor: float = 1.0) -> bool:
         """开仓 - 根据余额动态计算交易量
 
         止损保护：如果止损单创建失败，立即市价平仓，不允许无止损持仓。
+
+        Args:
+            price: 当前价格
+            size_factor: 仓位缩仓系数 (0,1]，超卖抄底独立通道用 0.5 半仓。
+                1.0=不缩仓（默认，零回归）。
+
+        Returns:
+            是否成功开仓 (订单创建成功, 含 TEST_MODE 模拟单)。
         """
         logger.info(f"[开仓] 开始开仓流程, 当前价格: {price}")
 
@@ -647,7 +837,7 @@ class TradingBot:
         if not live_allowed:
             logger.warning(f"[实盘闸门] 拒绝开仓: {reason}")
             record_live_guard_block()
-            return
+            return False
 
         # P1 回撤总闸纵深防线（周期级检查之外的兜底）
         if self._drawdown_status is not None and self._drawdown_status.halted:
@@ -655,7 +845,7 @@ class TradingBot:
                 "[开仓] 回撤总闸生效，拒绝新开仓（回撤 %.1f%%）",
                 self._drawdown_status.drawdown * 100,
             )
-            return
+            return False
 
         amount = await self._exchange.calculate_max_contracts(
             price, self.config.exchange.leverage
@@ -663,7 +853,12 @@ class TradingBot:
 
         if amount <= 0:
             logger.warning("[开仓] 无法计算有效交易量，取消开仓")
-            return
+            return False
+
+        # 2026-11 仓位缩仓系数 (超卖抄底独立通道半仓等场景)
+        if 0 < size_factor < 1:
+            amount *= size_factor
+            logger.info(f"[开仓] 仓位缩仓系数 {size_factor:.2f} → {amount} 张")
 
         # P1 单笔风险反查：止损触发预期亏损 ≤ 账户 10%（超限缩仓，缩到最小 1 手以下则放弃）
         amount = await self._apply_risk_backcheck(price, amount)
@@ -675,7 +870,7 @@ class TradingBot:
             amount = self._exchange.normalize_order_size(amount)
         except ValueError:
             logger.warning("[开仓] 张数截断后低于最小张数，取消开仓 (原 %.4f)", amount)
-            return
+            return False
         except RuntimeError:
             logger.warning("[开仓] 合约规格不可用，跳过张数截断（保守回退）")
 
@@ -683,7 +878,7 @@ class TradingBot:
             logger.warning(
                 "[开仓] 风险反查后仓位 %.4f 张 < 最小 0.01 张，取消开仓", amount
             )
-            return
+            return False
 
         logger.info(
             f"[开仓] 计算可开合约数: {amount} 张 (杠杆: {self.config.exchange.leverage}x)"
@@ -698,7 +893,7 @@ class TradingBot:
 
         if not order_id:
             logger.error("[开仓] 开仓订单创建失败，取消后续操作")
-            return
+            return False
 
         # TEST_MODE 模拟订单检测
         from ..exchange.client import ExchangeClient
@@ -713,6 +908,7 @@ class TradingBot:
                 f"[模拟交易] 提示: 切换实盘需设置 TEST_MODE=false + "
                 f"REAL_TRADING_CONFIRMED=true + RUNTIME_ENVIRONMENT=prod"
             )
+            return True
             return
 
         logger.info(f"[开仓] 订单创建成功: 订单ID={order_id}")
@@ -789,6 +985,11 @@ class TradingBot:
                 )
             finally:
                 self.position_manager.clear_position()
+            # 止损单创建失败 → 仓位已紧急平掉, 视为开仓未成功
+            return False
+
+        # 正常路径: 开仓单 + 止损单就绪, 持仓有效
+        return True
 
     async def _get_existing_stop_order_id(self) -> Optional[str]:
         """查询交易所中现有的止损单ID（委托给StopLossManager）"""

@@ -839,6 +839,25 @@ RULE_FUSION_THRESHOLD_MAX = 0.90
 #   - ai/integrator.py: AdaptiveBuyCondition 处理段
 ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE = 0.55
 
+# 自适应买入翻转守卫——高可信技术模式放宽上限（默认 0.60）
+# 2026-11 日志回放: 11-21 底部 (RSI=16) AI-HOLD 置信度恰好落在 55-65% 的
+# "犹豫带", 导致 oversold_rebound 抄底信号 360 次全被翻转守卫拦截, 错过
+# 55.6k→60.7k 反弹。对高可信技术模式 (oversold_rebound/pullback_buy)
+# 把翻转上限从 0.55 放宽到 0.60: AI 犹豫 (HOLD <0.60) 时让技术规则说话;
+# 其余模式保持 0.55 不变 (零回归)。
+# 引用方:
+#   - ai/integrator.py: AdaptiveBuyCondition 处理段 (翻转守卫)
+ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE = 0.60
+
+# BUY 信号折扣下限（累计乘数, 默认 0.70）
+# 2026-11 日志回放: 11-21 23:47 技术 BUY 92% 被 R/R 勉强(-15%) +
+# 与历史多数相反(-15%) 双重 0.85 叠加压到 66.5%, 低于 0.75 门禁——
+# 双折扣同时生效时门禁数学性不可达 (需原始 >=103%)。修复: 技术翻转
+# 产生的 BUY 信号, 流水线累计折扣不低于 0.70 乘数。
+# 引用方:
+#   - ai/integrator.py: 最终置信度计算 (BUY 折扣下限)
+SIGNAL_DISCOUNT_FLOOR = 0.70
+
 # 高波动禁止开仓的 ATR 上限（默认 0.55%, 即 atr_percent 小数 0.0055）
 # 原值 0.55 与小数 atr_percent 比较 (55% ATR) 永不触发, 属死代码。
 # 引用方:

@@ -13,12 +13,33 @@
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass
-from datetime import datetime
+from dataclasses import asdict, dataclass, is_dataclass
+from datetime import date, datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _json_default(obj: Any) -> Any:
+    """JSON 序列化兑底 (2026-11 修复)。
+
+    历史事故: PositionState.take_profit_order_id 被误存为 StopOrderResult
+    dataclass (内含 OrderStatus 枚举) → json.dump 抛
+    "Object of type OrderStatus is not JSON serializable", 持仓状态与
+    平仓冷却标记全部丢失 (11-19 连发 6 条)。持久化是安全关键路径,
+    任何非序列化值都不应打断保存——统一转成字符串表示落盘。
+    """
+    if isinstance(obj, Enum):
+        return obj.value
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Path):
+        return str(obj)
+    return str(obj)
 
 
 def resolve_state_data_dir(data_dir: Optional[Path] = None) -> Path:
@@ -158,7 +179,9 @@ class StatePersistence:
             # 保存到文件
             self._save_state(state)
 
-            logger.info(f"[持久化] 持仓状态已保存: {symbol} {side} {amount}@{entry_price}")
+            logger.info(
+                f"[持久化] 持仓状态已保存: {symbol} {side} {amount}@{entry_price}"
+            )
             return True
 
         except Exception as e:
@@ -320,7 +343,7 @@ class StatePersistence:
         }
 
         with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
 
         # 原子重命名
         temp_file.replace(self.state_file)
@@ -349,7 +372,7 @@ class StatePersistence:
         }
 
         with open(backup_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
 
         # 清理旧备份（保留最近10个）
         self._cleanup_old_backups(keep=10)
@@ -428,7 +451,9 @@ class StatePersistence:
             # 保存
             self._save_history(history)
 
-            logger.info(f"[持久化] 记录交易: {trade_type} {symbol} {side} {amount}@{price}")
+            logger.info(
+                f"[持久化] 记录交易: {trade_type} {symbol} {side} {amount}@{price}"
+            )
             return True
 
         except Exception as e:
@@ -461,7 +486,7 @@ class StatePersistence:
         temp_file = self.history_file.with_suffix(".tmp")
 
         with open(temp_file, "w", encoding="utf-8") as f:
-            json.dump(history, f, ensure_ascii=False, indent=2)
+            json.dump(history, f, ensure_ascii=False, indent=2, default=_json_default)
 
         temp_file.replace(self.history_file)
         self._history_cache = list(history)

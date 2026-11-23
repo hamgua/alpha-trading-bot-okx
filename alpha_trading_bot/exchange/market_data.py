@@ -4,7 +4,7 @@
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable, Dict, List
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from .okx_raw import (
     ensure_okx_success,
@@ -169,6 +169,11 @@ class MarketDataService:
         short_term_rise = self._calculate_short_term_rise(closes)
         hourly_changes = self._calculate_hourly_changes(closes)
 
+        # 2026-11 底部捕获: 15m 双窗口 (24h 粒度)。
+        # 100×1H 上下文对急跌/急涨太慢 (11-21 底部在几根 1H 内成形),
+        # 给 AI 提供 24h 15m 窗口的低价位置/近 4h 动量, 提升底部识别。
+        recent_15m_summary = await self._build_recent_15m_summary(current_price)
+
         return {
             "symbol": self.symbol,
             "price": ticker.get("last", 0),
@@ -182,7 +187,46 @@ class MarketDataService:
             "short_term_rise_percent": short_term_rise,
             "price_history": closes,
             "hourly_changes": hourly_changes,
+            "recent_15m_summary": recent_15m_summary,
         }
+
+    async def _build_recent_15m_summary(
+        self, current_price: float
+    ) -> Optional[Dict[str, float]]:
+        """构建 24h 15m K线摘要 (失败返回 None, 不影响主流程)。
+
+        Returns:
+            {low_24h_15m, high_24h_15m, position_pct (当前价在区间位置 0-100),
+            change_4h_pct (近 4h 涨跌幅%)} 或 None
+        """
+        try:
+            ohlcv_15m = await self.get_ohlcv(timeframe="15m", limit=96)
+            if len(ohlcv_15m) < 16:
+                return None
+            closes = [c[4] for c in ohlcv_15m]
+            lows = [c[3] for c in ohlcv_15m]
+            highs = [c[2] for c in ohlcv_15m]
+            low_24h = min(lows)
+            high_24h = max(highs)
+            if high_24h <= 0 or low_24h <= 0 or high_24h == low_24h:
+                return None
+            ref_price = current_price or closes[-1]
+            position_pct = (ref_price - low_24h) / (high_24h - low_24h) * 100
+            # 近 4h = 最近 16 根 15m K线
+            change_4h_pct = (
+                (closes[-1] - closes[-17]) / closes[-17] * 100
+                if len(closes) >= 17 and closes[-17] > 0
+                else 0.0
+            )
+            return {
+                "low_24h_15m": low_24h,
+                "high_24h_15m": high_24h,
+                "position_pct": max(0.0, min(100.0, position_pct)),
+                "change_4h_pct": change_4h_pct,
+            }
+        except Exception as e:
+            logger.warning(f"获取15m K线摘要失败（不影响主流程）: {e}")
+            return None
 
     def _calculate_recent_drop(self, closes: List[float]) -> float:
         if len(closes) < 2:

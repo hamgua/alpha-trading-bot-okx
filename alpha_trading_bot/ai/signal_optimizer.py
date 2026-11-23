@@ -353,11 +353,17 @@ class SignalOptimizer:
         total = len(recent_signals)
 
         if total > 0 and current_count / total < 0.3:
-            # BUY/SELL/SHORT 信号与历史多数相反，降低置信度
-            confidence = confidence * 0.85
-            adjustments.append(
-                f"信号与历史多数相反({current_count}/{total})，置信度降低"
-            )
+            # 2026-11 日志回放修复: BUY 豁免本惩罚。
+            # 系统 97% 周期为 HOLD, 任何 BUY 出现时"与历史多数相反"
+            # 恒成立 → 每个 BUY 无条件 -15%, 属结构性惩罚而非信号质量
+            # 评估; 与 R/R 折扣叠加后 0.75 门禁数学性不可达 (11-21 23:47
+            # BUY: 92%×0.85×0.85=66.5% 被拦, 错过 55.6k 底部后爬升)。
+            # SELL/SHORT 保留: 持仓中连发反向 SELL 才是真正的 churn 风险。
+            if signal.lower() in ("sell", "short"):
+                confidence = confidence * 0.85
+                adjustments.append(
+                    f"信号与历史多数相反({current_count}/{total})，置信度降低"
+                )
 
         return confidence
 

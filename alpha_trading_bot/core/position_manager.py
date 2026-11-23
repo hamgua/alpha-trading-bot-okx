@@ -159,6 +159,11 @@ class PositionManager:
         return self._last_stop_price
 
     @property
+    def last_take_profit_price(self) -> float:
+        """获取上次设置的止盈价"""
+        return self._last_take_profit_price
+
+    @property
     def entry_dynamic_stop_loss_percent(self) -> Optional[float]:
         """开仓时锁定的动态止损百分比，None=未锁定"""
         return self._entry_dynamic_stop_loss_percent
@@ -198,14 +203,18 @@ class PositionManager:
         if position_side == "long":
             if current_price > self._highest_price_since_entry:
                 self._highest_price_since_entry = current_price
-                logger.info(f"[价格追踪] 更新做多最高价: {self._highest_price_since_entry}")
+                logger.info(
+                    f"[价格追踪] 更新做多最高价: {self._highest_price_since_entry}"
+                )
         elif position_side == "short":
             if (
                 current_price < self._lowest_price_since_entry
                 or self._lowest_price_since_entry == 0
             ):
                 self._lowest_price_since_entry = current_price
-                logger.info(f"[价格追踪] 更新做空最低价: {self._lowest_price_since_entry}")
+                logger.info(
+                    f"[价格追踪] 更新做空最低价: {self._lowest_price_since_entry}"
+                )
 
     def reset_price_tracking(self) -> None:
         """重置价格追踪（新开仓时调用）"""
@@ -323,10 +332,14 @@ class PositionManager:
             # 当从交易所恢复持仓时，用入场价初始化最高/最低价
             if self._position.side == "long" and self._highest_price_since_entry == 0:
                 self._highest_price_since_entry = self._entry_price
-                logger.info(f"[仓位更新] 初始化做多最高价: {self._highest_price_since_entry}")
+                logger.info(
+                    f"[仓位更新] 初始化做多最高价: {self._highest_price_since_entry}"
+                )
             elif self._position.side == "short" and self._lowest_price_since_entry == 0:
                 self._lowest_price_since_entry = self._entry_price
-                logger.info(f"[仓位更新] 初始化做空最低价: {self._lowest_price_since_entry}")
+                logger.info(
+                    f"[仓位更新] 初始化做空最低价: {self._lowest_price_since_entry}"
+                )
 
             # 持久化保存
             self._persistence.save_position(
@@ -731,7 +744,9 @@ class PositionManager:
                 lowest_price_since_entry=self._lowest_price_since_entry,
             )
 
-        logger.debug(f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}")
+        logger.debug(
+            f"[止盈单] 设置止盈单ID: {take_profit_order_id}, 止盈价: {take_profit_price}"
+        )
 
     def clear_protection_orders(self) -> None:
         """清理本地止损/止盈保护单状态。"""
@@ -887,7 +902,9 @@ class PositionManager:
             reason="signal_open",
         )
 
-        logger.info(f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}")
+        logger.info(
+            f"[持仓更新] 开仓成功: {symbol}, 方向:{side}, 数量:{amount}, 入场价:{entry_price}"
+        )
 
 
 def create_position_manager(

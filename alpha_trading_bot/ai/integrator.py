@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 from alpha_trading_bot.config.thresholds import (
     ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE,
+    ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE,
+    SIGNAL_DISCOUNT_FLOOR,
 )
 
 from .adaptive_buy_condition import (
@@ -214,6 +216,11 @@ class AISignalIntegrator:
         # ========== 诊断日志：记录每个阶段的置信度 ==========
         conf_history = [(0, "原始", original_confidence)]
 
+        # 2026-11 折扣下限追踪: 技术翻转 (HOLD→BUY) 后的基准置信度。
+        # 后续 R/R 过滤 / 信号优化 / 高位过滤的累计折扣不得低于
+        # SIGNAL_DISCOUNT_FLOOR 乘数 (防止门禁数学性不可达, 见 thresholds.py)。
+        adaptive_flip_conf: Optional[float] = None
+
         # ===== 0. 持续下跌检测 (新增，最先执行) =====
         decline_result = None
         if (
@@ -229,22 +236,33 @@ class AISignalIntegrator:
 
                 # 如果检测到持续下跌，根据结果调整信号
                 if decline_result.is_detected:
+                    # 2026-11 衰竭反转: severe 下跌 + 显著反弹 + RSI 超卖 →
+                    # 底部窗口, BUY 惩罚已解除并反哺, 不再是风险警告
+                    _cum_decline = decline_result.metrics.cumulative_decline_percent
+                    if getattr(decline_result, "exhaustion_reversal", False):
+                        _rebound = decline_result.metrics.max_rebound_percent
+                        logger.info(
+                            "[持续下跌检测] 🔄 衰竭反转: 累积跌幅%.2f%% + "
+                            "反弹%.2f%% + RSI超卖 → 解除BUY惩罚并加成, 底部抄底窗口",
+                            _cum_decline,
+                            _rebound,
+                        )
                     # 记录检测到的下跌级别
-                    if decline_result.decline_level == "severe":
+                    elif decline_result.decline_level == "severe":
                         logger.warning(
-                            f"[持续下跌检测] ⚠️ 检测到严重下跌趋势: "
-                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}% "
-                            f"(严重级别)"
+                            "[持续下跌检测] ⚠️ 检测到严重下跌趋势: "
+                            "累积跌幅%.2f%% (严重级别)",
+                            _cum_decline,
                         )
                     elif decline_result.decline_level == "moderate":
                         logger.warning(
-                            f"[持续下跌检测] ⚠️ 检测到中度下跌趋势: "
-                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}%"
+                            "[持续下跌检测] ⚠️ 检测到中度下跌趋势: " "累积跌幅%.2f%%",
+                            _cum_decline,
                         )
                     else:
                         logger.info(
-                            f"[持续下跌检测] ℹ️ 检测到轻度下跌趋势: "
-                            f"累积跌幅{decline_result.metrics.cumulative_decline_percent:.2f}%"
+                            "[持续下跌检测] ℹ️ 检测到轻度下跌趋势: " "累积跌幅%.2f%%",
+                            _cum_decline,
                         )
 
                     # 根据下跌级别调整信号
@@ -480,25 +498,39 @@ class AISignalIntegrator:
                     # (56%) + 全策略 HOLD 时仍被技术规则翻转开仓并亏损
                     # (2026-09-13 05:17 案例)。修复:
                     # - SELL 永不翻转为 BUY (SELL 必须执行平仓, 翻转会导致反向开仓)
-                    # - AI 明确 HOLD (置信度 >= 0.55) 时不翻转, 交由决策引擎
+                    # - AI 明确 HOLD (置信度 >= 阈值) 时不翻转, 交由决策引擎
                     #   既有的高置信度策略覆盖路径 (HOLD_STRATEGY_BUY_MIN_CONFIDENCE=0.80) 裁决
-                    # - 仅当 AI-HOLD 模糊 (<0.55) 时才允许技术规则翻转
+                    # - 仅当 AI-HOLD 模糊 (<阈值) 时才允许技术规则翻转
+                    # 2026-11 日志回放修复: 高可信技术模式 (oversold_rebound/
+                    # pullback_buy) 上限放宽到 0.60——底部区 AI-HOLD 落在 55-65%
+                    # 犹豫带时 (11-21 14:14 RSI=16 案例), 让技术规则说话;
+                    # 其余模式保持 0.55 (零回归)。
                     allow_flip = True
                     flip_block_reason = ""
                     if original_signal == "SELL":
                         allow_flip = False
                         flip_block_reason = "AI SELL 信号, 禁止翻转为 BUY"
-                    elif (
-                        original_signal == "HOLD"
-                        and original_confidence
-                        >= ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE
-                    ):
-                        allow_flip = False
-                        flip_block_reason = (
-                            f"AI 明确 HOLD (置信度 {original_confidence:.0%} >= "
-                            f"{ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE:.0%}), "
-                            f"技术买入条件不翻转信号"
-                        )
+                    else:
+                        max_hold_conf = ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE
+                        strong_mode_note = ""
+                        if original_signal == "HOLD" and buy_result.mode in (
+                            "oversold_rebound",
+                            "pullback_buy",
+                        ):
+                            max_hold_conf = ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE
+                            strong_mode_note = " (高可信模式放宽至 {:.0%})".format(
+                                max_hold_conf
+                            )
+                        if (
+                            original_signal == "HOLD"
+                            and original_confidence >= max_hold_conf
+                        ):
+                            allow_flip = False
+                            flip_block_reason = (
+                                f"AI 明确 HOLD (置信度 {original_confidence:.0%} >= "
+                                f"{max_hold_conf:.0%}), 技术买入条件不翻转信号"
+                                f"{strong_mode_note}"
+                            )
 
                     if allow_flip:
                         # 检查是否在持续下跌趋势中，如果是则谨慎对待
@@ -524,6 +556,7 @@ class AISignalIntegrator:
                             )
 
                         original_signal = "BUY"
+                        adaptive_flip_conf = original_confidence
                         result.adjustments_made.append(
                             f"自适应买入: {buy_result.mode}模式通过"
                         )
@@ -849,6 +882,26 @@ class AISignalIntegrator:
             conf_history.append((4, "HighPrice(skip non-BUY)", original_confidence))
 
         # 5. 最终结果
+        # 2026-11 折扣下限: 技术翻转的 BUY 信号, 后续各阶段 (R/R 过滤 /
+        # 信号优化 / 高位过滤) 的累计折扣不得低于 SIGNAL_DISCOUNT_FLOOR。
+        # 回放: 11-21 23:47 BUY 92% 被双重 0.85 压到 66.5% < 0.75 门禁——
+        # 下限 0.70 时最终 ≥ 64.4%, 与降后的 0.65 门禁配合可放行。
+        if (
+            original_signal == "BUY"
+            and adaptive_flip_conf is not None
+            and original_confidence < adaptive_flip_conf * SIGNAL_DISCOUNT_FLOOR
+        ):
+            floored_conf = adaptive_flip_conf * SIGNAL_DISCOUNT_FLOOR
+            logger.info(
+                f"[信号集成] BUY折扣下限: {original_confidence:.1%} < "
+                f"{adaptive_flip_conf:.1%}×{SIGNAL_DISCOUNT_FLOOR:.0%} → 提升回 {floored_conf:.1%}"
+            )
+            result.adjustments_made.append(
+                f"BUY折扣下限: 累计折扣低于{SIGNAL_DISCOUNT_FLOOR:.0%}乘数, "
+                f"{original_confidence:.1%}→{floored_conf:.1%}"
+            )
+            original_confidence = floored_conf
+
         result.final_signal = original_signal
         result.final_confidence = min(
             max(original_confidence, self._t().confidence_floor),

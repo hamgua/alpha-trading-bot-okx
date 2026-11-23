@@ -244,7 +244,8 @@ class AIClient:
             return None
         fast_lane = JevFastLane.from_env()
         logger.info(
-            "[Jev快车道] 已启用 mode=%s model=%s " "阈值=buy:%s/sell:%s/hold:%s risk_gate:%s",
+            "[Jev快车道] 已启用 mode=%s model=%s "
+            "阈值=buy:%s/sell:%s/hold:%s risk_gate:%s",
             mode,
             fast_lane.config.model,
             fast_lane.config.conf_buy,
@@ -696,7 +697,9 @@ class AIClient:
                     )
                     await asyncio.sleep(delay)
                 else:
-                    logger.error(f"[AI重试] {provider} 最终失败 (尝试{attempt + 1}次): {e}")
+                    logger.error(
+                        f"[AI重试] {provider} 最终失败 (尝试{attempt + 1}次): {e}"
+                    )
                     break
 
         if last_error is None:
@@ -785,8 +788,11 @@ class AIClient:
         # MiniMax / DeepSeek / Qwen3.8-27B 使用推理模型，思考过程长，需要更多 output tokens
         # DeepSeek Thinking Mode 的 max_tokens 包含 CoT（链式思考）部分
         # 原800tokens导致reasoning消耗完全部配额，content为空 → 默认hold
-        if provider in ("minimax", "deepseek", "qwen38"):
-            data["max_tokens"] = 3000  # 2000→3000，确保推理后仍有足够空间输出答案
+        # 2026-11: qwen38 3000→8000 (11-19/11-21 两次截断降级: content 为空
+        # 从 reasoning_content 提取信号, 质量打折)
+        reasoning_max_tokens = self._reasoning_max_tokens(provider)
+        if reasoning_max_tokens > 0:
+            data["max_tokens"] = reasoning_max_tokens
 
         # 根据提供商类型设置不同的超时时间
         timeout_config = self._get_timeout_config(provider)
@@ -825,7 +831,9 @@ class AIClient:
                                 f"AI[{provider}]余额不足: "
                                 f"{_redact_sensitive_text(error_msg)}"
                             )
-                            raise ValueError(f"AI[{provider}]余额不足，请检查API账户余额")
+                            raise ValueError(
+                                f"AI[{provider}]余额不足，请检查API账户余额"
+                            )
                         elif error_msg:
                             sanitized_error = _redact_sensitive_text(error_msg)
                             # Gemini 常见鉴权错误映射
@@ -878,7 +886,8 @@ class AIClient:
                         else:
                             self._metrics["reasoning_fallback_misses"] += 1
                             logger.warning(
-                                f"AI[{provider}] reasoning_content中也无法提取信号，" "将触发重试"
+                                f"AI[{provider}] reasoning_content中也无法提取信号，"
+                                "将触发重试"
                             )
                     if provider == "gemini":
                         record_gemini_request(True)
@@ -901,6 +910,20 @@ class AIClient:
             if provider == "gemini":
                 record_gemini_request(False)
             raise
+
+    def _reasoning_max_tokens(self, provider: str) -> int:
+        """推理模型（thinking mode）的 max_tokens 配置。
+
+        思考过程消耗 output tokens, 配额不足时最终答案被截断 →
+        content 为空 → 降级从 reasoning_content 提取信号 (质量打折)。
+        2026-11 日志: qwen38 3000 配额两次截断, 提升到 8000。
+        非推理模型返回 0 (不覆盖默认 100)。
+        """
+        return {
+            "minimax": 3000,
+            "deepseek": 3000,
+            "qwen38": 8000,  # 2000→3000→8000 (2026-11 截断修复)
+        }.get(provider, 0)
 
     def _get_timeout_config(self, provider: str) -> Any:
         """获取提供商特定超时配置"""
