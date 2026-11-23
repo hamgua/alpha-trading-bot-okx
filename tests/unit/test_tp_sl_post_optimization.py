@@ -7,9 +7,6 @@
   区间及交叉约束。
 - ATR-SL：PositionManager.calculate_stop_price 接受可选 dynamic_atr_percent；
   传入时取 max(dyn, 0.004)；未传入时走原有路径。
-- aggressive-long：DecisionEngine._make_buy_decision 仅在 INVESTMENT_TYPE=aggressive +
-  RSI<35 + structure=sideways + long_rr>=0.8 时允许 oversold_buy_aggressive；
-  moderate / conservative 不进。
 
 > 注意：本文件只新增，不修改任何已有用例。
 """
@@ -84,7 +81,9 @@ class TestOpportunityAuditGateContextFallback:
     返回非空字段（market_data fallback），便于审计可观测性。
     """
 
-    def _setup_auditor_and_market(self, *, gate_blocked: bool, metadata: Dict[str, Any]):
+    def _setup_auditor_and_market(
+        self, *, gate_blocked: bool, metadata: Dict[str, Any]
+    ):
         from alpha_trading_bot.core.opportunity_audit import OpportunityAuditor
 
         auditor = OpportunityAuditor()
@@ -264,95 +263,3 @@ class TestPositionManagerDynamicAtrStopLoss:
         # stop = 71900 * (1 - 0.003) = 71684.3 (0.30 % 下限)
         expected = 71900.0 * (1 - 0.003)
         assert stop == pytest.approx(expected, rel=1e-4)
-
-
-# ============================================================
-# aggressive-long: DecisionEngine._make_buy_decision
-# ============================================================
-class TestDecisionEngineAggressiveLongOversold:
-    """仅 INVESTMENT_TYPE=aggressive + 结构条件 ⇒ oversold_buy_aggressive 路径。"""
-
-    def _build_engine(self, investment_type: str):
-        from alpha_trading_bot.core.decision_engine import DecisionEngine
-
-        # bypass __init__ 以控制 INVESTMENT_TYPE
-        engine = DecisionEngine.__new__(DecisionEngine)
-        engine._investment_type = investment_type
-        engine._min_rr = 1.0
-        engine._conflict_metrics = {}
-        engine._oversold_metrics = {}
-        engine._missed_high_quality_short_count = 0
-        engine._config = MagicMock()
-        engine._config.trading.allow_short_selling = False
-        engine._config.ai.fusion_threshold = 0.5
-        return engine
-
-    def _selected(self, confidence: float = 0.7):
-        sel = MagicMock()
-        sel.signal = "BUY"
-        sel.strategy_type = "mean_reversion_oversold"
-        sel.confidence = confidence
-        sel.reasons = ["test"]
-        return sel
-
-    def _make_market_data(self, *, rsi: float, structure: str):
-        return {
-            "price": 70000.0,
-            "risk_reward_ratio": 1.2,
-            "min_trade_confidence": 0.5,
-            "final_confidence": 0.6,
-            "ai_final_confidence": 0.6,
-            "market_structure": structure,
-            "market_structure_direction": "long",
-            "is_high_risk": False,
-            "atr_percent": 0.002,
-            "has_position": False,
-            "technical": {
-                "rsi": rsi,
-                "atr_percent": 0.002,
-                "trend_strength": 0.05,
-                "trend_direction": "sideways",
-            },
-        }
-
-    def test_aggressive_oversold_long_opens(self):
-        """aggressive + RSI<35 + sideways + long_rr≥0.8 → 应返回 open 决策。"""
-        engine = self._build_engine("aggressive")
-        market_data = self._make_market_data(rsi=30.0, structure="sideways")
-        result = engine._make_buy_decision(
-            self._selected(0.7),
-            market_data,
-            atr_percent=0.002,
-        )
-        assert result["action"] == "open"
-        assert result.get("strategy", "").startswith("oversold_buy_aggressive") or result.get(
-            "strategy", ""
-        ) == "oversold_buy_aggressive"
-        confidence_after = result["confidence"]
-        assert 0 < confidence_after <= 0.7
-
-    def test_moderate_oversold_long_blocked(self):
-        """moderate + 同样条件：不应放出（rr=1.2 >= min_rr(1.0)，但 R/R 不足时不应该使用 aggressive-only 路径）。"""
-        engine = self._build_engine("moderate")
-        market_data = self._make_market_data(rsi=30.0, structure="sideways")
-        result = engine._make_buy_decision(
-            self._selected(0.7),
-            market_data,
-            atr_percent=0.002,
-        )
-        # moderate 仍可以放出但策略字段不应为 oversold_buy_aggressive
-        assert result.get("strategy", "") != "oversold_buy_aggressive"
-
-    def test_aggressive_but_rsi_too_high_skips(self):
-        """aggressive + RSI 60 (太高)：不进入 aggressive 超卖买路径。"""
-        engine = self._build_engine("aggressive")
-        market_data = self._make_market_data(rsi=60.0, structure="sideways")
-        # 由于 long_rr=1.2 >= min_rr(1.0) 且结构是 sideways 不在 bearish，预期 action=open
-        # 但策略字段不应是 oversold_buy_aggressive
-        result = engine._make_buy_decision(
-            self._selected(0.7),
-            market_data,
-            atr_percent=0.002,
-        )
-        strategy = result.get("strategy", "")
-        assert "oversold_buy_aggressive" not in strategy

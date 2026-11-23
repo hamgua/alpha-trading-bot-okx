@@ -776,23 +776,16 @@ BTC_HIGH_RISK_PENALTY = 0.35
 BTC_LOW_OPPORTUNITY_BOOST = 1.15
 
 # ============================================================
-# 投资决策 R/R 阈值
+# R/R 门禁阈值（2026-11: 移除投资类型三档阈值）
 # ============================================================
 
-# 保守型 R/R 最低阈值（默认 0.8）
+# 做多 R/R 门禁最低阈值（固定 1.0）
+# 2026-11: 随 INVESTMENT_TYPE 机制一并移除 conservative=0.8 / moderate=1.0 /
+# aggressive=0.6 三档——该变量在 .env 从未配置过, 长期实际运行恒为
+# moderate 档; 固定值保留这一实际行为。
 # 引用方:
-#   - core/decision_engine.py: INVESTMENT_RR_THRESHOLDS.conservative (第21行)
-RR_CONSERVATIVE_MIN = 0.8
-
-# 中等型 R/R 最低阈值（默认 1.0）
-# 引用方:
-#   - core/decision_engine.py: INVESTMENT_RR_THRESHOLDS.moderate (第22行)
-RR_MODERATE_MIN = 1.0
-
-# 激进型 R/R 最低阈值（默认 0.6）
-# 引用方:
-#   - core/decision_engine.py: INVESTMENT_RR_THRESHOLDS.aggressive (第23行)
-RR_AGGRESSIVE_MIN = 0.6
+#   - core/decision_engine.py: _min_rr (做多 R/R 门禁)
+LONG_MIN_RR_THRESHOLD = 1.0
 
 # 良好 R/R 比（默认 2.0）
 # 引用方:
@@ -800,13 +793,13 @@ RR_AGGRESSIVE_MIN = 0.6
 #   - ai/market_structure.py: StructureAnalyzerConfig.good_rr (第82行)
 RR_GOOD_RATIO = 2.0
 
-# 做空专用 R/R 最低阈值（比做多更宽松）
+# 做空 R/R 门禁最低阈值（固定 0.6, 比做多宽松）
 # 加密货币市场做空的 R/R 天然偏低（上涨趋势长期存在）
+# 2026-11: 随 INVESTMENT_TYPE 机制移除 conservative=0.5 / moderate=0.6 /
+# aggressive=0.4 三档 (同上, 实际运行恒为 moderate 档)。
 # 引用方:
-#   - core/decision_engine.py: SHORT_RR_THRESHOLDS
-RR_SHORT_CONSERVATIVE_MIN = 0.5
-RR_SHORT_MODERATE_MIN = 0.6
-RR_SHORT_AGGRESSIVE_MIN = 0.4
+#   - core/decision_engine.py: _short_min_rr (做空 R/R 门禁)
+SHORT_MIN_RR_THRESHOLD = 0.6
 # ============================================================
 # 实盘亏损根因修复阈值 (dream 2026-09-16-loss-root-cause)
 # ============================================================

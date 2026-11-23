@@ -171,9 +171,7 @@ class TestConfidenceFloor:
 
         config = SimpleNamespace(
             ai=SimpleNamespace(fusion_threshold=0.5),
-            trading=SimpleNamespace(
-                investment_type="moderate", allow_short_selling=True
-            ),
+            trading=SimpleNamespace(allow_short_selling=True),
         )
         engine = DecisionEngine(config)
         market_data = {"min_trade_confidence": min_trade_confidence}
@@ -545,9 +543,7 @@ class TestProductionIncidentReplay:
         return DecisionEngine(
             SimpleNamespace(
                 ai=SimpleNamespace(fusion_threshold=0.5),
-                trading=SimpleNamespace(
-                    investment_type="moderate", allow_short_selling=True
-                ),
+                trading=SimpleNamespace(allow_short_selling=True),
             )
         )
 

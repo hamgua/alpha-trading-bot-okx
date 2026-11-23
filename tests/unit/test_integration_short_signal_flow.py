@@ -118,7 +118,7 @@ class TestShortFlowCanPassGate:
                 "trend_strength": 0.05,
             },
             "has_position": False,
-            "short_risk_reward_ratio": 1.6,  # ≥ SHORT_RR_MODERATE_MIN=1.0 的合理水平
+            "short_risk_reward_ratio": 1.6,  # ≥ SHORT_MIN_RR_THRESHOLD=0.6 的合理水平
             "risk_reward_ratio": 0.5,
             "min_trade_confidence": 0.40,  # 模拟 VolatilityRule 输出
             "ai_final_confidence": 0.45,
@@ -180,9 +180,8 @@ class TestShortFlowCanPassGate:
 
         # gate 通过 → RSI 超卖应拦截
         assert result["action"] == "skip"
-        assert (
-            "RSI超卖" in result.get("reason", "")
-            or "RSI" in result.get("reason", "")
+        assert "RSI超卖" in result.get("reason", "") or "RSI" in result.get(
+            "reason", ""
         )
 
 

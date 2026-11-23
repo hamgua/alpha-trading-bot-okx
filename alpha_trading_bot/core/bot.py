@@ -592,7 +592,8 @@ class TradingBot:
             logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
             logger.info(
                 "[机会评估] 当前为HOLD信号，系统持续监控中。如需更多交易机会，可考虑: "
-                "1)缩短CYCLE_MINUTES 2)切换AI_FUSION模式 3)调整INVESTMENT_TYPE=aggressive"
+                "1)提高DAILY_OPEN_LIMIT 2)检查超卖抄底通道是否被冷却/每日上限拦截 "
+                "3)复核MIN_CONFIDENCE_OPEN门禁与[机会审计]gap"
             )
             return ExecutionResult("none")
 

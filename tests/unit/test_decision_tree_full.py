@@ -9,7 +9,6 @@
 5. 所有边缘条件（空数据、零值、边界值）
 """
 
-import os
 import pytest
 from unittest.mock import MagicMock, patch, AsyncMock
 from typing import Dict, Any
@@ -17,18 +16,6 @@ from typing import Dict, Any
 # ==============================
 # 测试辅助函数
 # ==============================
-
-
-@pytest.fixture(autouse=True)
-def clean_env():
-    """每次测试前清理环境变量"""
-    orig = os.environ.get("INVESTMENT_TYPE")
-    os.environ.pop("INVESTMENT_TYPE", None)
-    yield
-    if orig:
-        os.environ["INVESTMENT_TYPE"] = orig
-    else:
-        os.environ.pop("INVESTMENT_TYPE", None)
 
 
 def make_selected(signal="HOLD", confidence=0.5, strategy_type="regular"):
@@ -62,14 +49,12 @@ def make_market_data(**overrides):
 class TestDecisionEngineDecisionTree:
     """决策引擎完整决策树测试"""
 
-    def _make_engine(self, investment_type="moderate"):
-        """创建决策引擎实例"""
+    def _make_engine(self):
+        """创建决策引擎实例（2026-11: R/R 门禁用固定阈值, 无投资类型）"""
         from alpha_trading_bot.core.decision_engine import DecisionEngine
 
         config = MagicMock()
         config.trading.allow_short_selling = True
-        if investment_type != "moderate":
-            os.environ["INVESTMENT_TYPE"] = investment_type
         return DecisionEngine(config)
 
     # --------------------------------------------------
@@ -191,25 +176,20 @@ class TestDecisionEngineDecisionTree:
         result = engine.make_decision("BUY", make_selected("BUY"), md)
         assert result["action"] == "open"
 
-    def test_BUY_conservative_rr_threshold(self):
-        """BUY + 保守型(R/R≥0.8) → R/R=0.9 允许"""
-        engine = self._make_engine("conservative")
-        result = engine.make_decision(
-            "BUY",
-            make_selected("BUY"),
-            make_market_data(risk_reward_ratio=0.9, market_structure="bullish"),
-        )
-        assert result["action"] == "open"
+    def test_BUY_rr_gate_fixed_threshold(self):
+        """BUY + 固定 R/R 门禁 (1.0) → R/R=0.9/0.7 不足 → skip
 
-    def test_BUY_aggressive_rr_threshold(self):
-        """BUY + 激进型(R/R≥0.6) → R/R=0.7 允许"""
-        engine = self._make_engine("aggressive")
-        result = engine.make_decision(
-            "BUY",
-            make_selected("BUY"),
-            make_market_data(risk_reward_ratio=0.7, market_structure="bullish"),
-        )
-        assert result["action"] == "open"
+        2026-11: 投资类型三档阈值 (conservative=0.8 / aggressive=0.6)
+        随 INVESTMENT_TYPE 机制移除, 门禁固定为 1.0。
+        """
+        engine = self._make_engine()
+        for rr in (0.9, 0.7):
+            result = engine.make_decision(
+                "BUY",
+                make_selected("BUY"),
+                make_market_data(risk_reward_ratio=rr, market_structure="bullish"),
+            )
+            assert result["action"] == "skip"
 
     # --------------------------------------------------
     # A2. SHORT 信号 × 各种条件

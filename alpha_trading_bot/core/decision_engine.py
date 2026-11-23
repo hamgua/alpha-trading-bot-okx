@@ -4,48 +4,38 @@
 从 AdaptiveTradingBot 中提取的交易决策逻辑
 
 增强功能：
-- 风险收益比(R/R)门禁 - 按投资类型差异化
+- 风险收益比(R/R)门禁 - 固定阈值（2026-11 移除投资类型三档）
 - 市场结构判断
 - 交易员级仓位管理建议
 - safe_mode减半开仓辅助条件
 
 R/R 门禁阈值定义在 alpha_trading_bot.config.thresholds:
-- RR_CONSERVATIVE_MIN (0.8)
-- RR_MODERATE_MIN (1.0)
-- RR_AGGRESSIVE_MIN (0.6)
+- LONG_MIN_RR_THRESHOLD (1.0, 做多)
+- SHORT_MIN_RR_THRESHOLD (0.6, 做空)
 - RR_GOOD_RATIO (2.0)
 """
 
 import logging
 import math
-import os
 from numbers import Number
 from typing import Any, Dict, Optional
 
 from alpha_trading_bot.config.thresholds import (
     BUY_DOWNTREND_BLOCK_TREND_STRENGTH,
+    LONG_MIN_RR_THRESHOLD,
     MAX_TRADE_ATR_PERCENT,
     MIN_TRADE_CONFIDENCE_FLOOR,
-    RR_CONSERVATIVE_MIN,
-    RR_MODERATE_MIN,
-    RR_AGGRESSIVE_MIN,
     RR_GOOD_RATIO,
-    RR_SHORT_CONSERVATIVE_MIN,
-    RR_SHORT_MODERATE_MIN,
-    RR_SHORT_AGGRESSIVE_MIN,
     RSI_BUY_OVERSOLD_MAX,
+    SHORT_MIN_RR_THRESHOLD,
 )
 
 logger = logging.getLogger(__name__)
 
-# R/R比门禁阈值 - 按投资类型差异化
-# 加密货币市场R/R<1.5很常见，原1.5过于严格
-INVESTMENT_RR_THRESHOLDS = {
-    "conservative": RR_CONSERVATIVE_MIN,
-    "moderate": RR_MODERATE_MIN,
-    "aggressive": RR_AGGRESSIVE_MIN,
-}
-DEFAULT_RR_THRESHOLD = RR_MODERATE_MIN
+# R/R 门禁阈值 - 固定值
+# 加密货币市场R/R<1.5很常见，原1.5过于严格。
+# 2026-11: 移除按投资类型 (conservative/moderate/aggressive) 的三档阈值，
+# 沿用实际运行值 (moderate 档: 做多 1.0 / 做空 0.6)。
 GOOD_RR_RATIO = RR_GOOD_RATIO
 SHORT_RSI_OVERSOLD_BLOCK = 40
 SAFE_MODE_REDUCED_MIN_RR = 1.0
@@ -89,13 +79,9 @@ OVERSOLD_BUY_RSI_THRESHOLD = 30
 OVERSOLD_BUY_MIN_RR = 1.0
 STRATEGY_BUY_OVERRIDE_MIN_RR = 1.0
 
-# 做空专用 R/R 门禁阈值 - 加密货币做空R/R天然偏低
-SHORT_RR_THRESHOLDS = {
-    "conservative": RR_SHORT_CONSERVATIVE_MIN,
-    "moderate": RR_SHORT_MODERATE_MIN,
-    "aggressive": RR_SHORT_AGGRESSIVE_MIN,
-}
-DEFAULT_SHORT_RR_THRESHOLD = RR_SHORT_MODERATE_MIN
+# 2026-11: 做空 R/R 门禁按投资类型的三档阈值 (conservative=0.5 /
+# moderate=0.6 / aggressive=0.4) 随 INVESTMENT_TYPE 机制一并移除；
+# 固定阈值见 config.thresholds.SHORT_MIN_RR_THRESHOLD (0.6)。
 
 
 class DecisionEngine:
@@ -103,11 +89,10 @@ class DecisionEngine:
 
     def __init__(self, config: Any):
         self._config = config
-        # 从配置中获取投资类型，决定R/R门禁阈值
-        self._investment_type = self._detect_investment_type()
-        self._min_rr = INVESTMENT_RR_THRESHOLDS.get(
-            self._investment_type, DEFAULT_RR_THRESHOLD
-        )
+        # 2026-11: 移除投资类型 (INVESTMENT_TYPE) 机制, R/R 门禁用固定阈值
+        # (沿用实际运行值: moderate 档 做多 1.0 / 做空 0.6)
+        self._min_rr = LONG_MIN_RR_THRESHOLD
+        self._short_min_rr = SHORT_MIN_RR_THRESHOLD
         self._conflict_metrics: Dict[str, int] = {
             "ai_hold_strategy_buy_conservative_skip": 0,
             "ai_hold_oversold_buy_executed": 0,
@@ -129,8 +114,7 @@ class DecisionEngine:
             "oversold_signal_blocked_confidence": 0,
         }
         logger.info(
-            f"[决策引擎] 投资类型={self._investment_type}, "
-            f"R/R最低阈值={self._min_rr}"
+            f"[决策引擎] 做多R/R门禁={self._min_rr}, 做空R/R门禁={self._short_min_rr}"
         )
 
     def get_conflict_metrics(self) -> Dict[str, int]:
@@ -141,19 +125,13 @@ class DecisionEngine:
         """返回均值回归超卖信号相关的指标快照。"""
         return dict(self._oversold_metrics)
 
-    def _detect_investment_type(self) -> str:
-        """检测投资类型（从环境变量读取）"""
-        return os.getenv("INVESTMENT_TYPE", "moderate").lower()
-
     def _get_min_rr(self) -> float:
-        """获取当前投资类型的最低R/R阈值"""
+        """获取做多 R/R 门禁阈值（固定值, 2026-11 移除投资类型机制）"""
         return self._min_rr
 
     def _get_short_min_rr(self) -> float:
-        """获取当前投资类型的最低做空R/R阈值（比做多更宽松）"""
-        return SHORT_RR_THRESHOLDS.get(
-            self._investment_type, DEFAULT_SHORT_RR_THRESHOLD
-        )
+        """获取做空 R/R 门禁阈值（固定值, 比做多宽松）"""
+        return self._short_min_rr
 
     def _confidence_gate(
         self, side: str, selected: Any, market_data: Dict[str, Any]
@@ -670,30 +648,16 @@ class DecisionEngine:
         rsi = technical.get("rsi", 50) if isinstance(technical, dict) else 50
 
         if rr_ratio > 0 and rr_ratio < self._get_min_rr():
-            # 梦 2026-08-24-profit-tp-sl-optimize / P2-aggressive-long 兜底：
-            # 仅在 INVESTMENT_TYPE=aggressive 时允许 RSI 超卖场景下用 0.5× 仓位开多，
-            # 跳过 R/R 门禁（要求 R/R ≥ 0.8，且结构 sideways）。其他类型保持原 R/R 门禁。
-            if (
-                self._investment_type == "aggressive"
-                and market_structure == "sideways"
-                and rr_ratio >= 0.8
-                and rsi < 35
-            ):
-                logger.info(
-                    f"[BUY-aggressive-超卖] R/R={rr_ratio:.2f}，略低于普通门槛{self._get_min_rr()}，"
-                    f"但 INVESTMENT_TYPE=aggressive 且 RSI={rsi:.1f}<35，"
-                    f"允许 0.5× 仓位介入震荡市反弹"
-                )
-            else:
-                logger.warning(
-                    f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
-                )
-                return {
-                    "action": "skip",
-                    "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
-                    "confidence": selected.confidence,
-                    "strategy": selected.strategy_type,
-                }
+            # 2026-11: 移除 aggressive 超卖兜底路径 (INVESTMENT_TYPE 机制一并移除)
+            logger.warning(
+                f"[R/R门禁] R/R={rr_ratio:.2f} < {self._get_min_rr()}，风险收益比不足，禁止开仓"
+            )
+            return {
+                "action": "skip",
+                "reason": f"R/R={rr_ratio:.2f}不足(最低{self._get_min_rr()})",
+                "confidence": selected.confidence,
+                "strategy": selected.strategy_type,
+            }
 
         if market_structure == "bearish":
             logger.warning(f"[市场结构] 下跌结构中禁止做多")
@@ -740,27 +704,7 @@ class DecisionEngine:
             "confidence": selected.confidence,
             "strategy": selected.strategy_type,
         }
-        # 梦 2026-08-24-profit-tp-sl-optimize / P2-aggressive-long：触发 0.5× 仓位 + 标记策略。
-        if (
-            self._investment_type == "aggressive"
-            and market_structure == "sideways"
-            and rsi < 35
-            and 0 <= rr_ratio < self._get_min_rr()
-        ):
-            result["strategy"] = "oversold_buy_aggressive"
-            result["confidence"] = selected.confidence * 0.5
-            result["position_advice"] = (
-                f"aggressive 模式 RSI={rsi:.1f} 超卖反弹，0.5× 仓位"
-            )
-        elif (
-            self._investment_type == "aggressive"
-            and market_structure == "sideways"
-            and rsi < 35
-        ):
-            result["strategy"] = "oversold_buy_aggressive"
-            result["position_advice"] = (
-                f"aggressive 模式 RSI={rsi:.1f} 超卖反弹，正常仓"
-            )
+        # 2026-11: 移除 aggressive 超卖买入策略标记 (INVESTMENT_TYPE 机制一并移除)
         if position_advice and "position_advice" not in result:
             result["position_advice"] = position_advice
         return result

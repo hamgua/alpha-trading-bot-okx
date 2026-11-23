@@ -9,7 +9,6 @@
 3. 边界条件：投资类型切换（moderate/conservative/aggressive）、confidence 阈值
 """
 
-import os
 from unittest.mock import MagicMock
 
 import pytest
@@ -137,14 +136,6 @@ class TestHoldOversoldOverride:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def _make_selected(
         self, signal="BUY", confidence=0.85, strategy_type="mean_reversion"
@@ -326,14 +317,6 @@ class TestHoldStrategyBuyOverride:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def _make_selected(
         self, signal="BUY", confidence=0.82, strategy_type="trend_following"
@@ -446,14 +429,6 @@ class TestHoldStrategyShortOverride:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def _make_selected(
         self, signal="SHORT", confidence=0.80, strategy_type="breakdown"
@@ -550,14 +525,6 @@ class TestHoldStrategySellOverride:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def _make_selected(
         self, signal="SELL", confidence=0.80, strategy_type="mean_reversion"
@@ -945,14 +912,6 @@ class TestHoldBothHold:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def test_both_hold_returns_skip(self):
         engine = DecisionEngine(self.config)
@@ -1099,14 +1058,6 @@ class TestHoldBuyConfidenceGate:
     def setup_method(self):
         self.config = MagicMock()
         self.config.trading.allow_short_selling = True
-        self._orig_env = os.environ.get("INVESTMENT_TYPE")
-        os.environ.pop("INVESTMENT_TYPE", None)
-
-    def teardown_method(self):
-        if self._orig_env is not None:
-            os.environ["INVESTMENT_TYPE"] = self._orig_env
-        else:
-            os.environ.pop("INVESTMENT_TYPE", None)
 
     def test_oversold_buy_blocked_by_low_final_confidence(self):
         """BTC 高位 + is_high_risk=True + 置信度<0.55 阻止 BUY"""
