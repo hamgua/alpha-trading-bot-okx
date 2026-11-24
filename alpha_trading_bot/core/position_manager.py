@@ -562,16 +562,23 @@ class PositionManager:
             )
             return stop_price
 
-    def calculate_short_stop_price(self, current_price: float) -> float:
+    def calculate_short_stop_price(
+        self, current_price: float, dynamic_atr_percent: Optional[float] = None
+    ) -> float:
         """
         计算做空仓位的止损价 (做空仓位)
 
         做空止损逻辑:
-        - 做空赚钱时(价格下跌)，止损价 = 当前价格 × 100.5% (高于当前价)
-        - 做空亏钱时(价格上涨)，止损价 = 当前价格 × 101.0% (追高)
+        - 显式传入 dynamic_atr_percent 时（开仓时刻 ATR 止损, 与做多
+          calculate_stop_price 的 ATR 路径对称, 2026-11-24 新增）:
+          止损距离 = max(默认止损比例, clamp(ATR%, 0.3%, 5%)), 基于入场价。
+          避免 0.5% 固定止损被 15m wick 瞬间扫掉 (11-24 11:03 抄底回放)。
+        - 否则传统逻辑: 止损价 = 当前价格 × (1 + 止损比例)
 
         Args:
             current_price: 当前价格
+            dynamic_atr_percent: 可选 ATR 百分比 (0~1)。仅开仓时刻传入；
+                止损更新路径不传 (保持原当前价口径)。
 
         Returns:
             止损价 (做空) 或 0.0 (无效)
@@ -582,6 +589,26 @@ class PositionManager:
         # 只处理做空仓位
         if self._position.side != "short":
             return 0.0
+
+        # 开仓时刻 ATR 止损 (与做多 OC-NEW-3 对称: max(default, clamp(atr)))
+        try:
+            atr_value = (
+                float(dynamic_atr_percent) if dynamic_atr_percent is not None else None
+            )
+        except (TypeError, ValueError):
+            atr_value = None
+        if atr_value is not None and atr_value > 0:
+            clamped = max(0.003, min(atr_value, 0.05))
+            effective_stop_percent = max(
+                self.config.stop_loss.stop_loss_percent, clamped
+            )
+            stop_price = self._entry_price * (1 + effective_stop_percent)
+            logger.debug(
+                f"[止损计算-做空-ATR] 入场价:{self._entry_price:.2f}, "
+                f"ATR止损比例:{effective_stop_percent * 100:.2f}%, "
+                f"止损价:{stop_price:.2f}"
+            )
+            return stop_price
 
         # 做空赚钱时(价格下跌): 止损价 = 当前价格 × 100.5%
         if current_price >= self._entry_price:

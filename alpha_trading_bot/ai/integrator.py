@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from alpha_trading_bot.config.thresholds import (
     ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE,
     ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE,
+    EXTREME_OVERSOLD_RSI_MAX,
     SIGNAL_DISCOUNT_FLOOR,
 )
 
@@ -220,6 +221,23 @@ class AISignalIntegrator:
         # 后续 R/R 过滤 / 信号优化 / 高位过滤的累计折扣不得低于
         # SIGNAL_DISCOUNT_FLOOR 乘数 (防止门禁数学性不可达, 见 thresholds.py)。
         adaptive_flip_conf: Optional[float] = None
+
+        # 2026-11-24 (P0-3): 极端超卖标记 (RSI(1h) ≤ EXTREME_OVERSOLD_RSI_MAX)。
+        # 提升到 process() 顶部: AdaptiveBuy 段 (翻转守卫豁免) 与 1.5 R/R 过滤段
+        # 都需要引用, 且必须始终绑定 (adaptive_buy 未启用/异常时不可 NameError)。
+        try:
+            _extreme_rsi = float(
+                (market_data.get("technical") or {}).get("rsi")
+            )
+        except (TypeError, ValueError):
+            _extreme_rsi = None
+        extreme_oversold = (
+            _extreme_rsi is not None
+            and _extreme_rsi <= EXTREME_OVERSOLD_RSI_MAX
+        )
+        # 极端超卖 + oversold_rebound 模式命中 (翻转守卫豁免时置位,
+        # R/R < 1.0 降级豁免复用同一标记)
+        extreme_oversold_rebound = False
 
         # ===== 0. 持续下跌检测 (新增，最先执行) =====
         decline_result = None
@@ -491,6 +509,11 @@ class AISignalIntegrator:
                 buy_result = self.adaptive_buy.should_buy(market_data=market_data)
                 result.buy_condition_result = buy_result
 
+                # 2026-11-24 (P0-3): 极端超卖 + 抄底模式命中记录
+                # (R/R < 1.0 降级豁免用; AI 直接 BUY 或技术翻转均受益)
+                if extreme_oversold and buy_result.mode == "oversold_rebound":
+                    extreme_oversold_rebound = True
+
                 # 如果买入条件判断可以买入，提高置信度
                 if buy_result.can_buy:
                     # dream 2026-09-16-loss-root-cause / R3: 翻转守卫。
@@ -521,7 +544,26 @@ class AISignalIntegrator:
                             strong_mode_note = " (高可信模式放宽至 {:.0%})".format(
                                 max_hold_conf
                             )
+                        # 2026-11-24 回放 (P0-3): 极端超卖豁免——RSI(1h) <= 10 且
+                        # oversold_rebound 通过时, 无视 AI HOLD 置信度允许翻转。
+                        # 底部区 AI 中置信度 HOLD 多为犹豫带噪声, 技术条件已含
+                        # RSI<=20 + 24h 低点区 (+ 执行层 1h 动量守卫/每日上限)。
                         if (
+                            extreme_oversold
+                            and original_signal == "HOLD"
+                            and buy_result.mode == "oversold_rebound"
+                        ):
+                            allow_flip = True
+                            flip_block_reason = ""
+                            strong_mode_note = " (极端超卖 RSI<={:.0f} 豁免)".format(
+                                EXTREME_OVERSOLD_RSI_MAX
+                            )
+                            result.adjustments_made.append(
+                                f"极端超卖豁免: RSI(1h)={_extreme_rsi:.1f} ≤ "
+                                f"{EXTREME_OVERSOLD_RSI_MAX:.0f}, AI HOLD "
+                                f"{original_confidence:.0%} 不拦截 oversold_rebound"
+                            )
+                        elif (
                             original_signal == "HOLD"
                             and original_confidence >= max_hold_conf
                         ):
@@ -594,6 +636,12 @@ class AISignalIntegrator:
                 # 将市场结构信息附加到 market_data 供决策引擎使用
                 # （注意：必须操作原始 market_data 引用，确保外部可见）
                 market_data["market_structure"] = structure_result.structure
+                market_data["market_structure_htf"] = getattr(
+                    structure_result, "htf_structure", "unknown"
+                )
+                market_data["market_structure_htf_note"] = getattr(
+                    structure_result, "htf_note", ""
+                )
                 market_data["market_structure_direction"] = (
                     structure_result.suggested_direction
                 )
@@ -648,15 +696,28 @@ class AISignalIntegrator:
                             )
                         else:
                             # R/R < 1.0，风险过高，降级为HOLD
-                            old_signal = original_signal
-                            original_signal = "HOLD"
-                            result.adjustments_made.append(
-                                f"R/R过滤: {old_signal}→HOLD, "
-                                f"R/R={rr_result.rr_ratio:.2f}不足(最低1.0)"
-                            )
-                            logger.info(
-                                f"[R/R过滤] {old_signal}→HOLD: R/R={rr_result.rr_ratio:.2f}不足"
-                            )
+                            # 2026-11-24 回放 (P0-3): 极端超卖豁免——底部结构 R/R
+                            # 常因"上方阻力远"而偏低, RSI<=10 时保留 BUY 信号
+                            # (执行层仍有每日上限/冷却/回撤总闸/ATR 止损兜底)。
+                            if extreme_oversold_rebound:
+                                result.adjustments_made.append(
+                                    f"R/R过滤: R/R={rr_result.rr_ratio:.2f}偏低但"
+                                    f"极端超卖(RSI<={EXTREME_OVERSOLD_RSI_MAX:.0f})豁免降级"
+                                )
+                                logger.info(
+                                    f"[R/R过滤] R/R={rr_result.rr_ratio:.2f} < 1.0, "
+                                    f"极端超卖豁免, 保留BUY"
+                                )
+                            else:
+                                old_signal = original_signal
+                                original_signal = "HOLD"
+                                result.adjustments_made.append(
+                                    f"R/R过滤: {old_signal}→HOLD, "
+                                    f"R/R={rr_result.rr_ratio:.2f}不足(最低1.0)"
+                                )
+                                logger.info(
+                                    f"[R/R过滤] {old_signal}→HOLD: R/R={rr_result.rr_ratio:.2f}不足"
+                                )
                     elif rr_result.quality == "marginal":
                         # R/R勉强，降低置信度
                         old_conf = original_confidence

@@ -842,6 +842,17 @@ ADAPTIVE_BUY_HOLD_FLIP_MAX_HOLD_CONFIDENCE = 0.55
 #   - ai/integrator.py: AdaptiveBuyCondition 处理段 (翻转守卫)
 ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE = 0.60
 
+# 极端超卖 RSI 上限（默认 10.0）——极端超卖翻转豁免阈值
+# 2026-11-24 日志回放: 11-24 11:03 RSI(1h)=5.9, oversold_rebound 技术 BUY(53%)
+# 被 AI hold(62%) 翻转守卫拦截, 8 分钟后抄底单即被扫损。RSI(1h) <= 10 属于
+# 极端超卖区, 此时 AI 的中置信度 HOLD (55-70%) 多为"犹豫带噪声", 技术信号
+# (已含 RSI<=20 + 24h 低点区 + 1h 动量守卫) 应允许翻转; 同时豁免 R/R < 1.0
+# 的强制降级 (底部结构 R/R 常因"上方阻力远/下方支撑近"而偏低)。
+# 仅对 mode=oversold_rebound 生效, 其余模式零回归。
+# 引用方:
+#   - ai/integrator.py: AdaptiveBuyCondition 翻转守卫 + R/R 过滤段
+EXTREME_OVERSOLD_RSI_MAX = 10.0
+
 # BUY 信号折扣下限（累计乘数, 默认 0.70）
 # 2026-11 日志回放: 11-21 23:47 技术 BUY 92% 被 R/R 勉强(-15%) +
 # 与历史多数相反(-15%) 双重 0.85 叠加压到 66.5%, 低于 0.75 门禁——

@@ -157,6 +157,29 @@ class TradingConfig:
     oversold_buy_confidence: float = 0.70  # 通道固定置信度 (仅用于审计日志)
     oversold_buy_position_factor: float = 0.5  # 半仓
     oversold_buy_daily_limit: int = 1  # 每日最多触发次数
+    # 1h 动量守卫（2026-11-24 回放 / P1-6）: 1h 涨跌幅 ≤ 该值时跳过抄底
+    # (动量仍在崩塌、接飞刀)。回放 11-24 11:03: 1h +0.12% 通过。
+    oversold_buy_min_1h_change: float = -0.05
+    # ---- R/R 感知动态开仓门禁（2026-11-24 日志回放 / P0-3）----
+    # 方向一致的结构 R/R ≥ gate_relief_rr_min 时, 开仓置信度门禁放宽
+    # gate_relief_amount (下限 gate_relief_floor)。依据: 两天回放 217 周期
+    # 最终置信度 46-72% (均值 58.5%), 固定 0.65 门禁仅 15/217 通过且全为
+    # HOLD; 高 R/R  setups 应放行 55-64% 犹豫带置信度。
+    gate_relief_rr_min: float = 2.0
+    gate_relief_amount: float = 0.10
+    gate_relief_floor: float = 0.50
+    # ---- 高潮做空独立通道（2026-11-24 日志回放 / P0-2）----
+    # "Climax top 做空": 价格贴近 24h 高点 + 1h RSI 超买 + 做空 R/R ≥ 阈值
+    # → 独立规则开空 (半仓, 每日 N 次), 与超卖抄底通道对称 (顶部捕获)。
+    # 回放依据: 11-23 22:00-23:57 做空 R/R 3.0-7.1 (excellent), RSI(1h) 67-78,
+    # 价格处 24h 高点区, 随后 11-24 62.8k→59.5k (-5.3%) 两天主跌段;
+    # 误报排除: 11-23 02:14 做空 R/R=4.36 但 RSI≈50 (<65), 实际随后涨 5.6%, 正确排除。
+    climax_short_enabled: bool = True
+    climax_short_rr_min: float = 2.5
+    climax_short_rsi_min: float = 65.0  # 1h RSI 超买门槛
+    climax_short_near_high_pct: float = 0.02  # 价格 ≥ 24h高点×(1-2%)
+    climax_short_position_factor: float = 0.5  # 半仓
+    climax_short_daily_limit: int = 1  # 每日最多触发次数
     # ---- 平仓后冷却（2026-10-08 手续费出血修复 / P0-2）----
     # 平仓后 N 分钟内禁止重新开仓（0=关闭），斩断"平仓后 5 分钟即重开"
     # 式 churn（证据: T3→T4 间隔 5 分钟，T7 持仓仅 4.4 分钟）。
@@ -246,6 +269,51 @@ class TradingConfig:
             errors.append(
                 f"post_close_cooldown_minutes ({self.post_close_cooldown_minutes}) "
                 "不在有效范围 [0-1440]"
+            )
+        if not 0 < self.gate_relief_rr_min <= 10:
+            errors.append(
+                f"gate_relief_rr_min ({self.gate_relief_rr_min}) "
+                "不在有效范围 (0-10]"
+            )
+        if not 0 <= self.gate_relief_amount <= 0.5:
+            errors.append(
+                f"gate_relief_amount ({self.gate_relief_amount}) "
+                "不在有效范围 [0-0.5]"
+            )
+        if not 0 <= self.gate_relief_floor <= 1:
+            errors.append(
+                f"gate_relief_floor ({self.gate_relief_floor}) "
+                "不在有效范围 [0-1]"
+            )
+        if not -0.5 <= self.oversold_buy_min_1h_change <= 0:
+            errors.append(
+                f"oversold_buy_min_1h_change ({self.oversold_buy_min_1h_change}) "
+                "不在有效范围 [-0.5-0]"
+            )
+        if not 0 < self.climax_short_rr_min <= 10:
+            errors.append(
+                f"climax_short_rr_min ({self.climax_short_rr_min}) "
+                "不在有效范围 (0-10]"
+            )
+        if not 0 < self.climax_short_rsi_min <= 100:
+            errors.append(
+                f"climax_short_rsi_min ({self.climax_short_rsi_min}) "
+                "不在有效范围 (0-100]"
+            )
+        if not 0 < self.climax_short_near_high_pct <= 0.2:
+            errors.append(
+                f"climax_short_near_high_pct ({self.climax_short_near_high_pct}) "
+                "不在有效范围 (0-0.2]"
+            )
+        if not 0 < self.climax_short_position_factor <= 1:
+            errors.append(
+                f"climax_short_position_factor ({self.climax_short_position_factor}) "
+                "不在有效范围 (0-1]"
+            )
+        if self.climax_short_daily_limit < 0:
+            errors.append(
+                f"climax_short_daily_limit ({self.climax_short_daily_limit}) "
+                "不能为负数"
             )
 
         if self.runtime_environment not in self.VALID_RUNTIME_ENVIRONMENTS:
@@ -707,6 +775,31 @@ class Config:
                 ),
                 oversold_buy_daily_limit=int(
                     os.getenv("OVERSOLD_BUY_DAILY_LIMIT", "1")
+                ),
+                oversold_buy_min_1h_change=float(
+                    os.getenv("OVERSOLD_BUY_MIN_1H_CHANGE", "-0.05")
+                ),
+                gate_relief_rr_min=float(os.getenv("GATE_RELIEF_RR_MIN", "2.0")),
+                gate_relief_amount=float(
+                    os.getenv("GATE_RELIEF_AMOUNT", "0.10")
+                ),
+                gate_relief_floor=float(os.getenv("GATE_RELIEF_FLOOR", "0.50")),
+                climax_short_enabled=os.getenv(
+                    "CLIMAX_SHORT_ENABLED", "true"
+                ).lower()
+                == "true",
+                climax_short_rr_min=float(os.getenv("CLIMAX_SHORT_RR_MIN", "2.5")),
+                climax_short_rsi_min=float(
+                    os.getenv("CLIMAX_SHORT_RSI_MIN", "65.0")
+                ),
+                climax_short_near_high_pct=float(
+                    os.getenv("CLIMAX_SHORT_NEAR_HIGH_PCT", "0.02")
+                ),
+                climax_short_position_factor=float(
+                    os.getenv("CLIMAX_SHORT_POSITION_FACTOR", "0.5")
+                ),
+                climax_short_daily_limit=int(
+                    os.getenv("CLIMAX_SHORT_DAILY_LIMIT", "1")
                 ),
                 post_close_cooldown_minutes=int(
                     os.getenv("POST_CLOSE_COOLDOWN_MINUTES", "30")

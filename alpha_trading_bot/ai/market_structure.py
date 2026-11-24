@@ -53,6 +53,10 @@ class MarketStructureResult:
     swing_highs: List[float]  # 摆动高点列表
     swing_lows: List[float]  # 摆动低点列表
 
+    # 2026-11-24: 高级别时间框架 (4h) 结构确认 (P1-4)
+    htf_structure: str = "unknown"  # 4h 结构: bullish | bearish | sideways | unknown
+    htf_note: str = ""  # HTF 冲突说明 (空=无冲突)
+
 
 class MarketStructureAnalyzer:
     """
@@ -133,6 +137,11 @@ class MarketStructureAnalyzer:
         # 2. 判断市场结构
         structure, structure_detail = self._determine_structure(swing_highs, swing_lows)
 
+        # 2.5 高级别时间框架确认 (2026-11-24 / P1-4): 1h 收盘聚合为 4h
+        # 判断 HTF 结构。11-23/24 回放: 15m/1h 结构在瀑布中段频繁误判
+        # (11-24 05:15 "bullish R/R=4.91" 后价格继续 -7%), 4h 冲突时降级方向。
+        htf_structure = self._detect_htf_structure(price_history)
+
         # 3. 计算支撑阻力位
         nearest_support = self._find_nearest_support(swing_lows, current_price)
         nearest_resistance = self._find_nearest_resistance(swing_highs, current_price)
@@ -148,8 +157,11 @@ class MarketStructureAnalyzer:
         )
 
         # 6. 生成交易建议
-        suggested_direction, position_size_factor = self._generate_trading_advice(
-            structure, rr_ratio, is_breakout, is_breakdown, atr_percent
+        suggested_direction, position_size_factor, htf_note = (
+            self._generate_trading_advice(
+                structure, rr_ratio, is_breakout, is_breakdown, atr_percent,
+                htf_structure,
+            )
         )
 
         result = MarketStructureResult(
@@ -167,10 +179,12 @@ class MarketStructureAnalyzer:
             position_size_factor=position_size_factor,
             swing_highs=swing_highs,
             swing_lows=swing_lows,
+            htf_structure=htf_structure,
+            htf_note=htf_note,
         )
 
         logger.info(
-            f"[市场结构] 结构={structure}, "
+            f"[市场结构] 结构={structure}, HTF(4h)={htf_structure}, "
             f"支撑={nearest_support:.2f}, 阻力={nearest_resistance:.2f}, "
             f"R/R={rr_ratio:.2f}({rr_quality}), "
             f"方向={suggested_direction}, 仓位系数={position_size_factor:.2f}"
@@ -178,8 +192,42 @@ class MarketStructureAnalyzer:
 
         return result
 
+    def _detect_htf_structure(
+        self, price_history: List[float], aggregate: int = 4
+    ) -> str:
+        """聚合 1h 收盘为 N 小时 (默认 4h) 收盘并判断高级别结构 (best-effort)。
+
+        2026-11-24 / P1-4: price_history 为 1h 收盘 (从最近到最远)。
+        从最旧一侧每 `aggregate` 根聚合成 1 根 N 小时收盘 (取组内最新一根),
+        最后不足一组视为当前未收盘的 N 小时 K 线。数据不足/无摆动点 → "unknown"。
+        """
+        if not price_history or len(price_history) < aggregate * 3:
+            return "unknown"
+
+        oldest_first = list(reversed(price_history))
+        n_full = len(oldest_first) // aggregate
+        if n_full < 2:
+            return "unknown"
+        htf_closes: List[float] = []
+        for g in range(n_full):
+            htf_closes.append(oldest_first[g * aggregate + (aggregate - 1)])
+        if len(oldest_first) > n_full * aggregate:
+            # 当前未收盘的 N 小时 K 线
+            htf_closes.append(oldest_first[-1])
+
+        # _find_swing_points 期望"从最近到最远"; HTF 序列较短, 用 window=1
+        htf_highs, htf_lows = self._find_swing_points(
+            list(reversed(htf_closes)), window=1
+        )
+        if not htf_highs or not htf_lows:
+            return "unknown"
+        structure, _ = self._determine_structure(htf_highs, htf_lows)
+        return structure
+
     def _find_swing_points(
-        self, price_history: List[float]
+        self,
+        price_history: List[float],
+        window: Optional[int] = None,
     ) -> Tuple[List[float], List[float]]:
         """
         识别摆动高低点
@@ -189,13 +237,15 @@ class MarketStructureAnalyzer:
 
         Args:
             price_history: 历史价格列表
+            window: 摆动窗口 (默认 self.swing_window)。HTF(4h) 聚合序列
+                较短, 用 window=1 (2026-11-24 / P1-4)。
 
         Returns:
             (swing_highs, swing_lows): 摆动高点和低点列表
         """
         swing_highs: List[float] = []
         swing_lows: List[float] = []
-        window = self.swing_window
+        window = self.swing_window if window is None else window
 
         # 反转以从远到近处理
         prices = list(reversed(price_history))
@@ -432,7 +482,8 @@ class MarketStructureAnalyzer:
         is_breakout: bool,
         is_breakdown: bool,
         atr_percent: float,
-    ) -> Tuple[str, float]:
+        htf_structure: str = "unknown",
+    ) -> Tuple[str, float, str]:
         """
         生成交易建议
 
@@ -452,10 +503,11 @@ class MarketStructureAnalyzer:
             atr_percent: ATR百分比
 
         Returns:
-            (suggested_direction, position_size_factor)
+            (suggested_direction, position_size_factor, htf_note)
         """
         suggested_direction = "none"
         position_size_factor = 0.0
+        htf_note = ""
 
         # 高波动环境降低仓位
         volatility_factor = 1.0
@@ -504,7 +556,24 @@ class MarketStructureAnalyzer:
                 suggested_direction = "none"
                 position_size_factor = 0.0
 
-        return suggested_direction, position_size_factor
+        # 2026-11-24 (P1-4): HTF 冲突守卫——低级别结构与 4h 结构反向时降级方向。
+        # 回放: 11-24 05:15 15m "bullish R/R=4.91" 建议做多, 4h 仍在下跌结构,
+        # 价格随后继续 -7%。HTF unknown 时不干预 (零回归)。
+        if htf_structure not in ("unknown", "") and suggested_direction != "none":
+            if (structure == "bullish" and htf_structure == "bearish") or (
+                structure == "bearish" and htf_structure == "bullish"
+            ):
+                logger.info(
+                    f"[市场结构] 1h {structure} 与 4h {htf_structure} 冲突 → "
+                    f"方向降级为 none (等待 HTF 共振)"
+                )
+                htf_note = (
+                    f"1h={structure} 与 4h={htf_structure} 冲突, 方向已降级"
+                )
+                suggested_direction = "none"
+                position_size_factor = 0.0
+
+        return suggested_direction, position_size_factor, htf_note
 
     def _create_neutral_result(self, current_price: float) -> MarketStructureResult:
         """创建中性结构结果（数据不足时的默认返回）"""
