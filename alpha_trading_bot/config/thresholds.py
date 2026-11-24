@@ -853,6 +853,16 @@ ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE = 0.60
 #   - ai/integrator.py: AdaptiveBuyCondition 翻转守卫 + R/R 过滤段
 EXTREME_OVERSOLD_RSI_MAX = 10.0
 
+# 技术翻转信号置信度上限（默认 0.60）
+# 2026-11-24 13:43 回放: AI 原始 HOLD 55%, 技术翻转 BUY 后经
+# high_price_buy_optimizer 固定 "+15% 严重超卖" 规则加成 → 61.8%,
+# 越过放宽后的开仓门禁 → 60685 抄底, 25 分钟内 -0.42% 亏损离场
+# (账户 -1.3%)。规则加成不应把"技术翻转"信号制造成高置信度:
+# 翻转产生的 BUY/SHORT 最终置信度封顶 0.60, AI 原生信号不受限。
+# 引用方:
+#   - ai/integrator.py: 最终结果段 (置信度封顶)
+TECHNICAL_FLIP_CONFIDENCE_CAP = 0.60
+
 # BUY 信号折扣下限（累计乘数, 默认 0.70）
 # 2026-11 日志回放: 11-21 23:47 技术 BUY 92% 被 R/R 勉强(-15%) +
 # 与历史多数相反(-15%) 双重 0.85 叠加压到 66.5%, 低于 0.75 门禁——

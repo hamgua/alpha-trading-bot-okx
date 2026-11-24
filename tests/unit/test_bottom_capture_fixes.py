@@ -202,10 +202,16 @@ class TestFlipGuardStrongMode:
 
 
 class TestSignalDiscountFloor:
-    """技术翻转 BUY 的累计折扣下限 0.70 (门禁可达性修复)。"""
+    """技术翻转 BUY 的累计折扣下限 0.70 (门禁可达性修复)。
+
+    2026-11-24 (P1-C) 后: 技术翻转 BUY 最终置信度另受
+    TECHNICAL_FLIP_CONFIDENCE_CAP=0.60 封顶 (规则加成不制造高置信),
+    下限与封顶均生效时以封顶为准 (更保守)。
+    """
 
     def test_buy_discount_floored(self) -> None:
-        """回放 11-21 23:47: 翻转 92%, 模拟 R/R 勉强 ×0.85 → 最终 ≥ 92%×0.70。"""
+        """回放 11-21 23:47: 翻转 92%, 模拟 R/R 勉强 ×0.85 → 78.2%,
+        再被技术翻转封顶压回 0.60 (P1-C)。"""
         integ = _make_integrator("pullback_buy", 0.92)
 
         # 打桩 SignalOptimizer: 模拟 R/R 勉强场景的 -15% 折扣 (BUY 已豁免
@@ -229,14 +235,13 @@ class TestSignalDiscountFloor:
             dict(MARKET_15M), original_signal="hold", original_confidence=0.45
         )
         assert result.final_signal == "BUY"
-        # 92% × 0.85 = 78.2% (下限 64.4% 不生效, 高于下限)
-        assert abs(result.final_confidence - 0.782) < 0.02
+        # 92% × 0.85 = 78.2% (下限 64.4% 不生效) → P1-C 封顶 → 0.60
+        assert abs(result.final_confidence - 0.60) < 0.01
+        assert any("封顶" in a for a in result.adjustments_made)
 
     def test_buy_discount_floor_applied_when_stacked(self) -> None:
-        """折扣叠加低于 0.70 (0.85×0.80=0.68) → 下限拉回 92%×0.70=64.4%。
-
-        (双重 0.85 = 0.7225 仍高于下限, 不触发; 实际叠加场景如
-        R/R勉强×0.85 + R/R偏低×0.80 会低于下限。)"""
+        """折扣叠加低于 0.70 (0.85×0.80=0.68) → 下限拉回 92%×0.70=64.4%,
+        再被技术翻转封顶压回 0.60 (P1-C; 下限在 adjustments 中可审计)。"""
         integ = _make_integrator("pullback_buy", 0.92)
 
         def _stacked_discount(signal, confidence, price, market_data):
@@ -258,9 +263,10 @@ class TestSignalDiscountFloor:
             dict(MARKET_15M), original_signal="hold", original_confidence=0.45
         )
         assert result.final_signal == "BUY"
-        # 92%×0.68 = 62.6% < 64.4% → 下限拉回 64.4%
-        assert abs(result.final_confidence - 0.92 * 0.70) < 0.01
+        # 92%×0.68 = 62.6% < 64.4% → 下限拉回 64.4% → P1-C 封顶 → 0.60
+        assert abs(result.final_confidence - 0.60) < 0.01
         assert any("折扣下限" in a for a in result.adjustments_made)
+        assert any("封顶" in a for a in result.adjustments_made)
 
 
 # ==================== P1-6: 持续下跌检测器衰竭反转 ====================

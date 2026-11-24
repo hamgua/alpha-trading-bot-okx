@@ -396,9 +396,12 @@ class TradingBot:
             # 5. 处理信号
             # R/R 感知动态门禁所需的"方向一致 R/R": 只有市场结构方向与该侧一致时
             # 才参与放宽 (多结构+HTF冲突已被降级为 none → 不放宽)。
+            # 2026-11-24 (P0-B): 做多侧改用 ATR 口径 R/R (long_risk_reward_ratio),
+            # 不再用结构 R/R——底部区结构 R/R 是几何伪影 (价贴支撑时分母极小,
+            # 回放 13:30 R/R=81.38 / 13:43 R/R=4.03 放行了错误抄底)。
             mkt_direction = market_data.get("market_structure_direction", "")
             relief_long_rr = (
-                float(market_data.get("risk_reward_ratio", 0.0) or 0.0)
+                float(market_data.get("long_risk_reward_ratio", 0.0) or 0.0)
                 if mkt_direction == "long"
                 else 0.0
             )
@@ -416,6 +419,7 @@ class TradingBot:
                 short_rr=relief_short_rr,
                 change_percent=change_percent,
                 atr_percent=technical.get("atr_percent", 0.0) if technical else 0.0,
+                buy_mode=str(market_data.get("adaptive_buy_mode", "") or ""),
             )
 
             # 5.5 超卖抄底独立通道（2026-11 底部捕获 / P1-5）:
@@ -579,6 +583,23 @@ class TradingBot:
             return relaxed
         return base
 
+    def _position_upl_percent(self, current_price: float) -> Optional[float]:
+        """持仓浮动盈亏百分比 (多: (现价-入场)/入场; 空: (入场-现价)/入场)。
+
+        2026-11-24 / P0-A: 亏损态平仓门禁下移的 UPL 判据。
+        数据不可用时返回 None (门禁不放宽, 保守方向)。
+        """
+        entry = self.position_manager.entry_price
+        if not entry or entry <= 0 or not current_price or current_price <= 0:
+            return None
+        try:
+            side = self.position_manager.position_side
+            if side == "short":
+                return (entry - current_price) / entry
+            return (current_price - entry) / entry
+        except Exception:
+            return None
+
     async def _execute_signal(
         self,
         signal: str,
@@ -589,6 +610,7 @@ class TradingBot:
         short_rr: float = 0.0,
         change_percent: float = 0.0,
         atr_percent: float = 0.0,
+        buy_mode: str = "",
     ) -> ExecutionResult:
         """执行信号
 
@@ -598,9 +620,10 @@ class TradingBot:
         - 平仓意图 (SELL+多 / BUY+空 / SHORT+多): 低于 min_confidence_close → 禁止平仓
         None（旧 3 参调用路径）：门禁不生效并 WARNING 提示（零回归）。
 
-        structure_rr / short_rr: 方向一致的结构 R/R (仅放宽对应侧门禁用)。
+        structure_rr / short_rr: 方向一致的 ATR 口径 R/R (仅放宽对应侧门禁用)。
         change_percent: 24h 涨跌幅% (做空逆势门禁 short_entry_max_daily_change)。
         atr_percent: ATR 百分比 (开仓 ATR 止损用, 0=不传)。
+        buy_mode: 自适应买入模式 (oversold_rebound 翻转开仓用半仓, P1-C)。
         """
         logger.info(
             f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, "
@@ -670,6 +693,32 @@ class TradingBot:
             )
             if is_close_intent:
                 min_close = self.config.trading.min_confidence_close
+                # 2026-11-24 (P0-A): 亏损态平仓下移——浮亏时门禁
+                # close_relief_amount (下限 close_relief_floor)。回放 11-24
+                # 13:43-14:15: 浮亏 -0.21%/-0.43% 时三次 SELL (51%/55%/57%)
+                # 全被 0.60 门禁拦截, 直到 AI 原始 78% 才放行, 吃满 -0.42%
+                # 阴跌。放宽只作用于"离场", 重开仍受平仓冷却约束 (不引入
+                # 2026-10-08 修复过的 churn)。
+                upl = self._position_upl_percent(current_price)
+                if (
+                    min_close > 0
+                    and upl is not None
+                    and upl < 0
+                    and self.config.trading.close_relief_amount > 0
+                ):
+                    relaxed_close = max(
+                        self.config.trading.close_relief_floor,
+                        min_close - self.config.trading.close_relief_amount,
+                    )
+                    if relaxed_close < min_close:
+                        logger.info(
+                            "[机会审计] 浮亏 %.2f%% < 0 → 平仓门禁下移 "
+                            "%.2f → %.2f (P0-A 亏损态放宽, 仓位离场加速)",
+                            upl * 100,
+                            min_close,
+                            relaxed_close,
+                        )
+                        min_close = relaxed_close
                 if min_close > 0 and final_confidence < min_close:
                     logger.info(
                         "[信号执行] %s信号 + %s持仓 + 置信度 %.2f < 平仓门禁 %.2f "
@@ -728,9 +777,23 @@ class TradingBot:
                     return ExecutionResult(
                         "blocked_cooldown", f"cooldown_minutes={cooldown}"
                     )
-                logger.info("[信号执行] BUY信号 + 无持仓 -> 执行开仓")
+                # 2026-11-24 (P1-C): oversold_rebound 翻转是逆势抄底入场
+                # → 半仓 (与超卖抄底独立通道同口径), 降低单笔逆势风险。
+                # 回放 11-24 13:43: 0.03 张全仓抄底, -0.42% 即账户 -1.3%。
+                open_size_factor = 1.0
+                if buy_mode == "oversold_rebound":
+                    open_size_factor = (
+                        self.config.trading.oversold_buy_position_factor
+                    )
+                logger.info(
+                    "[信号执行] BUY信号 + 无持仓 -> 执行开仓 "
+                    "(模式=%s, 仓位系数=%.2f)",
+                    buy_mode or "none",
+                    open_size_factor,
+                )
                 opened = await self._open_position(
                     current_price,
+                    size_factor=open_size_factor,
                     atr_percent=(
                         atr_percent if atr_percent and atr_percent > 0 else None
                     ),

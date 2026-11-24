@@ -25,6 +25,7 @@ from alpha_trading_bot.config.thresholds import (
     ADAPTIVE_BUY_STRONG_MODE_MAX_HOLD_CONFIDENCE,
     EXTREME_OVERSOLD_RSI_MAX,
     SIGNAL_DISCOUNT_FLOOR,
+    TECHNICAL_FLIP_CONFIDENCE_CAP,
 )
 
 from .adaptive_buy_condition import (
@@ -221,6 +222,13 @@ class AISignalIntegrator:
         # 后续 R/R 过滤 / 信号优化 / 高位过滤的累计折扣不得低于
         # SIGNAL_DISCOUNT_FLOOR 乘数 (防止门禁数学性不可达, 见 thresholds.py)。
         adaptive_flip_conf: Optional[float] = None
+
+        # 2026-11-24 (P1-C): 技术翻转标记 (自适应买入 HOLD→BUY / 强下跌 HOLD→SHORT)。
+        # 翻转产生的 BUY/SHORT 最终置信度封顶 TECHNICAL_FLIP_CONFIDENCE_CAP:
+        # 规则加成 (如 high_price_buy_optimizer "+15% 严重超卖") 不应把技术
+        # 翻转信号制造成高置信度。回放 11-24 13:43: AI HOLD 55% + 规则加成
+        # → 61.8% 过放宽门禁 → 60685 抄底, 25 分钟 -0.42% (账户 -1.3%)。
+        technically_flipped = False
 
         # 2026-11-24 (P0-3): 极端超卖标记 (RSI(1h) ≤ EXTREME_OVERSOLD_RSI_MAX)。
         # 提升到 process() 顶部: AdaptiveBuy 段 (翻转守卫豁免) 与 1.5 R/R 过滤段
@@ -443,6 +451,7 @@ class AISignalIntegrator:
                         f"RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
                     )
                     original_signal = "SHORT"
+                    technically_flipped = True
                     # 设置置信度
                     if is_sustained_decline and has_significant_drop:
                         original_confidence = (
@@ -492,6 +501,7 @@ class AISignalIntegrator:
                         f"价格位置{price_position * 100:.0f}%, RSI={rsi:.1f}, 持续下跌={is_sustained_decline}"
                     )
                     original_signal = "SHORT"
+                    technically_flipped = True
                     original_confidence = self._t().confidence_sustained
                     result.adjustments_made.append(f"信号转换: HOLD→SHORT (强下跌趋势)")
                     conf_history.append(
@@ -597,8 +607,13 @@ class AISignalIntegrator:
                                 original_confidence, buy_result.confidence
                             )
 
+                        # 2026-11-24 (P1-C): 仅记录"真实翻转" (HOLD/SELL→BUY);
+                        # AI 原生 BUY 不标记 (不受翻转置信度封顶约束)
+                        flipped_from = original_signal
                         original_signal = "BUY"
                         adaptive_flip_conf = original_confidence
+                        if flipped_from != "BUY":
+                            technically_flipped = True
                         result.adjustments_made.append(
                             f"自适应买入: {buy_result.mode}模式通过"
                         )
@@ -611,6 +626,9 @@ class AISignalIntegrator:
                         )
 
                 result.price_level = buy_result.mode
+                # 2026-11-24 (P1-C): 暴露自适应买入模式供执行层使用
+                # (oversold_rebound 翻转开仓用半仓, 与超卖抄底通道同口径)
+                market_data["adaptive_buy_mode"] = buy_result.mode
                 conf_history.append((1, "AdaptiveBuy", original_confidence))
 
             except Exception as e:
@@ -659,14 +677,38 @@ class AISignalIntegrator:
                 )
                 market_data["short_risk_reward_ratio"] = short_rr_result.rr_ratio
 
+                # 2026-11-24 (P0-B): 无条件计算 ATR 口径做多 R/R 并暴露给执行层。
+                # 动态开仓门禁放宽改用本口径, 而非结构 R/R——底部区价格贴近支撑
+                # 时分母极小, 结构 R/R 是几何伪影 (回放 11-24 13:43 R/R=4.03 /
+                # 13:30 R/R=81.38 均放行错误抄底; 同周期 ATR 口径仅 1.27)。
+                rr_result = None
+                if (
+                    structure_result.nearest_support > 0
+                    and structure_result.nearest_resistance > 0
+                ):
+                    try:
+                        rr_result = self.risk_reward_calculator.calculate_for_long(
+                            current_price=current_price,
+                            support=structure_result.nearest_support,
+                            resistance=structure_result.nearest_resistance,
+                            atr_percent=atr_percent,
+                        )
+                        market_data["long_risk_reward_ratio"] = (
+                            rr_result.rr_ratio
+                        )
+                    except Exception as e:
+                        logger.warning(f"做多R/R计算失败: {e}")
+
                 # 风险收益比过滤 - 只对BUY信号生效
                 if original_signal == "BUY" and structure_result.risk_reward_ratio > 0:
-                    rr_result = self.risk_reward_calculator.calculate_for_long(
-                        current_price=current_price,
-                        support=structure_result.nearest_support,
-                        resistance=structure_result.nearest_resistance,
-                        atr_percent=atr_percent,
-                    )
+                    if rr_result is None:
+                        # 支撑/阻力无效时的兜底 (保持旧行为)
+                        rr_result = self.risk_reward_calculator.calculate_for_long(
+                            current_price=current_price,
+                            support=structure_result.nearest_support,
+                            resistance=structure_result.nearest_resistance,
+                            atr_percent=atr_percent,
+                        )
                     result.risk_reward_result = rr_result
 
                     if not rr_result.should_trade:
@@ -962,6 +1004,24 @@ class AISignalIntegrator:
                 f"{original_confidence:.1%}→{floored_conf:.1%}"
             )
             original_confidence = floored_conf
+
+        # 2026-11-24 (P1-C): 技术翻转置信度封顶。
+        # 技术翻转 (非 AI 原生) 的 BUY/SHORT 最终置信度不得超过
+        # TECHNICAL_FLIP_CONFIDENCE_CAP; AI 原生信号不受限。
+        if (
+            technically_flipped
+            and original_signal in ("BUY", "SHORT")
+            and original_confidence > TECHNICAL_FLIP_CONFIDENCE_CAP
+        ):
+            capped = TECHNICAL_FLIP_CONFIDENCE_CAP
+            logger.info(
+                f"[信号集成] 技术翻转置信度封顶: {original_confidence:.1%} > "
+                f"{capped:.0%} → {capped:.0%} (规则加成不制造高置信)"
+            )
+            result.adjustments_made.append(
+                f"技术翻转置信度封顶: {original_confidence:.1%}→{capped:.1%}"
+            )
+            original_confidence = capped
 
         result.final_signal = original_signal
         result.final_confidence = min(

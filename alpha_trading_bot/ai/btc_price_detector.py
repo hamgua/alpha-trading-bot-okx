@@ -59,6 +59,12 @@ class BTCPriceLevelConfig:
     # 多重确认
     require_multi_confirmation: bool = True
 
+    # 滞回带（2026-11-24 / P1-D）: 进入 high/low 后, 需价格越过阈值
+    # price_range × 本值 才退出该水平, 消除阈值附近小幅波动造成的
+    # high/mid 逐周期振荡 (回放 11-24 13:30 high → 13:43 mid, ±30 USDT
+    # 摆动直接决定了 BUY 信号是否被 -70% 高位惩罚)。
+    hysteresis_band: float = 0.10
+
 
 @dataclass
 class PriceLevelResult:
@@ -96,6 +102,8 @@ class BTCPriceLevelDetector:
     def __init__(self, config: Optional[BTCPriceLevelConfig] = None):
         self.config = config or BTCPriceLevelConfig()
         self.price_history: list = []
+        # 2026-11-24 / P1-D: 上一周期水平 (滞回状态, 实例跨周期持久)
+        self._last_level: str = "mid"
 
         logger.info(
             f"[BTC价格检测器] 初始化: "
@@ -185,6 +193,30 @@ class BTCPriceLevelDetector:
             else:
                 level = "mid"
                 confidence = 0.5
+
+        # 2026-11-24 / P1-D: 滞回带——进入 high/low 用基础判定, 退出需
+        # 价格越过阈值 ± band (band = 24h 区间 × hysteresis_band)。
+        # 回放: 13:30 价格 60715 > 阈值 60711 → high (BUY 被 -70% 惩罚),
+        # 13:43 价格 60685 < 阈值 → mid (惩罚消失) → 同一市场状态,
+        # 30 USDT 摆动决定信号, 属噪声而非信号。
+        band = price_range * self.config.hysteresis_band
+        if self._last_level == "high":
+            if level != "high" and price >= high_threshold_price - band:
+                level = "high"
+                logger.info(
+                    f"[BTC价格检测] 滞回保持 high: 价格 ${price:,.0f} "
+                    f"仍在阈值 ${high_threshold_price:,.0f} - "
+                    f"band ${band:,.0f} 之上"
+                )
+        elif self._last_level == "low":
+            if level != "low" and price <= low_threshold_price + band:
+                level = "low"
+                logger.info(
+                    f"[BTC价格检测] 滞回保持 low: 价格 ${price:,.0f} "
+                    f"仍在阈值 ${low_threshold_price:,.0f} + "
+                    f"band ${band:,.0f} 之下"
+                )
+        self._last_level = level
 
         # 高风险/低机会判断
         is_high_risk = level == "high" and distance_to_high < 0.01  # 距离高点1%以内

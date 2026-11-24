@@ -168,6 +168,14 @@ class TradingConfig:
     gate_relief_rr_min: float = 2.0
     gate_relief_amount: float = 0.10
     gate_relief_floor: float = 0.50
+    # ---- 亏损态平仓门禁下移（2026-11-24 13:43-14:15 回放 / P0-A）----
+    # 持仓浮亏 (UPL < 0) 时, 平仓门禁下移 close_relief_amount
+    # (下限 close_relief_floor)。回放: 浮亏 -0.21%/-0.43% 时 AI 连续三次
+    # SELL (最终 51%/55%/57%) 全被 0.60 门禁拦截, 直到 AI 原始置信度 78%
+    # (最终 60.0%) 才放行, 吃满 -0.42% 阴跌 (账户 -1.3%)。放宽只作用于
+    # "离场": 重开仍受 post_close_cooldown 约束, 不引入 churn。
+    close_relief_amount: float = 0.10
+    close_relief_floor: float = 0.40
     # ---- 高潮做空独立通道（2026-11-24 日志回放 / P0-2）----
     # "Climax top 做空": 价格贴近 24h 高点 + 1h RSI 超买 + 做空 R/R ≥ 阈值
     # → 独立规则开空 (半仓, 每日 N 次), 与超卖抄底通道对称 (顶部捕获)。
@@ -283,6 +291,16 @@ class TradingConfig:
         if not 0 <= self.gate_relief_floor <= 1:
             errors.append(
                 f"gate_relief_floor ({self.gate_relief_floor}) "
+                "不在有效范围 [0-1]"
+            )
+        if not 0 <= self.close_relief_amount <= 0.5:
+            errors.append(
+                f"close_relief_amount ({self.close_relief_amount}) "
+                "不在有效范围 [0-0.5]"
+            )
+        if not 0 <= self.close_relief_floor <= 1:
+            errors.append(
+                f"close_relief_floor ({self.close_relief_floor}) "
                 "不在有效范围 [0-1]"
             )
         if not -0.5 <= self.oversold_buy_min_1h_change <= 0:
@@ -784,6 +802,8 @@ class Config:
                     os.getenv("GATE_RELIEF_AMOUNT", "0.10")
                 ),
                 gate_relief_floor=float(os.getenv("GATE_RELIEF_FLOOR", "0.50")),
+                close_relief_amount=float(os.getenv("CLOSE_RELIEF_AMOUNT", "0.10")),
+                close_relief_floor=float(os.getenv("CLOSE_RELIEF_FLOOR", "0.40")),
                 climax_short_enabled=os.getenv(
                     "CLIMAX_SHORT_ENABLED", "true"
                 ).lower()
