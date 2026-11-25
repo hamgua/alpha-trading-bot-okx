@@ -68,6 +68,8 @@ class TradingBot:
         # 2026-11-24 高潮做空独立通道: 每日触发计数 + 机会审计限频计数
         self._climax_short_counts: Dict[str, int] = {}
         self._climax_audit_counts: Dict[str, int] = {}
+        # 2026-11-25 趋势跟踪独立通道: 每日触发计数 (key=YYYY-MM-DD)
+        self._trend_follow_counts: Dict[str, int] = {}
         # 2026-11-24 机会审计: AI 连续零方向信号计数 (每周期 +1, 出方向信号清零)
         self._no_direction_streak = 0
 
@@ -192,6 +194,9 @@ class TradingBot:
                 amount=position.amount,
                 stop_price=stop_price,
             )
+            # 2026-11-25: 重建止损时幂等补设 initial_stop (旧状态无该字段 →
+            # 用重建价锁定 R 基准, 使追踪止损跨重启可用)
+            self.position_manager.set_initial_stop(stop_price)
             self.position_manager.set_stop_order(stop_order_id)
             logger.info(f"[止损恢复] 止损单重建成功: {stop_order_id}")
         except Exception as e:
@@ -467,6 +472,32 @@ class TradingBot:
                     )
                     execution_result = climax_result
 
+            # 5.8 趋势跟踪独立通道 (2026-11-25 / 模块 0, 顺势入场):
+            # AI 路径未开仓 (HOLD / 被门禁拦) 且趋势方向条件满足
+            # (SMA10/20 1h 方向 + 24h 涨跌幅 ±2% + RSI 排除) → 趋势方向半仓,
+            # 让利润奔跑由追踪止损承接 (见 StopLossManager trailing)。
+            if (
+                not self.position_manager.has_position()
+                and signal not in ("BUY", "SHORT")
+                and execution_result.action
+                in (
+                    "none",
+                    "blocked_low_confidence",
+                    "blocked_daily_limit",
+                    "blocked_cooldown",
+                    "blocked_drawdown",
+                    "blocked_short_disabled",
+                )
+            ):
+                trend_result = await self._maybe_trend_follow(
+                    market_data, current_price
+                )
+                if trend_result is not None:
+                    logger.info(
+                        "[趋势跟踪] 独立通道开仓成功 (AI信号=%s 路径未开仓)" % signal
+                    )
+                    execution_result = trend_result
+
             # 5.7 P1 机会审计: AI 连续零方向信号 (单AI恒 HOLD 时量化漏单)
             if signal is None or str(signal).upper() == "HOLD":
                 self._no_direction_streak += 1
@@ -474,7 +505,7 @@ class TradingBot:
                     logger.warning(
                         "[机会审计] AI 已连续 %d 个周期 (~%.1f小时) 无方向信号 "
                         "(buy/sell/short), 全部 HOLD; 当前仅独立通道 "
-                        "(超卖抄底/高潮做空) 可开仓。请检查 prompt 置信度校准 "
+                        "(超卖抄底/高潮做空/趋势跟踪) 可开仓。请检查 prompt 置信度校准 "
                         "或 MIN_CONFIDENCE_OPEN/阈值配置",
                         self._no_direction_streak,
                         self._no_direction_streak
@@ -573,8 +604,7 @@ class TradingBot:
             relaxed = max(cfg.gate_relief_floor, base - cfg.gate_relief_amount)
             if relaxed < base:
                 logger.info(
-                    "[机会审计] 方向一致 R/R=%.2f ≥ %.1f → 开仓门禁放宽 "
-                    "%.2f → %.2f",
+                    "[机会审计] 方向一致 R/R=%.2f ≥ %.1f → 开仓门禁放宽 " "%.2f → %.2f",
                     aligned_rr,
                     cfg.gate_relief_rr_min,
                     base,
@@ -632,9 +662,7 @@ class TradingBot:
 
         # 2026-11-24: 持仓方向感知 (prompt 持仓语义):
         #   多仓: SELL/SHORT=平多, BUY=继续持有; 空仓: BUY=平空, SELL/SHORT=继续持有
-        position_side = (
-            self.position_manager.position_side if has_position else "none"
-        )
+        position_side = self.position_manager.position_side if has_position else "none"
 
         # 执行层置信度门禁（2026-10-08 手续费出血修复 / P0-1；
         # 2026-11-24 P0-3: 开仓侧 R/R 感知动态放宽）：
@@ -782,9 +810,7 @@ class TradingBot:
                 # 回放 11-24 13:43: 0.03 张全仓抄底, -0.42% 即账户 -1.3%。
                 open_size_factor = 1.0
                 if buy_mode == "oversold_rebound":
-                    open_size_factor = (
-                        self.config.trading.oversold_buy_position_factor
-                    )
+                    open_size_factor = self.config.trading.oversold_buy_position_factor
                 logger.info(
                     "[信号执行] BUY信号 + 无持仓 -> 执行开仓 "
                     "(模式=%s, 仓位系数=%.2f)",
@@ -810,13 +836,13 @@ class TradingBot:
                 await self._close_position(current_price)
                 return ExecutionResult("close", f"price={current_price},side=short")
             logger.info("[信号执行] BUY信号 + 多仓 -> 更新止损")
-            await self._update_stop_loss(current_price)
+            await self._update_stop_loss(current_price, atr_percent=atr_percent)
             return ExecutionResult("update_stop")
 
         if signal == "HOLD":
             if has_position:
                 logger.info("[信号执行] HOLD信号 + 有持仓 -> 更新止损")
-                await self._update_stop_loss(current_price)
+                await self._update_stop_loss(current_price, atr_percent=atr_percent)
                 return ExecutionResult("update_stop")
             logger.info("[信号执行] HOLD信号 + 无持仓 -> 不操作")
             logger.info(
@@ -831,7 +857,7 @@ class TradingBot:
                 if position_side == "short":
                     # prompt 语义: 持有空仓 + SELL = 同向继续持有
                     logger.info("[信号执行] SELL信号 + 空仓 -> 同向持有 (更新止损)")
-                    await self._update_stop_loss(current_price)
+                    await self._update_stop_loss(current_price, atr_percent=atr_percent)
                     return ExecutionResult("update_stop")
                 logger.info("[信号执行] SELL信号 + 多仓 -> 执行平仓")
                 await self._close_position(current_price)
@@ -844,7 +870,7 @@ class TradingBot:
                 if position_side == "short":
                     # prompt 语义: 持有空仓 + SHORT = 同向继续持有
                     logger.info("[信号执行] SHORT信号 + 空仓 -> 同向持有 (更新止损)")
-                    await self._update_stop_loss(current_price)
+                    await self._update_stop_loss(current_price, atr_percent=atr_percent)
                     return ExecutionResult("update_stop")
                 # 多仓 + SHORT = 平多 (prompt 语义: SELL/SHORT 表示平多)
                 logger.info("[信号执行] SHORT信号 + 多仓 -> 执行平多")
@@ -879,10 +905,7 @@ class TradingBot:
                         f"daily_opens={self._daily_open_counts.get(today, 0)}"
                         f">=limit={daily_limit}",
                     )
-            if (
-                self._drawdown_status is not None
-                and self._drawdown_status.halted
-            ):
+            if self._drawdown_status is not None and self._drawdown_status.halted:
                 logger.warning(
                     "[信号执行] SHORT信号 + 无持仓 + 回撤总闸生效 -> 禁止新开空"
                     "（回撤 %.1f%%）",
@@ -901,14 +924,14 @@ class TradingBot:
                     "-> 禁止新开空 (P0-2 冷却)",
                     cooldown,
                 )
-                return ExecutionResult("blocked_cooldown", f"cooldown_minutes={cooldown}")
+                return ExecutionResult(
+                    "blocked_cooldown", f"cooldown_minutes={cooldown}"
+                )
             logger.info("[信号执行] SHORT信号 + 无持仓 -> 执行开空")
             opened = await self._open_position(
                 current_price,
                 side="short",
-                atr_percent=(
-                    atr_percent if atr_percent and atr_percent > 0 else None
-                ),
+                atr_percent=(atr_percent if atr_percent and atr_percent > 0 else None),
             )
             if opened:
                 today = datetime.now().strftime("%Y-%m-%d")
@@ -1162,11 +1185,13 @@ class TradingBot:
             logger.info("[高潮做空] 市场结构/支撑阻力不可用 → 跳过")
             return None
         try:
-            short_rr_result = self._ai_client.integrator.risk_reward_calculator.calculate_for_short(
-                current_price=current_price,
-                support=support,
-                resistance=resistance,
-                atr_percent=atr_percent,
+            short_rr_result = (
+                self._ai_client.integrator.risk_reward_calculator.calculate_for_short(
+                    current_price=current_price,
+                    support=support,
+                    resistance=resistance,
+                    atr_percent=atr_percent,
+                )
             )
         except Exception as e:
             logger.warning("[高潮做空] 做空R/R计算失败 (跳过本周期): %s", e)
@@ -1215,6 +1240,7 @@ class TradingBot:
                 f"rsi={rsi:.1f}",
             )
         return None
+
     async def _apply_risk_backcheck(
         self,
         price: float,
@@ -1281,6 +1307,166 @@ class TradingBot:
             shrunk,
         )
         return shrunk
+
+    async def _maybe_trend_follow(
+        self, market_data: Dict[str, Any], current_price: float
+    ) -> Optional[ExecutionResult]:
+        """趋势跟踪独立通道 (2026-11-25 / 模块 0, 顺势入场)。
+
+        触发 (多空对称, 口径与回放工具 trend_replay.trigger_at 一致):
+        - 空: trend_direction=="down" (SMA10/20 1h) 且 24h 涨跌幅 ≤ -change_pct
+          且 RSI(1h) ≥ short_rsi_floor (防末端追空)
+        - 多: trend_direction=="up" 且 24h 涨跌幅 ≥ +change_pct
+          且 RSI(1h) ≤ long_rsi_ceil (防末端追多)
+        止损: 24h 摆动点 ∓ 0.5×ATR(1h), 距离上限 2.5%; 10R 安全止盈。
+        让利润奔跑由追踪止损承接 (StopLossManager trailing, Task 4)。
+        回放依据: 11-13→11-25 真实数据 7 笔 +6.34R (修正后基线)。
+        绕过 AI 置信度门禁, 独立规则 (与高潮做空/超卖抄底通道同模式)。
+        """
+        cfg = self.config.trading
+        if not cfg.trend_follow_enabled:
+            return None
+        if not current_price or current_price <= 0:
+            return None
+        # 无持仓 (调用点已守卫, 此处防御性再查)
+        if self.position_manager.has_position():
+            return None
+
+        technical = market_data.get("technical") or {}
+        trend_direction = technical.get("trend_direction", "neutral")
+        rsi = float(technical.get("rsi", 50.0) or 50.0)
+        atr_percent = float(technical.get("atr_percent", 0.0) or 0.0)
+        change_percent = float(market_data.get("change_percent", 0.0) or 0.0)
+
+        if trend_direction == "down" and (
+            change_percent <= -cfg.trend_follow_change_pct
+        ):
+            if rsi < cfg.trend_follow_short_rsi_floor:
+                logger.info(
+                    "[趋势跟踪] 跳过(RSI(1h)=%.1f < %.0f 末端禁空) "
+                    "trend=%s 24h涨跌=%.2f%%",
+                    rsi,
+                    cfg.trend_follow_short_rsi_floor,
+                    trend_direction,
+                    change_percent,
+                )
+                return None
+            side = "short"
+        elif trend_direction == "up" and (
+            change_percent >= cfg.trend_follow_change_pct
+        ):
+            if rsi > cfg.trend_follow_long_rsi_ceil:
+                logger.info(
+                    "[趋势跟踪] 跳过(RSI(1h)=%.1f > %.0f 末端禁多) "
+                    "trend=%s 24h涨跌=%.2f%%",
+                    rsi,
+                    cfg.trend_follow_long_rsi_ceil,
+                    trend_direction,
+                    change_percent,
+                )
+                return None
+            side = "long"
+        else:
+            return None
+
+        # 空侧需要做空能力
+        if side == "short" and not cfg.allow_short_selling:
+            logger.info(
+                "[趋势跟踪] 跳过(空头条件满足但做空未启用 ALLOW_SHORT_SELLING=false)"
+            )
+            return None
+
+        high_history = market_data.get("high_history") or []
+        low_history = market_data.get("low_history") or []
+        if len(high_history) < 24 or len(low_history) < 24:
+            logger.info(
+                "[趋势跟踪] 跳过(1h 高低点数据不足: %d/%d < 24)",
+                len(high_history),
+                len(low_history),
+            )
+            return None
+
+        # ---- 既有门禁 (顺序与 BUY/SHORT 分支一致) ----
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self._drawdown_status is not None and self._drawdown_status.halted:
+            logger.info(
+                "[趋势跟踪] 技术条件满足(%s) 但回撤总闸生效中 → 跳过 (回撤 %.1f%%)",
+                side,
+                self._drawdown_status.drawdown * 100,
+            )
+            return None
+        cooldown = cfg.post_close_cooldown_minutes
+        if cooldown > 0 and self.position_manager.is_in_post_close_cooldown(cooldown):
+            logger.info("[趋势跟踪] 技术条件满足(%s) 但处于平仓后冷却期 → 跳过", side)
+            return None
+        daily_limit = cfg.daily_open_limit
+        if daily_limit > 0 and self._daily_open_counts.get(today, 0) >= daily_limit:
+            logger.info(
+                "[趋势跟踪] 技术条件满足(%s) 但当日开仓数已达上限(%d) → 跳过",
+                side,
+                daily_limit,
+            )
+            return None
+        if self._trend_follow_counts.get(today, 0) >= cfg.trend_follow_daily_limit:
+            logger.info(
+                "[趋势跟踪] 技术条件满足(%s) 但本通道今日已触发 %d 次 (上限 %d) → 跳过",
+                side,
+                self._trend_follow_counts.get(today, 0),
+                cfg.trend_follow_daily_limit,
+            )
+            return None
+
+        # ---- 止损价: 24h 摆动点 ∓ 0.5×ATR(1h), 距离上限 max_stop_pct ----
+        # atr_percent 为 0~1 比率 (见 utils/technical/volatility.py), 直接乘价格得 ATR 绝对值
+        atr_abs = atr_percent * current_price if atr_percent > 0 else 0.0
+        if side == "short":
+            swing = max(high_history[-24:])
+            stop = min(
+                swing + cfg.trend_follow_stop_atr_buffer * atr_abs,
+                current_price * (1 + cfg.trend_follow_max_stop_pct),
+            )
+            if stop <= current_price:  # 摆动点已低于入场 → 取上限距离
+                stop = current_price * (1 + cfg.trend_follow_max_stop_pct)
+            tp = current_price - cfg.trend_follow_safety_tp_r * (stop - current_price)
+        else:
+            swing = min(low_history[-24:])
+            stop = max(
+                swing - cfg.trend_follow_stop_atr_buffer * atr_abs,
+                current_price * (1 - cfg.trend_follow_max_stop_pct),
+            )
+            if stop >= current_price:  # 摆动点已高于入场 → 取上限距离
+                stop = current_price * (1 - cfg.trend_follow_max_stop_pct)
+            tp = current_price + cfg.trend_follow_safety_tp_r * (current_price - stop)
+
+        logger.warning(
+            "[趋势跟踪] 独立通道触发: %s 入场=%.1f trend=%s 24h涨跌=%.2f%% "
+            "RSI(1h)=%.1f 止损=%.2f 安全止盈=%.2f (半仓)",
+            side,
+            current_price,
+            trend_direction,
+            change_percent,
+            rsi,
+            stop,
+            tp,
+        )
+        opened = await self._open_position(
+            current_price,
+            size_factor=cfg.trend_follow_position_factor,
+            side=side,
+            atr_percent=atr_percent if atr_percent > 0 else None,
+            stop_price_override=stop,
+            tp_price_override=tp,
+        )
+        if opened:
+            self._trend_follow_counts[today] = (
+                self._trend_follow_counts.get(today, 0) + 1
+            )
+            self._daily_open_counts[today] = self._daily_open_counts.get(today, 0) + 1
+            return ExecutionResult(
+                "open_trend_follow",
+                f"price={current_price},side={side},stop={stop:.2f},tp={tp:.2f}",
+            )
+        return None
 
     def _calculate_take_profit_price(
         self,
@@ -1399,7 +1585,8 @@ class TradingBot:
                 self.config.stop_loss.stop_loss_percent, atr_clamped
             )
         amount = await self._apply_risk_backcheck(
-            price, amount,
+            price,
+            amount,
             est_stop_distance if est_stop_distance and est_stop_distance > 0 else None,
         )
 
@@ -1495,6 +1682,9 @@ class TradingBot:
         )
 
         if stop_order_id:
+            # 2026-11-25: 锁定初始止损价 (追踪止损 R 基准, 幂等; 须在
+            # set_stop_order 持久化前写入, 随同一次 save_position 落盘)
+            self.position_manager.set_initial_stop(stop_price)
             self.position_manager.set_stop_order(stop_order_id, stop_price)
             logger.info(
                 f"[开仓] 开仓完成 - 价格:{price}, 数量:{amount}张, "
@@ -1508,7 +1698,8 @@ class TradingBot:
                 tp_price = tp_price_override
             else:
                 tp_price = self._calculate_take_profit_price(
-                    price, amount,
+                    price,
+                    amount,
                     stop_distance=(
                         actual_stop_distance if actual_stop_distance > 0 else None
                     ),
@@ -1576,11 +1767,19 @@ class TradingBot:
             return None
         return await self._stop_loss_manager.get_existing_stop_order_id()
 
-    async def _update_stop_loss(self, current_price: float) -> None:
-        """更新止损订单（委托给StopLossManager）"""
+    async def _update_stop_loss(
+        self, current_price: float, atr_percent: float = 0.0
+    ) -> None:
+        """更新止损订单（委托给StopLossManager）
+
+        atr_percent: 0~1 比率的 ATR(1h), 供追踪止损的 2R 追踪段使用
+        (0 → 追踪段关闭, 保本段仍可用; 旧调用不传零回归)。
+        """
         if self._stop_loss_manager is None:
             return
-        await self._stop_loss_manager.update_stop_loss(current_price)
+        await self._stop_loss_manager.update_stop_loss(
+            current_price, atr_percent=atr_percent
+        )
 
     async def _create_stop_loss_with_retry(
         self,

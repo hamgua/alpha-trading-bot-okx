@@ -67,6 +67,9 @@ class PositionState:
     last_take_profit_price: float = 0.0  # 上次设置的止盈价
     highest_price_since_entry: float = 0.0  # 做多时追踪的最高价
     lowest_price_since_entry: float = 0.0  # 做空时追踪的最低价
+    initial_stop_price: float = (
+        0.0  # 开仓时锁定的初始止损价 (追踪止损 R 基准, 2026-11-25)
+    )
     updated_at: str = ""
 
 
@@ -137,6 +140,7 @@ class StatePersistence:
         last_take_profit_price: float = 0.0,
         highest_price_since_entry: float = 0.0,
         lowest_price_since_entry: float = 0.0,
+        initial_stop_price: float = 0.0,
     ) -> bool:
         """
         保存持仓状态
@@ -150,6 +154,7 @@ class StatePersistence:
             unrealized_pnl: 未实现盈亏
             highest_price_since_entry: 做多时追踪的最高价
             lowest_price_since_entry: 做空时追踪的最低价
+            initial_stop_price: 开仓时锁定的初始止损价 (追踪止损 R 基准)
 
         Returns:
             是否保存成功
@@ -171,6 +176,7 @@ class StatePersistence:
                 last_take_profit_price=last_take_profit_price,
                 highest_price_since_entry=highest_price_since_entry,
                 lowest_price_since_entry=lowest_price_since_entry,
+                initial_stop_price=initial_stop_price,
                 updated_at=datetime.now().isoformat(),
             )
             state.last_trade_time = datetime.now().isoformat()
@@ -293,6 +299,7 @@ class StatePersistence:
                         lowest_price_since_entry=pos_data.get(
                             "lowest_price_since_entry", 0.0
                         ),
+                        initial_stop_price=pos_data.get("initial_stop_price", 0.0),
                         updated_at=pos_data.get("updated_at", ""),
                     )
 

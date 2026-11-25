@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 让 bot 在锯齿单边趋势中通过独立的趋势跟踪通道开仓（多空对称、半仓、ATR 止损、追踪止盈），并用 HTF 门槛抑制逆势方向建议；12 天回放基线 +10.34R（9 笔，胜率 5/9）。
+**Goal:** 让 bot 在锯齿单边趋势中通过独立的趋势跟踪通道开仓（多空对称、半仓、ATR 止损、追踪止盈），并用 HTF 门槛抑制逆势方向建议；12 天回放基线 +6.34R（7 笔，胜率 4/7，修正后诚实基线见 spec 模块 0 修正记录）。
 
 **Architecture:** 在既有"AI 路径 + 独立通道"架构上再加一个独立通道（与超卖抄底/高潮做空同模式，挂 5.8 hook），触发器只用生产已计算的 `technical.trend_direction`（SMA10/20 1h）+ 24h 涨跌幅 + RSI 排除；出场侧给 `PositionManager` 加 R 基准的追踪止损（1R 保本、2R 起 3×ATR 追踪、只收紧），并入既有 `update_stop_loss` 更新路径；`market_data` 补 1h 高低点数组供摆动止损计算；`market_structure` 的 direction 建议加 4h/24h 一致性门槛，AI prompt 加一行趋势上下文。回放脚本产品化作为回归基线。
 
@@ -107,8 +107,9 @@ Expected: PASS
 - [ ] **Step 6: 实盘数据冒烟**
 
 Run: `python scripts/replay_trend_channel.py --fetch --days 14`
-Expected: 打印交易表，总 PnL 与 spec 模块 0 表格量级一致（10.34R 附近，
-数据窗口不同会有出入，方向与笔数量级必须一致；差异 >50% 时停止并报告）
+Expected: 打印交易表（数据窗口 11-13 04:00 起时与 spec 模块 0 修正后基线一致：
+7 笔 +6.34R，首笔 11-14 05:00 空 @68,888，末笔 11-24 17:00 空 @60,223 open@eod +1.06R；
+窗口不同会有出入，量级必须一致；差异 >50% 时停止并报告）
 
 - [ ] **Step 7: Commit**
 
@@ -184,7 +185,7 @@ git commit -m "feat(market_data): 暴露 1h high_history/low_history (趋势通�
    多侧: `trend_direction == "up"` 且 `change_percent >= +change_pct` 且 `rsi <= long_rsi_ceil`
 4. `high_history/low_history` 长度 ≥ 24（否则跳过）
 5. 回撤总闸 `halted` / 平仓冷却 / 共享 `daily_open_limit` / 本通道 `_trend_follow_counts[today] >= trend_follow_daily_limit`
-6. 止损价: 空 `stop = min(max(high_history[-24:]) + stop_atr_buffer*atr_abs, entry*(1+max_stop_pct))`（atr_abs = atr_percent/100*entry；stop<=entry 时取 entry*(1+max_stop_pct)）；多镜像
+6. 止损价: 空 `stop = min(max(high_history[-24:]) + stop_atr_buffer*atr_abs, entry*(1+max_stop_pct))`（atr_abs = atr_percent*entry, atr_percent 为 0~1 比率；stop<=entry 时取 entry*(1+max_stop_pct)）；多镜像
 7. `tp = entry - safety_tp_r*(stop-entry)`（空）/ `entry + safety_tp_r*(entry-stop)`（多）
 8. `await self._open_position(current_price, size_factor=trend_follow_position_factor, side=..., atr_percent=..., stop_price_override=stop, tp_price_override=tp)`；成功才计数
 

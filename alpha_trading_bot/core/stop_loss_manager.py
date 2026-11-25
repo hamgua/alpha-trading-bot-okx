@@ -10,6 +10,8 @@
 import logging
 from typing import Any, Optional
 
+from .adaptive_stop_loss import AdaptiveStopLossManager
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,11 +73,18 @@ class StopLossManager:
         logger.debug("[止损查询] 未找到现有止损单")
         return None
 
-    async def update_stop_loss(self, current_price: float) -> None:
+    async def update_stop_loss(
+        self, current_price: float, atr_percent: float = 0.0
+    ) -> None:
         """更新止损订单（带容错判断，避免频繁更新，支持做多/做空）
 
         智能止损模式下，新增"当前价与建仓价容错"判断：
         当做多持仓时，如果当前价与建仓价差值 < 0.1%，则不更新止损订单。
+
+        2026-11-25 追踪止损 (模块 1): 计算候选后与统一止损取更紧者;
+        trailing 生效时强制更新 (不进容错比较) —— 保本/上移若被容错吞掉,
+        仓位利润会回吐到 0R 附近。atr_percent 为 0~1 比率 (0 → 追踪段关闭,
+        保本段仍可用); 旧调用不传该参数零回归。
         """
         if not self._position_manager.has_position():
             return
@@ -84,6 +93,10 @@ class StopLossManager:
         if position is None:
             logger.error("[止损更新] 数据不一致: has_position=True 但 position 为 None")
             return
+
+        # 价格追踪 (最高/最低价) —— 追踪止损的极值来源; 幂等 (max/min),
+        # 与 adaptive_bot 的直接调用同语义, 补上 standard bot 从不更新极值的缺口
+        self._position_manager.update_price_tracking(current_price, position.side)
 
         local_stop_order_id = self._position_manager.stop_order_id
         exchange_stop_order_id = await self.get_existing_stop_order_id()
@@ -106,9 +119,7 @@ class StopLossManager:
                 self._config.stop_loss.price_vs_entry_tolerance_percent
             )
             if entry_price > 0:
-                price_vs_entry_percent = (
-                    current_price - entry_price
-                ) / entry_price
+                price_vs_entry_percent = (current_price - entry_price) / entry_price
                 # 当前价与建仓价差值的绝对值 < 容错值(0.1%)，不更新止损
                 if abs(price_vs_entry_percent) < price_vs_entry_tolerance:
                     logger.info(
@@ -121,6 +132,45 @@ class StopLossManager:
         # 使用统一止损计算入口，自动判断做多/做空（M2修复：统一参数来源）
         new_stop = self._position_manager.calculate_stop_price_unified(current_price)
         self._position_manager.log_stop_loss_info(current_price, new_stop)
+
+        # ---- 2026-11-25 追踪止损合并 (模块 1): 只收紧不放松 ----
+        # trailing 候选由 PositionManager 按"比当前止损更紧才返回"过滤;
+        # 非 None 时取两者更紧者 (多=max, 空=min) 并强制更新 (绕过容错窗口)。
+        trailing_stop = self._position_manager.calculate_trailing_stop(
+            current_price, atr_percent
+        )
+        trailing_active = trailing_stop is not None
+        if trailing_stop is not None and new_stop > 0:
+            if position.side == "long":
+                merged_stop = max(new_stop, trailing_stop)
+            else:
+                merged_stop = min(new_stop, trailing_stop)
+            if merged_stop != new_stop:
+                logger.info(
+                    f"[追踪止损] 追踪候选={trailing_stop:.2f} 比统一止损 {new_stop:.2f} "
+                    f"更紧 → 采用追踪价 (方向={position.side})"
+                )
+            new_stop = merged_stop
+
+        # ---- 方向安全钳位 (OKX 51280/51278 防护, 复用 AdaptiveStopLossManager) ----
+        # 做多止损必须 < 当前价, 做空止损必须 > 当前价 (追踪候选用 2R 后极值,
+        # 极值更新滞后/ATR=0 边界时可能落在错误一侧)
+        safe_stop = AdaptiveStopLossManager._calc_safe_stop_price(
+            current_price, position.side
+        )
+        if safe_stop is not None and new_stop > 0:
+            if position.side == "long" and new_stop >= current_price:
+                logger.warning(
+                    f"[追踪止损] 做多止损 {new_stop:.2f} ≥ 当前价 {current_price:.2f} "
+                    f"(方向错误侧) → 钳位到 {safe_stop:.2f}"
+                )
+                new_stop = safe_stop
+            elif position.side == "short" and new_stop <= current_price:
+                logger.warning(
+                    f"[追踪止损] 做空止损 {new_stop:.2f} ≤ 当前价 {current_price:.2f} "
+                    f"(方向错误侧) → 钳位到 {safe_stop:.2f}"
+                )
+                new_stop = safe_stop
 
         # 根据持仓方向动态决定止损方向（M4修复：做多→sell，做空→buy）
         stop_side = "sell" if position.side == "long" else "buy"
@@ -147,6 +197,8 @@ class StopLossManager:
             force_update = True
         else:
             force_update = False
+        # 追踪止损生效 → 强制更新 (保本/上移不得被容错窗口吞掉)
+        force_update = force_update or trailing_active
 
         price_diff_percent = abs(new_stop - old_stop) / old_stop if old_stop > 0 else 1
 

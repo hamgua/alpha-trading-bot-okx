@@ -111,6 +111,7 @@ class MarketStructureAnalyzer:
         price_history: List[float],
         current_price: float,
         atr_percent: float = 0.0,
+        change_percent: float = 0.0,
     ) -> MarketStructureResult:
         """
         分析市场结构
@@ -119,6 +120,9 @@ class MarketStructureAnalyzer:
             price_history: 历史价格列表（从最近到最远）
             current_price: 当前价格
             atr_percent: ATR百分比（用于动态调整参数）
+            change_percent: 24h 涨跌幅 (%)，0=未传/未知 → 24h 一致性门槛不启用
+                (零回归保护)。2026-11-25: 防 11-24 13:43 型逆势抄底——
+                阴跌中 (24h -5%、HTF sideways) 1h 结构仍给 direction=long。
 
         Returns:
             MarketStructureResult: 市场结构分析结果
@@ -159,8 +163,13 @@ class MarketStructureAnalyzer:
         # 6. 生成交易建议
         suggested_direction, position_size_factor, htf_note = (
             self._generate_trading_advice(
-                structure, rr_ratio, is_breakout, is_breakdown, atr_percent,
+                structure,
+                rr_ratio,
+                is_breakout,
+                is_breakdown,
+                atr_percent,
                 htf_structure,
+                change_percent,
             )
         )
 
@@ -483,6 +492,7 @@ class MarketStructureAnalyzer:
         is_breakdown: bool,
         atr_percent: float,
         htf_structure: str = "unknown",
+        change_percent: float = 0.0,
     ) -> Tuple[str, float, str]:
         """
         生成交易建议
@@ -567,8 +577,29 @@ class MarketStructureAnalyzer:
                     f"[市场结构] 1h {structure} 与 4h {htf_structure} 冲突 → "
                     f"方向降级为 none (等待 HTF 共振)"
                 )
+                htf_note = f"1h={structure} 与 4h={htf_structure} 冲突, 方向已降级"
+                suggested_direction = "none"
+                position_size_factor = 0.0
+
+        # 2026-11-25 (24h/4h 一致性门槛): 方向建议需与 24h 趋势方向一致。
+        # 修复: 11-24 13:43 阴跌中 (24h -5%、HTF sideways, 非 bearish 不被
+        # P1-4 冲突守卫拦) 1h 结构仍给 direction=long → 逆势抄底亏损。
+        # long 需 24h 未深跌 (change_percent > -3.0), short 需 24h 未深涨
+        # (< +3.0); change_percent == 0 (未传/未知) 不启用 (零回归,
+        # 4h 半由上方 P1-4 冲突守卫承担)。
+        if change_percent != 0 and suggested_direction != "none":
+            blocked = (suggested_direction == "long" and change_percent <= -3.0) or (
+                suggested_direction == "short" and change_percent >= 3.0
+            )
+            if blocked:
+                logger.info(
+                    f"[市场结构] {suggested_direction} 建议与 24h 趋势冲突 "
+                    f"(24h 涨跌 {change_percent:+.2f}%) → 方向降级为 none"
+                )
                 htf_note = (
-                    f"1h={structure} 与 4h={htf_structure} 冲突, 方向已降级"
+                    f"{htf_note + '; ' if htf_note else ''}"
+                    f"24h/4h 一致性门槛: 24h 涨跌 {change_percent:+.2f}% "
+                    f"与 {suggested_direction} 方向冲突, 方向已降级"
                 )
                 suggested_direction = "none"
                 position_size_factor = 0.0

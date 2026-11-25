@@ -249,6 +249,8 @@ class PromptBuilder:
             mkt_pos_factor=mkt_pos_factor,
             crash_bounce_guide=crash_bounce_guide,
             recent_15m_summary=market_data.get("recent_15m_summary"),
+            htf_structure=market_data.get("market_structure_htf", ""),
+            change_24h_pct=float(market_data.get("change_percent", 0.0) or 0.0),
         )
         # Jev 快车道初读：仅升级路径注入；None 时保持旧输出逐字节一致
         if jev_context:
@@ -293,6 +295,8 @@ class PromptBuilder:
         mkt_pos_factor: float = 0.0,
         crash_bounce_guide: str = "",
         recent_15m_summary: Optional[Dict[str, float]] = None,
+        htf_structure: str = "",
+        change_24h_pct: float = 0.0,
     ) -> str:
         """格式化Prompt - 差异化系统"""
         crash_warning = (
@@ -313,6 +317,16 @@ class PromptBuilder:
                 f"<15%贴近低点)\n"
                 f"- 近4h(15m粒度) 涨跌幅: {recent_15m_summary['change_4h_pct']:+.2f}% "
                 f"(急跌后贴底企稳/V型反转的早期信号)"
+            )
+
+        # 2026-11-25: 高级别(4h)结构 + 24h 涨跌幅——防 11-24 13:43 型
+        # 阴跌中逆势抄底; htf 缺失/unknown 时跳过该行 (零回归)
+        htf_line = ""
+        if htf_structure and htf_structure != "unknown":
+            htf_line = (
+                f"- 高级别结构(4h): {htf_structure} | 24h 涨跌幅: "
+                f"{change_24h_pct:+.2f}% "
+                f"(方向建议需与高级别趋势及24h方向一致, 逆势信号谨慎)"
             )
 
         # Deepseek 低位反弹模式提示
@@ -384,6 +398,7 @@ class PromptBuilder:
 - 趋势方向: {trend_dir}
 - 趋势强度: {trend_strength:.2f} （0-1，>0.2为有效趋势）
 {recent_15m_line}
+{htf_line}
 
 {crash_warning}
 {oversold_rebound}

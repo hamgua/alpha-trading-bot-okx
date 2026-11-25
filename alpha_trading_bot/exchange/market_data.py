@@ -182,6 +182,9 @@ class MarketDataService:
             "volume": ticker.get("baseVolume", 0),
             "change_percent": ticker.get("percentage", 0),
             "technical": technical_data,
+            # 趋势跟踪通道 24h 摆动止损用 (2026-11-25): 1h 高低点, 与 price_history 对齐
+            "high_history": highs,
+            "low_history": lows,
             "recent_drop_percent": recent_drop,
             "short_term_drop_percent": short_term_drop,
             "short_term_rise_percent": short_term_rise,

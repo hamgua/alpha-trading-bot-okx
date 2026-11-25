@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ..config.models import Config
 from .state_persistence import StatePersistence, create_state_persistence
@@ -51,6 +51,8 @@ class PositionManager:
         # 追踪持仓期间的最高价/最低价（真正的追踪止损）
         self._highest_price_since_entry: float = 0.0  # 做多时追踪最高价
         self._lowest_price_since_entry: float = 0.0  # 做空时追踪最低价
+        # 开仓时锁定的初始止损价 (2026-11-25 追踪止损 R 基准, 重启可恢复)
+        self._initial_stop_price: float = 0.0
         # 开仓时锁定的动态止损百分比（来自规则引擎），None=未锁定，使用全局默认
         self._entry_dynamic_stop_loss_percent: Optional[float] = None
 
@@ -84,6 +86,9 @@ class PositionManager:
                 self._lowest_price_since_entry = (
                     state.position.lowest_price_since_entry
                 )  # 恢复做空最低价
+                self._initial_stop_price = (
+                    state.position.initial_stop_price
+                )  # 恢复初始止损价
 
                 logger.info(
                     f"[持久化恢复] 已恢复持仓: {self._position.symbol} "
@@ -92,6 +97,7 @@ class PositionManager:
                     f"止盈单: {self._take_profit_order_id}, "
                     f"上次止盈价: {self._last_take_profit_price}, "
                     f"做多最高价: {self._highest_price_since_entry}, 做空最低价: {self._lowest_price_since_entry}"
+                    f", 初始止损价: {self._initial_stop_price}"
                 )
         except Exception as e:
             logger.warning(f"[持久化恢复] 恢复状态失败: {e}")
@@ -198,6 +204,108 @@ class PositionManager:
         """获取做空时追踪的最低价"""
         return self._lowest_price_since_entry
 
+    @property
+    def initial_stop_price(self) -> float:
+        """获取开仓时锁定的初始止损价 (追踪止损 R 基准, 未设置=0)"""
+        return self._initial_stop_price
+
+    def set_initial_stop(self, stop_price: float) -> None:
+        """锁定开仓初始止损价 (2026-11-25 追踪止损 R 基准)。
+
+        幂等: 已设置过 (>0) 则忽略——R = |entry - initial_stop| 必须在开仓时
+        锁定, 后续止损上移 (保本/追踪) 不改变 R 基准, 否则 R 会随止损漂移,
+        保本/激活阈值语义失真。开仓路径调用; 平仓时随 clear_position 清零。
+        """
+        if self._initial_stop_price > 0:
+            return
+        if stop_price <= 0:
+            return
+        self._initial_stop_price = float(stop_price)
+        logger.info(f"[追踪止损] 锁定初始止损价: {self._initial_stop_price}")
+        # 持久化 (重启后追踪口径可恢复)
+        if self._position:
+            self._persistence.save_position(
+                symbol=self._position.symbol,
+                side=self._position.side,
+                amount=self._position.amount,
+                entry_price=self._entry_price,
+                stop_order_id=self._stop_order_id,
+                last_stop_price=self._last_stop_price,
+                take_profit_order_id=self._take_profit_order_id,
+                last_take_profit_price=self._last_take_profit_price,
+                highest_price_since_entry=self._highest_price_since_entry,
+                lowest_price_since_entry=self._lowest_price_since_entry,
+                initial_stop_price=self._initial_stop_price,
+            )
+
+    def calculate_trailing_stop(
+        self, current_price: float, atr_percent: float = 0.0
+    ) -> Optional[float]:
+        """计算追踪止损候选价 (2026-11-25 / 模块 1, 只收紧不放松)。
+
+        语义 (多空对称, R = |entry - initial_stop|, 开仓时锁定):
+        - 浮盈 ≥ trailing_breakeven_at_r (1R): 候选保本价 entry×(1∓0.001)
+          (0.1% 缓冲防平价往返扫损)
+        - 浮盈 ≥ trailing_activate_at_r (2R): 候选 = 2R 后极值 ∓ trailing_atr_mult
+          × ATR(1h) (多: 最高价 - 3×ATR; 空: 最低价 + 3×ATR), 与保本候选取更紧者
+        - 只收紧: 多仓候选 ≤ last_stop_price (或无历史止损) 才返回; 空仓镜像。
+        - initial_stop_price ≤ 0 / R ≤ 0 / trailing_stop_enabled=False → None
+          (旧状态 JSON 无 initial_stop 时优雅降级, 不抛异常)。
+        atr_percent 为 0~1 比率 (与 technical 口径一致), 0 → 仅保本段可用。
+        """
+        cfg = self.config.trading
+        if not cfg.trailing_stop_enabled:
+            return None
+        if self._position is None or self._entry_price <= 0:
+            return None
+        if self._initial_stop_price <= 0 or current_price <= 0:
+            return None
+        entry = self._entry_price
+        risk = abs(entry - self._initial_stop_price)
+        if risk <= 0:
+            return None
+
+        # 浮盈 R 数 (多: 价涨为盈; 空: 价跌为盈)
+        if self._position.side == "long":
+            r_profit = (current_price - entry) / risk
+        elif self._position.side == "short":
+            r_profit = (entry - current_price) / risk
+        else:
+            return None
+
+        candidates: List[float] = []
+        if r_profit >= cfg.trailing_breakeven_at_r:
+            # 保本段: 入场价 ±0.1% 缓冲 (多在上方, 空在下方)
+            if self._position.side == "long":
+                candidates.append(entry * 1.001)
+            else:
+                candidates.append(entry * 0.999)
+        if r_profit >= cfg.trailing_activate_at_r:
+            # 追踪段: 2R 后极值 ∓ 3×ATR(1h); 极值未初始化时用当前价兜底
+            atr_abs = (
+                atr_percent * current_price if atr_percent and atr_percent > 0 else 0.0
+            )
+            if self._position.side == "long":
+                extreme = self._highest_price_since_entry or current_price
+                candidates.append(extreme - cfg.trailing_atr_mult * atr_abs)
+            else:
+                extreme = self._lowest_price_since_entry or current_price
+                candidates.append(extreme + cfg.trailing_atr_mult * atr_abs)
+        if not candidates:
+            return None
+
+        # 只收紧不放松: 多取更紧 (更高) 者且须高于当前止损; 空镜像 (更低)
+        last_stop = self._last_stop_price
+        if self._position.side == "long":
+            candidate = max(candidates)
+            if last_stop > 0 and candidate <= last_stop:
+                return None
+            return candidate
+        candidate = min(candidates)
+        if last_stop > 0 and candidate >= last_stop:
+            return None
+        return candidate
+
     def update_price_tracking(self, current_price: float, position_side: str) -> None:
         """更新价格追踪（追踪持仓期间的最高/最低价）"""
         if position_side == "long":
@@ -220,6 +328,8 @@ class PositionManager:
         """重置价格追踪（新开仓时调用）"""
         self._highest_price_since_entry = 0.0
         self._lowest_price_since_entry = 0.0
+        # 新仓重新锁定初始止损 (旧仓的 R 基准不得残留)
+        self._initial_stop_price = 0.0
 
     def has_position(self) -> bool:
         """是否有持仓"""
@@ -353,6 +463,7 @@ class PositionManager:
                 last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
+                initial_stop_price=self._initial_stop_price,
             )
 
             logger.info(
@@ -744,6 +855,7 @@ class PositionManager:
                 last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
+                initial_stop_price=self._initial_stop_price,
             )
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
@@ -769,6 +881,7 @@ class PositionManager:
                 last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
+                initial_stop_price=self._initial_stop_price,
             )
 
         logger.debug(
@@ -794,6 +907,7 @@ class PositionManager:
                 last_take_profit_price=self._last_take_profit_price,
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
+                initial_stop_price=self._initial_stop_price,
             )
 
         logger.debug("[保护单] 已清理本地止损/止盈状态")
@@ -869,6 +983,7 @@ class PositionManager:
         self._highest_price_since_entry = 0.0
         self._lowest_price_since_entry = 0.0
         self._entry_dynamic_stop_loss_percent = None
+        self._initial_stop_price = 0.0  # 平仓清零 (下一仓重新锁定)
 
         # 持久化清空
         self._persistence.clear_position()
@@ -917,6 +1032,7 @@ class PositionManager:
             last_take_profit_price=self._last_take_profit_price,
             highest_price_since_entry=self._highest_price_since_entry,
             lowest_price_since_entry=self._lowest_price_since_entry,
+            initial_stop_price=self._initial_stop_price,
         )
 
         # 记录开仓交易

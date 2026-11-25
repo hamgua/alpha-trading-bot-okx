@@ -234,14 +234,11 @@ class AISignalIntegrator:
         # 提升到 process() 顶部: AdaptiveBuy 段 (翻转守卫豁免) 与 1.5 R/R 过滤段
         # 都需要引用, 且必须始终绑定 (adaptive_buy 未启用/异常时不可 NameError)。
         try:
-            _extreme_rsi = float(
-                (market_data.get("technical") or {}).get("rsi")
-            )
+            _extreme_rsi = float((market_data.get("technical") or {}).get("rsi"))
         except (TypeError, ValueError):
             _extreme_rsi = None
         extreme_oversold = (
-            _extreme_rsi is not None
-            and _extreme_rsi <= EXTREME_OVERSOLD_RSI_MAX
+            _extreme_rsi is not None and _extreme_rsi <= EXTREME_OVERSOLD_RSI_MAX
         )
         # 极端超卖 + oversold_rebound 模式命中 (翻转守卫豁免时置位,
         # R/R < 1.0 降级豁免复用同一标记)
@@ -648,6 +645,9 @@ class AISignalIntegrator:
                     price_history=price_history,
                     current_price=current_price,
                     atr_percent=atr_percent,
+                    # 2026-11-25: 24h/4h 一致性门槛 (防阴跌中逆势抄底);
+                    # 0/缺失 → 门槛不启用 (零回归)
+                    change_percent=float(market_data.get("change_percent", 0.0) or 0.0),
                 )
                 result.market_structure_result = structure_result
 
@@ -693,9 +693,7 @@ class AISignalIntegrator:
                             resistance=structure_result.nearest_resistance,
                             atr_percent=atr_percent,
                         )
-                        market_data["long_risk_reward_ratio"] = (
-                            rr_result.rr_ratio
-                        )
+                        market_data["long_risk_reward_ratio"] = rr_result.rr_ratio
                     except Exception as e:
                         logger.warning(f"做多R/R计算失败: {e}")
 

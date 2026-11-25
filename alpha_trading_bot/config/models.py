@@ -188,6 +188,26 @@ class TradingConfig:
     climax_short_near_high_pct: float = 0.02  # 价格 ≥ 24h高点×(1-2%)
     climax_short_position_factor: float = 0.5  # 半仓
     climax_short_daily_limit: int = 1  # 每日最多触发次数
+    # ---- 趋势跟踪独立通道 (2026-11-25 / 模块 0) ----
+    # SMA10/20 1h 趋势方向 + 24h 涨跌幅 ±2% + RSI 排除 → 趋势方向半仓开仓。
+    # 回放依据: 11-13→11-25 真实数据 7 笔 +6.34R (修正后基线), 命中目标场景
+    # (11-24 17:00 空 @60,223, 11-25 15:45 仍持仓 +1.06R 且保本已生效)。
+    trend_follow_enabled: bool = True
+    trend_follow_change_pct: float = 2.0  # 24h 涨跌幅门槛 (%)
+    trend_follow_short_rsi_floor: float = 20.0  # RSI(1h) < 此值禁空 (防末端追空)
+    trend_follow_long_rsi_ceil: float = 80.0  # RSI(1h) > 此值禁多 (防末端追多)
+    trend_follow_stop_atr_buffer: float = 0.5  # 止损 = 24h 摆动点 ± 0.5×ATR(1h)
+    trend_follow_max_stop_pct: float = 0.025  # 止损距离上限 2.5%
+    trend_follow_safety_tp_r: float = 10.0  # 10R 安全止盈 (正常由追踪止损离场)
+    trend_follow_daily_limit: int = 1  # 每方向每日最多触发次数
+    trend_follow_position_factor: float = 0.5  # 半仓
+    # ---- 追踪止盈 (2026-11-25 / 模块 1): 1R 保本 + 2R 起 3×ATR(1h) 追踪, 只收紧 ----
+    # 回放依据: 11-21 多 +3.48R / 11-22 空 +2.53R 为追踪贡献大头 (固定 2R 止盈只有 +0.5R);
+    # 11-21 多单 2R 后回撤 -1.08R 被追踪在 +0.9R 接住 (固定止盈会坐过山车回 0R 附近)。
+    trailing_stop_enabled: bool = True
+    trailing_breakeven_at_r: float = 1.0  # 浮盈达 1R → 止损移保本 (entry±0.1%)
+    trailing_activate_at_r: float = 2.0  # 浮盈达 2R → 启动 ATR 追踪 (此后极值 ∓ 3×ATR)
+    trailing_atr_mult: float = 3.0  # 追踪距离 = 3.0 × ATR(1h)
     # ---- 平仓后冷却（2026-10-08 手续费出血修复 / P0-2）----
     # 平仓后 N 分钟内禁止重新开仓（0=关闭），斩断"平仓后 5 分钟即重开"
     # 式 churn（证据: T3→T4 间隔 5 分钟，T7 持仓仅 4.4 分钟）。
@@ -280,8 +300,7 @@ class TradingConfig:
             )
         if not 0 < self.gate_relief_rr_min <= 10:
             errors.append(
-                f"gate_relief_rr_min ({self.gate_relief_rr_min}) "
-                "不在有效范围 (0-10]"
+                f"gate_relief_rr_min ({self.gate_relief_rr_min}) " "不在有效范围 (0-10]"
             )
         if not 0 <= self.gate_relief_amount <= 0.5:
             errors.append(
@@ -290,8 +309,7 @@ class TradingConfig:
             )
         if not 0 <= self.gate_relief_floor <= 1:
             errors.append(
-                f"gate_relief_floor ({self.gate_relief_floor}) "
-                "不在有效范围 [0-1]"
+                f"gate_relief_floor ({self.gate_relief_floor}) " "不在有效范围 [0-1]"
             )
         if not 0 <= self.close_relief_amount <= 0.5:
             errors.append(
@@ -300,8 +318,7 @@ class TradingConfig:
             )
         if not 0 <= self.close_relief_floor <= 1:
             errors.append(
-                f"close_relief_floor ({self.close_relief_floor}) "
-                "不在有效范围 [0-1]"
+                f"close_relief_floor ({self.close_relief_floor}) " "不在有效范围 [0-1]"
             )
         if not -0.5 <= self.oversold_buy_min_1h_change <= 0:
             errors.append(
@@ -333,6 +350,55 @@ class TradingConfig:
                 f"climax_short_daily_limit ({self.climax_short_daily_limit}) "
                 "不能为负数"
             )
+        if not 0 < self.trend_follow_change_pct <= 50:
+            errors.append(
+                f"trend_follow_change_pct ({self.trend_follow_change_pct}) "
+                "不在有效范围 (0-50]"
+            )
+        if not (
+            0
+            <= self.trend_follow_short_rsi_floor
+            < self.trend_follow_long_rsi_ceil
+            <= 100
+        ):
+            errors.append(
+                f"trend_follow_short_rsi_floor ({self.trend_follow_short_rsi_floor}) "
+                f"/ long_rsi_ceil ({self.trend_follow_long_rsi_ceil}) "
+                "需满足 0 <= short_floor < long_ceil <= 100"
+            )
+        if self.trend_follow_stop_atr_buffer < 0:
+            errors.append(
+                f"trend_follow_stop_atr_buffer ({self.trend_follow_stop_atr_buffer}) "
+                "不能为负数"
+            )
+        if not 0 < self.trend_follow_max_stop_pct <= 0.1:
+            errors.append(
+                f"trend_follow_max_stop_pct ({self.trend_follow_max_stop_pct}) "
+                "不在有效范围 (0-0.1]"
+            )
+        if self.trend_follow_safety_tp_r < 1:
+            errors.append(
+                f"trend_follow_safety_tp_r ({self.trend_follow_safety_tp_r}) "
+                "不能小于 1"
+            )
+        if self.trend_follow_daily_limit < 0:
+            errors.append(
+                f"trend_follow_daily_limit ({self.trend_follow_daily_limit}) "
+                "不能为负数"
+            )
+        if not 0 < self.trend_follow_position_factor <= 1:
+            errors.append(
+                f"trend_follow_position_factor ({self.trend_follow_position_factor}) "
+                "不在有效范围 (0-1]"
+            )
+        if not 0 < self.trailing_breakeven_at_r <= self.trailing_activate_at_r:
+            errors.append(
+                f"trailing_breakeven_at_r ({self.trailing_breakeven_at_r}) / "
+                f"trailing_activate_at_r ({self.trailing_activate_at_r}) "
+                "需满足 0 < breakeven <= activate"
+            )
+        if self.trailing_atr_mult < 0:
+            errors.append(f"trailing_atr_mult ({self.trailing_atr_mult}) 不能为负数")
 
         if self.runtime_environment not in self.VALID_RUNTIME_ENVIRONMENTS:
             errors.append(
@@ -798,20 +864,14 @@ class Config:
                     os.getenv("OVERSOLD_BUY_MIN_1H_CHANGE", "-0.05")
                 ),
                 gate_relief_rr_min=float(os.getenv("GATE_RELIEF_RR_MIN", "2.0")),
-                gate_relief_amount=float(
-                    os.getenv("GATE_RELIEF_AMOUNT", "0.10")
-                ),
+                gate_relief_amount=float(os.getenv("GATE_RELIEF_AMOUNT", "0.10")),
                 gate_relief_floor=float(os.getenv("GATE_RELIEF_FLOOR", "0.50")),
                 close_relief_amount=float(os.getenv("CLOSE_RELIEF_AMOUNT", "0.10")),
                 close_relief_floor=float(os.getenv("CLOSE_RELIEF_FLOOR", "0.40")),
-                climax_short_enabled=os.getenv(
-                    "CLIMAX_SHORT_ENABLED", "true"
-                ).lower()
+                climax_short_enabled=os.getenv("CLIMAX_SHORT_ENABLED", "true").lower()
                 == "true",
                 climax_short_rr_min=float(os.getenv("CLIMAX_SHORT_RR_MIN", "2.5")),
-                climax_short_rsi_min=float(
-                    os.getenv("CLIMAX_SHORT_RSI_MIN", "65.0")
-                ),
+                climax_short_rsi_min=float(os.getenv("CLIMAX_SHORT_RSI_MIN", "65.0")),
                 climax_short_near_high_pct=float(
                     os.getenv("CLIMAX_SHORT_NEAR_HIGH_PCT", "0.02")
                 ),
@@ -821,6 +881,41 @@ class Config:
                 climax_short_daily_limit=int(
                     os.getenv("CLIMAX_SHORT_DAILY_LIMIT", "1")
                 ),
+                trend_follow_enabled=os.getenv("TREND_FOLLOW_ENABLED", "true").lower()
+                == "true",
+                trend_follow_change_pct=float(
+                    os.getenv("TREND_FOLLOW_CHANGE_PCT", "2.0")
+                ),
+                trend_follow_short_rsi_floor=float(
+                    os.getenv("TREND_FOLLOW_SHORT_RSI_FLOOR", "20.0")
+                ),
+                trend_follow_long_rsi_ceil=float(
+                    os.getenv("TREND_FOLLOW_LONG_RSI_CEIL", "80.0")
+                ),
+                trend_follow_stop_atr_buffer=float(
+                    os.getenv("TREND_FOLLOW_STOP_ATR_BUFFER", "0.5")
+                ),
+                trend_follow_max_stop_pct=float(
+                    os.getenv("TREND_FOLLOW_MAX_STOP_PCT", "0.025")
+                ),
+                trend_follow_safety_tp_r=float(
+                    os.getenv("TREND_FOLLOW_SAFETY_TP_R", "10.0")
+                ),
+                trend_follow_daily_limit=int(
+                    os.getenv("TREND_FOLLOW_DAILY_LIMIT", "1")
+                ),
+                trend_follow_position_factor=float(
+                    os.getenv("TREND_FOLLOW_POSITION_FACTOR", "0.5")
+                ),
+                trailing_stop_enabled=os.getenv("TRAILING_STOP_ENABLED", "true").lower()
+                == "true",
+                trailing_breakeven_at_r=float(
+                    os.getenv("TRAILING_BREAKEVEN_AT_R", "1.0")
+                ),
+                trailing_activate_at_r=float(
+                    os.getenv("TRAILING_ACTIVATE_AT_R", "2.0")
+                ),
+                trailing_atr_mult=float(os.getenv("TRAILING_ATR_MULT", "3.0")),
                 post_close_cooldown_minutes=int(
                     os.getenv("POST_CLOSE_COOLDOWN_MINUTES", "30")
                 ),
