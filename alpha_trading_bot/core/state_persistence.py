@@ -13,8 +13,8 @@
 import json
 import logging
 import os
-from dataclasses import asdict, dataclass, is_dataclass
-from datetime import date, datetime
+from dataclasses import asdict, dataclass, field, is_dataclass
+from datetime import date, datetime, timedelta as _timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -70,6 +70,9 @@ class PositionState:
     initial_stop_price: float = (
         0.0  # 开仓时锁定的初始止损价 (追踪止损 R 基准, 2026-11-25)
     )
+    # 2026-11-26 P0-2: 开仓来源 (trend/oversold/climax/ai), 反手保护用。
+    # 旧 JSON 无该字段 → 默认 "" (视为 AI 路径, 零回归)。
+    origin: str = ""
     updated_at: str = ""
 
 
@@ -84,6 +87,15 @@ class TradingState:
     version: str = "1.0"
     # 平仓时间戳（ISO；P0-2 平仓后冷却门禁用，重启可恢复）
     last_close_at: str = ""
+    # ---- 2026-11-26 P0-3: 每日计数持久化 (key=YYYY-MM-DD) ----
+    # 纯内存计数重启清零导致 "每方向每日 ≤1 次" 被击穿 (11-25 一天 2 笔趋势空单)。
+    daily_open_counts: Dict[str, int] = field(default_factory=dict)
+    trend_follow_counts: Dict[str, int] = field(default_factory=dict)
+    oversold_buy_counts: Dict[str, int] = field(default_factory=dict)
+    climax_short_counts: Dict[str, int] = field(default_factory=dict)
+    # ---- 2026-11-26 P2-10: 信号连续确认 (同向信号连续周期数) ----
+    last_signal: str = ""
+    signal_streak: int = 0
 
 
 class StatePersistence:
@@ -141,6 +153,7 @@ class StatePersistence:
         highest_price_since_entry: float = 0.0,
         lowest_price_since_entry: float = 0.0,
         initial_stop_price: float = 0.0,
+        origin: str = "",
     ) -> bool:
         """
         保存持仓状态
@@ -155,6 +168,7 @@ class StatePersistence:
             highest_price_since_entry: 做多时追踪的最高价
             lowest_price_since_entry: 做空时追踪的最低价
             initial_stop_price: 开仓时锁定的初始止损价 (追踪止损 R 基准)
+            origin: 开仓来源 (trend/oversold/climax/ai), 反手保护用
 
         Returns:
             是否保存成功
@@ -177,6 +191,7 @@ class StatePersistence:
                 highest_price_since_entry=highest_price_since_entry,
                 lowest_price_since_entry=lowest_price_since_entry,
                 initial_stop_price=initial_stop_price,
+                origin=origin,
                 updated_at=datetime.now().isoformat(),
             )
             state.last_trade_time = datetime.now().isoformat()
@@ -234,6 +249,88 @@ class StatePersistence:
             logger.debug(f"[持久化] 平仓时间已标记: {state.last_close_at}")
         except Exception as e:
             logger.warning(f"[持久化] 记录平仓时间失败（不影响主流程）: {e}")
+
+    # ------------------------------------------------------------------
+    # 2026-11-26 P0-3: 每日计数持久化 (重启不再清零, 门禁不再被部署击穿)
+    # ------------------------------------------------------------------
+
+    def save_daily_counts(
+        self,
+        daily_open_counts: Dict[str, int],
+        trend_follow_counts: Dict[str, int],
+        oversold_buy_counts: Dict[str, int],
+        climax_short_counts: Dict[str, int],
+    ) -> None:
+        """持久化四个每日计数器 (key=YYYY-MM-DD)。
+
+        只保留最近 2 天的 key (跨日自然失效, 防止无限膨胀)。
+        任何异常不中断主流程 (计数是成本控制, 不是安全门)。
+        """
+        try:
+            state = self.load_state()
+            today = datetime.now().strftime("%Y-%m-%d")
+            yesterday = (datetime.now() - _timedelta(days=1)).strftime("%Y-%m-%d")
+            keep = {today, yesterday}
+
+            def _prune(counts: Dict[str, int]) -> Dict[str, int]:
+                return {k: int(v) for k, v in counts.items() if k in keep}
+
+            state.daily_open_counts = _prune(daily_open_counts)
+            state.trend_follow_counts = _prune(trend_follow_counts)
+            state.oversold_buy_counts = _prune(oversold_buy_counts)
+            state.climax_short_counts = _prune(climax_short_counts)
+            self._save_state(state)
+            logger.debug(
+                "[持久化] 每日计数已保存: open=%s trend=%s oversold=%s climax=%s",
+                state.daily_open_counts,
+                state.trend_follow_counts,
+                state.oversold_buy_counts,
+                state.climax_short_counts,
+            )
+        except Exception as e:
+            logger.warning(f"[持久化] 保存每日计数失败（不影响主流程）: {e}")
+
+    def save_signal_streak(self, last_signal: str, streak: int) -> None:
+        """持久化信号连续确认状态 (P2-10)。异常不中断主流程。"""
+        try:
+            state = self.load_state()
+            state.last_signal = str(last_signal or "")
+            state.signal_streak = int(streak or 0)
+            self._save_state(state)
+        except Exception as e:
+            logger.warning(f"[持久化] 保存信号连续状态失败（不影响主流程）: {e}")
+
+    def get_signal_streak(self) -> tuple:
+        """读取信号连续确认状态 (last_signal, streak)。失败返回 ("", 0)。"""
+        try:
+            state = self.load_state()
+            return state.last_signal, state.signal_streak
+        except Exception:
+            return "", 0
+
+    def load_daily_counts(self) -> tuple:
+        """读取每日计数器 (重启恢复)。只保留今天/yesterday 的 key。
+
+        Returns:
+            (daily_open, trend_follow, oversold_buy, climax_short) 四个 dict。
+        """
+        try:
+            state = self.load_state()
+            today = datetime.now().strftime("%Y-%m-%d")
+            yesterday = (datetime.now() - _timedelta(days=1)).strftime("%Y-%m-%d")
+            keep = {today, yesterday}
+
+            def _prune(counts: Dict[str, int]) -> Dict[str, int]:
+                return {k: int(v) for k, v in counts.items() if k in keep}
+
+            return (
+                _prune(state.daily_open_counts),
+                _prune(state.trend_follow_counts),
+                _prune(state.oversold_buy_counts),
+                _prune(state.climax_short_counts),
+            )
+        except Exception:
+            return {}, {}, {}, {}
 
     def update_stop_order(self, stop_order_id: Optional[str]) -> bool:
         """
@@ -300,8 +397,19 @@ class StatePersistence:
                             "lowest_price_since_entry", 0.0
                         ),
                         initial_stop_price=pos_data.get("initial_stop_price", 0.0),
+                        origin=pos_data.get("origin", ""),
                         updated_at=pos_data.get("updated_at", ""),
                     )
+
+                def _count_map(key: str) -> Dict[str, int]:
+                    raw = data.get(key) or {}
+                    if not isinstance(raw, dict):
+                        return {}
+                    return {
+                        str(k): int(v)
+                        for k, v in raw.items()
+                        if isinstance(v, (int, float))
+                    }
 
                 self._state = TradingState(
                     position=position,
@@ -310,6 +418,12 @@ class StatePersistence:
                     daily_pnl=data.get("daily_pnl", 0.0),
                     version=data.get("version", "1.0"),
                     last_close_at=data.get("last_close_at", ""),
+                    daily_open_counts=_count_map("daily_open_counts"),
+                    trend_follow_counts=_count_map("trend_follow_counts"),
+                    oversold_buy_counts=_count_map("oversold_buy_counts"),
+                    climax_short_counts=_count_map("climax_short_counts"),
+                    last_signal=str(data.get("last_signal", "")),
+                    signal_streak=int(data.get("signal_streak", 0) or 0),
                 )
 
                 if position:
@@ -346,6 +460,12 @@ class StatePersistence:
             "daily_pnl": state.daily_pnl,
             "version": state.version,
             "last_close_at": state.last_close_at,
+            "daily_open_counts": state.daily_open_counts,
+            "trend_follow_counts": state.trend_follow_counts,
+            "oversold_buy_counts": state.oversold_buy_counts,
+            "climax_short_counts": state.climax_short_counts,
+            "last_signal": state.last_signal,
+            "signal_streak": state.signal_streak,
             "saved_at": datetime.now().isoformat(),
         }
 

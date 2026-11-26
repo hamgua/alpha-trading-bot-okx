@@ -27,6 +27,8 @@ class Position:
     entry_price: float
     unrealized_pnl: float = 0.0
     entry_time: Optional[str] = None  # 入场时间ISO格式，向后兼容
+    # 2026-11-26 P0-2: 开仓来源 (trend/oversold/climax/ai), 反手保护用
+    origin: str = ""
 
 
 class PositionManager:
@@ -55,6 +57,8 @@ class PositionManager:
         self._initial_stop_price: float = 0.0
         # 开仓时锁定的动态止损百分比（来自规则引擎），None=未锁定，使用全局默认
         self._entry_dynamic_stop_loss_percent: Optional[float] = None
+        # 2026-11-26 P0-2: 开仓来源 (update_from_exchange 重建 Position 时保留)
+        self._position_origin: str = ""
 
         # 初始化持久化管理器
         self._persistence = create_state_persistence(data_dir)
@@ -89,6 +93,8 @@ class PositionManager:
                 self._initial_stop_price = (
                     state.position.initial_stop_price
                 )  # 恢复初始止损价
+                # 2026-11-26 P0-2: 恢复开仓来源 (反手保护跨重启生效)
+                self._position_origin = state.position.origin or ""
 
                 logger.info(
                     f"[持久化恢复] 已恢复持仓: {self._position.symbol} "
@@ -98,6 +104,7 @@ class PositionManager:
                     f"上次止盈价: {self._last_take_profit_price}, "
                     f"做多最高价: {self._highest_price_since_entry}, 做空最低价: {self._lowest_price_since_entry}"
                     f", 初始止损价: {self._initial_stop_price}"
+                    f", 来源: {self._position_origin or 'ai'}"
                 )
         except Exception as e:
             logger.warning(f"[持久化恢复] 恢复状态失败: {e}")
@@ -137,6 +144,37 @@ class PositionManager:
             return False
         return (datetime.now() - last_close).total_seconds() < minutes * 60
 
+    # ------------------------------------------------------------------
+    # 2026-11-26 P0-3 / P2-10: 每日计数与信号连续确认 (持久化跨重启)
+    # ------------------------------------------------------------------
+
+    def save_daily_counts(
+        self,
+        daily_open_counts: Dict[str, int],
+        trend_follow_counts: Dict[str, int],
+        oversold_buy_counts: Dict[str, int],
+        climax_short_counts: Dict[str, int],
+    ) -> None:
+        """持久化每日计数 (P0-3, 重启不再清零)。"""
+        self._persistence.save_daily_counts(
+            daily_open_counts,
+            trend_follow_counts,
+            oversold_buy_counts,
+            climax_short_counts,
+        )
+
+    def load_daily_counts(self) -> tuple:
+        """恢复每日计数 (P0-3)。失败返回四个空 dict。"""
+        return self._persistence.load_daily_counts()
+
+    def save_signal_streak(self, last_signal: str, streak: int) -> None:
+        """持久化信号连续确认状态 (P2-10)。"""
+        self._persistence.save_signal_streak(last_signal, streak)
+
+    def load_signal_streak(self) -> tuple:
+        """恢复信号连续确认状态 (P2-10)。失败返回 ("", 0)。"""
+        return self._persistence.get_signal_streak()
+
     @property
     def position(self) -> Optional[Position]:
         """获取当前持仓"""
@@ -153,6 +191,11 @@ class PositionManager:
     def entry_price(self) -> float:
         """获取入场价"""
         return self._entry_price
+
+    @property
+    def entry_time(self) -> Optional[str]:
+        """获取入场时间 (ISO, 无则 None)。2026-11-26 P0-2 反手保护用。"""
+        return self._entry_time
 
     @property
     def stop_order_id(self) -> Optional[str]:
@@ -236,6 +279,7 @@ class PositionManager:
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
                 initial_stop_price=self._initial_stop_price,
+                origin=self._position_origin,
             )
 
     def calculate_trailing_stop(
@@ -435,6 +479,8 @@ class PositionManager:
                 side=side,
                 amount=live_amount,
                 entry_price=position_data["entry_price"],
+                # 2026-11-26 P0-2: 保留开仓来源 (交易所侧不感知 origin)
+                origin=self._position_origin,
             )
             self._entry_price = position_data["entry_price"]
 
@@ -464,6 +510,7 @@ class PositionManager:
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
                 initial_stop_price=self._initial_stop_price,
+                origin=self._position_origin,
             )
 
             logger.info(
@@ -856,6 +903,7 @@ class PositionManager:
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
                 initial_stop_price=self._initial_stop_price,
+                origin=self._position_origin,
             )
 
         logger.debug(f"[止损单] 设置止损单ID: {stop_order_id}, 止损价: {stop_price}")
@@ -882,6 +930,7 @@ class PositionManager:
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
                 initial_stop_price=self._initial_stop_price,
+                origin=self._position_origin,
             )
 
         logger.debug(
@@ -908,6 +957,7 @@ class PositionManager:
                 highest_price_since_entry=self._highest_price_since_entry,
                 lowest_price_since_entry=self._lowest_price_since_entry,
                 initial_stop_price=self._initial_stop_price,
+                origin=self._position_origin,
             )
 
         logger.debug("[保护单] 已清理本地止损/止盈状态")
@@ -984,12 +1034,18 @@ class PositionManager:
         self._lowest_price_since_entry = 0.0
         self._entry_dynamic_stop_loss_percent = None
         self._initial_stop_price = 0.0  # 平仓清零 (下一仓重新锁定)
+        self._position_origin = ""  # 2026-11-26 P0-2: 来源随平仓清零
 
         # 持久化清空
         self._persistence.clear_position()
 
     def update_position(
-        self, amount: float, entry_price: float, symbol: str, side: str = "long"
+        self,
+        amount: float,
+        entry_price: float,
+        symbol: str,
+        side: str = "long",
+        origin: str = "ai",
     ) -> None:
         """
         更新持仓信息（开仓后调用，并持久化）
@@ -999,6 +1055,7 @@ class PositionManager:
             entry_price: 入场价格
             symbol: 交易对
             side: 持仓方向 (long=做多, short=做空)
+            origin: 开仓来源 (trend/oversold/climax/ai), 反手保护用
         """
         # 验证 side 参数
         if side not in ["long", "short"]:
@@ -1013,11 +1070,14 @@ class PositionManager:
 
         self._entry_price = entry_price
         self._entry_time = datetime.now().isoformat()
+        # 2026-11-26 P0-2: 记录开仓来源 (反手保护/归因用)
+        self._position_origin = str(origin or "ai")
         self._position = Position(
             symbol=symbol,
             side=side,
             amount=amount,
             entry_price=entry_price,
+            origin=self._position_origin,
         )
 
         # 持久化保存
@@ -1033,6 +1093,7 @@ class PositionManager:
             highest_price_since_entry=self._highest_price_since_entry,
             lowest_price_since_entry=self._lowest_price_since_entry,
             initial_stop_price=self._initial_stop_price,
+            origin=self._position_origin,
         )
 
         # 记录开仓交易

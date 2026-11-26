@@ -161,12 +161,14 @@ class TestSellConfidenceGate:
 
 
 class TestConfigDefaultsAndEnv:
-    def test_defaults_are_065_060(self) -> None:
-        # 2026-11 底部捕获调参: 门禁 0.75→0.65/0.60 (折扣瀑布修复后, 高门禁
-        # 曾导致 55k 底部 6 天 0 交易); 平仓门禁 < 开仓门禁 (离场应比开仓容易)
+    def test_defaults_are_065_070(self) -> None:
+        # 2026-11-26 P0-2: 平仓门禁 0.60 → 0.70 (11-25 复盘: 65~81% 置信度
+        # 的单次 BUY 信号 2~4 分钟内平掉趋势空单, 三笔全亏)。
+        # 2026-11 底部捕获调参: 开仓门禁 0.75→0.65 (折扣瀑布修复后, 高门禁
+        # 曾导致 55k 底部 6 天 0 交易)
         cfg = TradingConfig()
         assert cfg.min_confidence_open == 0.65
-        assert cfg.min_confidence_close == 0.60
+        assert cfg.min_confidence_close == 0.70
         assert cfg.daily_open_limit == 2
         assert cfg.oversold_buy_enabled is True
         assert cfg.oversold_buy_rsi_max == 20.0

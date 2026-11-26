@@ -130,7 +130,55 @@ class StopLossManager:
                     return
 
         # 使用统一止损计算入口，自动判断做多/做空（M2修复：统一参数来源）
-        new_stop = self._position_manager.calculate_stop_price_unified(current_price)
+        #
+        # 2026-11-26 P0-1 棘轮口径 (11-25 22:05/22:44/00:00 三笔趋势空单复盘):
+        # 开仓已锁定初始止损价 (structural stop, 24h 摆动/2.5% 上限) 时,
+        # 旧逻辑每周期用"当前价 × (1±STOP_LOSS_PERCENT=0.5%)"重算止损,
+        # 第一个 HOLD 周期就把 2.5% 结构止损改写为"当前价+0.5%"——
+        # 止损被压进 15m 噪声带 (00:14 一根 0.5% 上影直接扫损)。
+        # 关键: 对空仓, 止损下移 = 收紧 (方向安全钳位视角), 单纯
+        # "只收紧" 棘轮仍会接受 59754→58673 的有害下移。因此:
+        # - 空仓: 保留既有止损, 完全不用当前价口径重锚; 下移收紧只由
+        #   trailing 候选 (1R 保本 / 2R 起 3×ATR 极值) 驱动。
+        # - 多仓: 保留 entry-based 追踪 (highest×99.98%) 但只允许上移,
+        #   下移 (放松) 一律忽略。
+        # 旧状态 (无 initial_stop) 保持旧行为, 零回归。
+        initial_stop = self._position_manager.initial_stop_price
+        if initial_stop > 0:
+            base_stop = (
+                self._position_manager.last_stop_price
+                if self._position_manager.last_stop_price > 0
+                else initial_stop
+            )
+            if position.side == "long":
+                unified_stop = self._position_manager.calculate_stop_price_unified(
+                    current_price
+                )
+                if unified_stop > base_stop:
+                    logger.info(
+                        f"[止损更新-棘轮] 初始止损已锁定, entry-based 追踪上移 "
+                        f"{base_stop:.2f} → {unified_stop:.2f} (只收紧不放松)"
+                    )
+                    new_stop = unified_stop
+                else:
+                    logger.debug(
+                        "[止损更新-棘轮] 初始止损已锁定, 多仓保留现有止损 %.2f "
+                        "(候选 %.2f 未高于它, 下移放松被拒绝)",
+                        base_stop,
+                        unified_stop,
+                    )
+                    new_stop = base_stop
+            else:
+                logger.debug(
+                    "[止损更新-棘轮] 初始止损已锁定, 空仓跳过当前价口径重算 "
+                    "(保留止损 %.2f; 下移收紧仅由 trailing 候选驱动)",
+                    base_stop,
+                )
+                new_stop = base_stop
+        else:
+            new_stop = self._position_manager.calculate_stop_price_unified(
+                current_price
+            )
         self._position_manager.log_stop_loss_info(current_price, new_stop)
 
         # ---- 2026-11-25 追踪止损合并 (模块 1): 只收紧不放松 ----

@@ -294,9 +294,13 @@ async def test_trend_follow_end_to_end_cycle_smoke(tmp_path: Path) -> None:
     bot._ai_client.get_last_signal_trace = MagicMock(return_value={})
     bot._decision_journal = None  # 避免磁盘写入 (与被测链路无关)
 
+    # 2026-11-26 P1-4: 重启后首个周期只同步不交易 (STARTUP_SYNC_ONLY=true 默认),
+    # 第二周期才走 AI 信号 + 独立技术通道。此处先跑一个同步周期消费掉。
     await bot._execute_trading_cycle()
+    assert not bot.position_manager.has_position()
 
-    # 5.8 hook → 趋势通道 → 开空 (AI HOLD 路径未开仓)
+    # 第二周期: 5.8 hook → 趋势通道 → 开空 (AI HOLD 路径未开仓)
+    await bot._execute_trading_cycle()
     assert bot.position_manager.has_position()
     assert bot.position_manager.position.side == "short"
     assert bot.position_manager.entry_price == pytest.approx(60223.0)

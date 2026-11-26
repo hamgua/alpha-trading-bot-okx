@@ -11,10 +11,11 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..config.models import Config
 from ..utils.observability import record_live_guard_block
+from ..utils.technical import calculate_trend
 from .decision_journal import DecisionJournal
 from .drawdown_guard import DrawdownGuard, DrawdownStatus
 from .position_manager import PositionManager
@@ -61,8 +62,10 @@ class TradingBot:
             else None
         )
 
-        # 2026-11 开仓频度控制（内存态, 重启清零——冷却/总闸是更强的防线）:
-        # 每日新开仓计数 + 超卖抄底独立通道每日触发计数 (key=YYYY-MM-DD)
+        # 2026-11 开仓频度控制 (key=YYYY-MM-DD):
+        # 每日新开仓计数 + 超卖抄底独立通道每日触发计数。
+        # 2026-11-26 P0-3: 计数持久化跨重启 (原纯内存重启清零,
+        # 部署重启击穿 "每方向每日 ≤1 次" 门禁: 11-25 一天 2 笔趋势空单)。
         self._daily_open_counts: Dict[str, int] = {}
         self._oversold_buy_counts: Dict[str, int] = {}
         # 2026-11-24 高潮做空独立通道: 每日触发计数 + 机会审计限频计数
@@ -70,6 +73,25 @@ class TradingBot:
         self._climax_audit_counts: Dict[str, int] = {}
         # 2026-11-25 趋势跟踪独立通道: 每日触发计数 (key=YYYY-MM-DD)
         self._trend_follow_counts: Dict[str, int] = {}
+        # 2026-11-26 P0-3: 从持久化恢复每日计数 (只保留今天/昨天)
+        (
+            _r_open,
+            _r_trend,
+            _r_oversold,
+            _r_climax,
+        ) = self.position_manager.load_daily_counts()
+        self._daily_open_counts = _r_open
+        self._trend_follow_counts = _r_trend
+        self._oversold_buy_counts = _r_oversold
+        self._climax_short_counts = _r_climax
+        # 2026-11-26 P2-10: 信号连续确认 (同向信号连续周期数, 持久化)
+        self._last_signal: str
+        self._signal_streak: int
+        self._last_signal, self._signal_streak = (
+            self.position_manager.load_signal_streak()
+        )
+        # 2026-11-26 P1-4: 重启后首个周期只同步不交易 (STARTUP_SYNC_ONLY)
+        self._first_cycle_after_startup = True
         # 2026-11-24 机会审计: AI 连续零方向信号计数 (每周期 +1, 出方向信号清零)
         self._no_direction_streak = 0
 
@@ -336,7 +358,7 @@ class TradingBot:
                 # 平掉后, 原先要等下一周期对账才发现 (15 分钟盲区) 且不知
                 # 是哪张单触发的。此处按 当前价 vs 止损/止盈价 做 best-effort
                 # 归因, 明确盈亏路径 (仅审计日志, 不改状态)。
-                self._log_protection_order_fill(current_price)
+                await self._log_protection_order_fill(current_price)
                 logger.warning(
                     "[持仓对账] API返回无持仓，但本地PositionManager仍有持仓状态，"
                     f"清理本地缓存。本地持仓: "
@@ -379,6 +401,19 @@ class TradingBot:
         # 3.5 回撤总闸检查（P1）
         await self._check_drawdown()
 
+        # 3.6 2026-11-26 P1-4: 重启后首个周期只同步不交易。
+        # 11-25 22:04/22:06 两次部署重启的 "首次立即周期" 直接造成开仓
+        # (22:05) 与 2 分钟后平仓 (22:07)。持仓/保护单对账已在步骤 3 完成,
+        # 此处跳过 AI 信号与全部开/平仓路径 (STARTUP_SYNC_ONLY=false 可回滚)。
+        if self._first_cycle_after_startup:
+            self._first_cycle_after_startup = False
+            if self.config.trading.startup_sync_only:
+                logger.warning(
+                    "[启动同步] 重启后首个周期仅同步 (持仓/保护单对账已完成), "
+                    "不获取 AI 信号/不开平仓 (STARTUP_SYNC_ONLY=true)"
+                )
+                return
+
         logger.info(f"[交易决策] 当前价格: {current_price}")
 
         # 4. 获取AI信号
@@ -388,6 +423,8 @@ class TradingBot:
             signal = await self._ai_client.get_signal(market_data)
             signal = SignalProcessor.process(signal)
             logger.info(f"[AI信号] 原始信号: {signal}")
+            # 2026-11-26 P2-10: 更新信号连续确认计数 (同向 +1, 换向重置)
+            self._update_signal_streak(signal)
 
             # 执行层置信度门禁（P0-1）：取最终置信度（0-1），解析失败→None（门禁不生效）
             final_conf_raw = market_data.get("final_confidence")
@@ -425,6 +462,8 @@ class TradingBot:
                 change_percent=change_percent,
                 atr_percent=technical.get("atr_percent", 0.0) if technical else 0.0,
                 buy_mode=str(market_data.get("adaptive_buy_mode", "") or ""),
+                trend_direction=str((technical or {}).get("trend_direction", "") or ""),
+                signal_streak=self._signal_streak,
             )
 
             # 5.5 超卖抄底独立通道（2026-11 底部捕获 / P1-5）:
@@ -434,7 +473,13 @@ class TradingBot:
             if (
                 not has_position
                 and signal != "BUY"
-                and execution_result.action in ("none", "blocked_low_confidence")
+                and execution_result.action
+                in (
+                    "none",
+                    "blocked_low_confidence",
+                    # 2026-11-26 P2-10: AI 等待信号确认时技术通道不受影响
+                    "blocked_signal_confirm",
+                )
             ):
                 oversold_result = await self._maybe_oversold_bottom_buy(
                     market_data, current_price
@@ -461,6 +506,8 @@ class TradingBot:
                     "blocked_cooldown",
                     "blocked_drawdown",
                     "blocked_short_disabled",
+                    # 2026-11-26 P2-10: AI 等待信号确认时技术通道不受影响
+                    "blocked_signal_confirm",
                 )
             ):
                 climax_result = await self._maybe_climax_short(
@@ -487,6 +534,8 @@ class TradingBot:
                     "blocked_cooldown",
                     "blocked_drawdown",
                     "blocked_short_disabled",
+                    # 2026-11-26 P2-10: AI 等待信号确认时技术通道不受影响
+                    "blocked_signal_confirm",
                 )
             ):
                 trend_result = await self._maybe_trend_follow(
@@ -641,6 +690,8 @@ class TradingBot:
         change_percent: float = 0.0,
         atr_percent: float = 0.0,
         buy_mode: str = "",
+        trend_direction: str = "",
+        signal_streak: int = 1,
     ) -> ExecutionResult:
         """执行信号
 
@@ -654,6 +705,8 @@ class TradingBot:
         change_percent: 24h 涨跌幅% (做空逆势门禁 short_entry_max_daily_change)。
         atr_percent: ATR 百分比 (开仓 ATR 止损用, 0=不传)。
         buy_mode: 自适应买入模式 (oversold_rebound 翻转开仓用半仓, P1-C)。
+        trend_direction: 1h 趋势方向 (up/down/neutral, P0-2 反手保护技术反转判定)。
+        signal_streak: 同向信号连续周期数 (P2-10 信号连续确认, 1=无确认要求)。
         """
         logger.info(
             f"[信号执行] 开始处理信号: {signal}, 当前价格: {current_price}, "
@@ -668,6 +721,28 @@ class TradingBot:
         # 2026-11-24 P0-3: 开仓侧 R/R 感知动态放宽）：
         # 低置信度往返单的成本 ≈ 11.5bp，而 54-67% 置信度信号的毛利 ≈ 0，
         # 只放行有把握（>= 门禁）的开/平仓，其余交给止损/止盈单管理。
+        # 2026-11-26 P2-10: 信号连续确认 (单 AI 置信度漂移防护):
+        # 方向性信号 (BUY/SELL/SHORT) 需连续 N 个周期同向才执行,
+        # 孤立单次信号 (11-25 两笔亏损平仓均为前后 HOLD 的孤立 BUY) 本轮保持。
+        confirm_cycles = self.config.trading.signal_confirm_cycles
+        if (
+            final_confidence is not None
+            and confirm_cycles > 1
+            and signal in ("BUY", "SELL", "SHORT")
+            and signal_streak < confirm_cycles
+        ):
+            logger.info(
+                "[信号执行] %s信号 + 仅连续 %d 周期同向 < %d -> 本轮保持 "
+                "(P2-10 信号连续确认, 独立技术通道不受影响)",
+                signal,
+                signal_streak,
+                confirm_cycles,
+            )
+            return ExecutionResult(
+                "blocked_signal_confirm",
+                f"streak={signal_streak}<need={confirm_cycles}",
+            )
+
         if final_confidence is None:
             if signal in ("BUY", "SELL", "SHORT"):
                 logger.warning(
@@ -721,6 +796,32 @@ class TradingBot:
             )
             if is_close_intent:
                 min_close = self.config.trading.min_confidence_close
+                # 2026-11-26 P0-2: 趋势通道新仓反手保护——趋势仓开仓后
+                # trend_close_protection_minutes 内, 反向 AI 信号需
+                # 置信度 ≥ trend_close_min_confidence 且 1h 技术趋势已反转
+                # 才允许平仓 (11-25 复盘: 趋势开空 2~4 分钟后被单次 BUY 反手平掉)。
+                pm_pos = self.position_manager.position
+                if (
+                    pm_pos is not None
+                    and pm_pos.origin == "trend"
+                    and self._trend_close_protection_active(
+                        self.position_manager.entry_time,
+                        pm_pos.side,
+                        final_confidence,
+                        trend_direction,
+                        change_percent,
+                    )
+                ):
+                    logger.info(
+                        "[信号执行] %s信号 + 趋势仓新仓保护期内 "
+                        "(置信度 %.2f / 技术趋势未反转) -> 忽略平仓信号 "
+                        "(仓位由止损单保护, P0-2 反手保护)",
+                        signal,
+                        final_confidence if final_confidence is not None else 0.0,
+                    )
+                    return ExecutionResult(
+                        "protected_trend_position", "trend_close_protection"
+                    )
                 # 2026-11-24 (P0-A): 亏损态平仓下移——浮亏时门禁
                 # close_relief_amount (下限 close_relief_floor)。回放 11-24
                 # 13:43-14:15: 浮亏 -0.21%/-0.43% 时三次 SELL (51%/55%/57%)
@@ -728,11 +829,14 @@ class TradingBot:
                 # 阴跌。放宽只作用于"离场", 重开仍受平仓冷却约束 (不引入
                 # 2026-10-08 修复过的 churn)。
                 upl = self._position_upl_percent(current_price)
+                # 2026-11-26 P0-2: P0-A 亏损态放宽不适用于趋势仓 (它加速离场,
+                # 与趋势通道 "让利润奔跑" 设计冲突)
                 if (
                     min_close > 0
                     and upl is not None
                     and upl < 0
                     and self.config.trading.close_relief_amount > 0
+                    and (pm_pos is None or pm_pos.origin != "trend")
                 ):
                     relaxed_close = max(
                         self.config.trading.close_relief_floor,
@@ -829,10 +933,11 @@ class TradingBot:
                     self._daily_open_counts[today] = (
                         self._daily_open_counts.get(today, 0) + 1
                     )
+                    self._persist_daily_counts()
                 return ExecutionResult("open_long", f"price={current_price}")
             if position_side == "short":
                 # prompt 语义: 持有空仓 + BUY = 平空
-                logger.info("[信号执行] BUY信号 + 空仓 -> 执行平空")
+                logger.info("[信号执行] BUY信号 + 持有空仓 -> 执行平空")
                 await self._close_position(current_price)
                 return ExecutionResult("close", f"price={current_price},side=short")
             logger.info("[信号执行] BUY信号 + 多仓 -> 更新止损")
@@ -938,17 +1043,185 @@ class TradingBot:
                 self._daily_open_counts[today] = (
                     self._daily_open_counts.get(today, 0) + 1
                 )
+                self._persist_daily_counts()
             return ExecutionResult("open_short", f"price={current_price}")
 
         logger.warning(f"[信号执行] 未知信号: {signal}")
         return ExecutionResult("error", f"unknown_signal={signal}")
 
-    def _log_protection_order_fill(self, current_price: float) -> None:
-        """保护单成交归因 (2026-11 P2-12, best-effort 仅审计日志)。
+    def _trend_close_protection_active(
+        self,
+        entry_time: Optional[str],
+        position_side: str,
+        final_confidence: Optional[float],
+        trend_direction: str,
+        change_percent: float,
+    ) -> bool:
+        """趋势仓反向平仓是否应被拦截 (2026-11-26 P0-2)。
 
-        对账发现仓位已在交易所侧消失时, 按 当前价 vs 上次止损/止盈价
-        推断是哪张保护单触发了平仓, 消除 "15 分钟后才发现且不知原因"
-        的盲区。任何异常不中断主流程。
+        开仓后 trend_close_protection_minutes 内, 反向 AI 信号需同时满足:
+        - 置信度 ≥ trend_close_min_confidence
+        - 1h 技术趋势已反转 (空仓→up / 多仓→down) 或 24h 涨跌号翻转
+        才允许平仓。保护窗口=0 / 无入场时间 / 解析失败 → False (fail-open,
+        止损单仍兜底)。11-25 复盘: 趋势开空 2~4 分钟后被 AI 单次 BUY
+        (55~81%) 反手平掉, 三笔全部亏损。
+        """
+        cfg = self.config.trading
+        if cfg.trend_close_protection_minutes <= 0:
+            return False
+        if not entry_time:
+            return False
+        try:
+            entry_dt = datetime.fromisoformat(entry_time)
+        except (TypeError, ValueError):
+            logger.warning(
+                "[趋势仓保护] 入场时间解析失败, 本轮跳过保护: %s", entry_time
+            )
+            return False
+        age_minutes = (datetime.now() - entry_dt).total_seconds() / 60.0
+        if age_minutes >= cfg.trend_close_protection_minutes:
+            return False
+        conf_ok = (
+            final_confidence is not None
+            and final_confidence >= cfg.trend_close_min_confidence
+        )
+        if position_side == "short":
+            flip_ok = trend_direction == "up" or change_percent > 0
+        else:
+            flip_ok = trend_direction == "down" or change_percent < 0
+        if conf_ok and flip_ok:
+            logger.info(
+                "[趋势仓保护] 反向信号满足平仓条件 (置信度 %.2f ≥ %.2f 且 "
+                "技术趋势已反转/24h 号翻转), 放行平仓",
+                final_confidence or 0.0,
+                cfg.trend_close_min_confidence,
+            )
+            return False
+        return True
+
+    def _persist_daily_counts(self) -> None:
+        """持久化每日计数 (2026-11-26 P0-3, 重启不再清零)。"""
+        try:
+            self.position_manager.save_daily_counts(
+                self._daily_open_counts,
+                self._trend_follow_counts,
+                self._oversold_buy_counts,
+                self._climax_short_counts,
+            )
+        except Exception as e:
+            logger.warning("[每日计数] 持久化失败（不影响主流程）: %s", e)
+
+    def _update_signal_streak(self, signal: str) -> int:
+        """更新信号连续确认计数 (2026-11-26 P2-10, 持久化跨重启)。
+
+        同一方向信号连续周期数 +1, 方向变化 (含 HOLD) 重置为 1。
+        返回当前 streak (供执行层 SIGNAL_CONFIRM_CYCLES 门禁用)。
+        """
+        sig = str(signal or "").upper()
+        if sig == self._last_signal:
+            self._signal_streak += 1
+        else:
+            self._last_signal = sig
+            self._signal_streak = 1
+        try:
+            self.position_manager.save_signal_streak(sig, self._signal_streak)
+        except Exception as e:
+            logger.warning("[信号确认] 持久化失败（不影响主流程）: %s", e)
+        return self._signal_streak
+
+    @staticmethod
+    def _htf_trend_direction(closes: List[float]) -> str:
+        """1h 收盘聚合为 4h 后判断高级别趋势 (2026-11-26 P1-7)。
+
+        与 AI 层 market_structure._detect_htf_structure 同口径
+        (每 4 根 1h 取最后一根作为 4h 收盘), 但用 SMA10/20 判定:
+        price>sma10>sma20 → up; price<sma10<sma20 → down; 其余 → sideways。
+        数据不足 (21 根 4h 收盘 ≈ 84 根 1h) → unknown (调用方 fail-closed)。
+        """
+        if not closes or len(closes) < 84:
+            return "unknown"
+        tail = list(closes[-100:])
+        n = len(tail) // 4  # 完整的 4h 根数 (对齐到最新收盘)
+        if n < 21:
+            return "unknown"
+        # 每 4 根 1h 的最后一根 = 4h 收盘; k=0 为最新, 逆序后旧→新
+        htf_closes = [tail[len(tail) - 4 * k - 1] for k in range(n)]
+        htf_closes.reverse()
+        trend = calculate_trend(htf_closes)
+        return {"up": "up", "down": "down"}.get(trend.get("direction", ""), "sideways")
+
+    async def _query_protection_fill_attribution(
+        self,
+        stop_order_id: Optional[str],
+        tp_order_id: Optional[str],
+    ) -> Optional[Tuple[str, float]]:
+        """查交易所算法单状态, 定位真实平仓触发单 (2026-11-26 P1-5)。
+
+        Returns:
+            (触发源描述, 真实成交/触发价) 或 None (查不到/TEST_MODE →
+            调用方回退到现价比对启发式)。best-effort, 任何异常不中断主流程。
+
+        11-26 00:14 复盘: 旧启发式拿尖峰回落后的现价比对, 把真实止损
+        成交 (触发价 58673) 误标为 "未知保护单" 且盈亏误估 -0.14%
+        (实际 -0.64%)。
+        """
+        symbol = self.config.exchange.symbol
+        ord_types = ["conditional", "trigger", "move_order_stop"]
+        try:
+            for algo_id, kind in (
+                (stop_order_id, "止损单"),
+                (tp_order_id, "止盈单"),
+            ):
+                if not algo_id:
+                    continue
+                history = await self._exchange.get_algo_order_history(
+                    symbol,
+                    algo_id=str(algo_id),
+                    limit=5,
+                    ord_types=ord_types,
+                )
+                for order in history or []:
+                    if str(order.get("id")) != str(algo_id):
+                        continue
+                    info = order.get("info") or {}
+                    # 用 OKX 原始状态: effective=生效中, filled=已触发成交
+                    raw_state = str(info.get("state") or "").lower()
+                    if raw_state != "filled":
+                        continue
+                    try:
+                        avg_px = float(info.get("avgPx") or 0) or 0.0
+                    except (TypeError, ValueError):
+                        avg_px = 0.0
+                    trigger_raw = (
+                        info.get("slTriggerPx")
+                        if kind == "止损单"
+                        else info.get("tpTriggerPx")
+                    )
+                    try:
+                        trigger_px = float(trigger_raw) if trigger_raw else 0.0
+                    except (TypeError, ValueError):
+                        trigger_px = 0.0
+                    detail = []
+                    if trigger_px > 0:
+                        detail.append(f"触发价 {trigger_px:.1f}")
+                    if avg_px > 0:
+                        detail.append(f"成交价 {avg_px:.1f}")
+                    return (
+                        f"{kind} (algoId={algo_id} 已成交, {', '.join(detail)})",
+                        avg_px or trigger_px,
+                    )
+        except Exception as e:
+            logger.debug("[保护单归因] 查询算法单历史失败 (best-effort): %s", e)
+        return None
+
+    async def _log_protection_order_fill(self, current_price: float) -> None:
+        """保护单成交归因 (2026-11 P2-12 → 2026-11-26 P1-5 增强)。
+
+        对账发现仓位已在交易所侧消失时: 优先查交易所算法单状态定位真实
+        触发单与触发价; 查不到 (TEST_MODE/接口失败) 再回退 当前价 vs
+        止损/止盈价启发式。11-26 00:14 复盘: 旧启发式拿尖峰回落后的现价
+        比对, 把真实止损成交误标为 "未知保护单" 且盈亏误估 -0.14%
+        (实际 -0.64%)。任何异常不中断主流程。
         """
         try:
             pm = self.position_manager
@@ -959,6 +1232,31 @@ class TradingBot:
             entry = pm.entry_price
             last_sl = pm.last_stop_price
             last_tp = pm.last_take_profit_price
+
+            # P1-5: 优先查交易所真实触发单 (状态 filled → 归因确定)
+            real = await self._query_protection_fill_attribution(
+                pm.stop_order_id, pm.take_profit_order_id
+            )
+            if real is not None:
+                attribution, fill_px = real
+                # 用真实成交/触发价估算盈亏 (尖峰后现价已回落, 现价会低估)
+                ref_px = fill_px if fill_px > 0 else current_price
+                pnl_hint = (
+                    f", 约 {(entry - ref_px) / entry * 100:+.2f}% (入场 {entry:.1f})"
+                    if side == "short" and entry > 0
+                    else (
+                        f", 约 {(ref_px - entry) / entry * 100:+.2f}% (入场 {entry:.1f})"
+                        if entry > 0
+                        else ""
+                    )
+                )
+                logger.info(
+                    "[保护单归因] 仓位已在交易所侧平仓, 触发源: %s, " "当前价 %.1f%s",
+                    attribution,
+                    current_price,
+                    pnl_hint,
+                )
+                return
 
             attribution = "未知保护单"
             pnl_hint = ""
@@ -1086,12 +1384,14 @@ class TradingBot:
             current_price,
             size_factor=cfg.oversold_buy_position_factor,
             atr_percent=atr_percent,
+            origin="oversold",
         )
         if opened:
             self._oversold_buy_counts[today] = (
                 self._oversold_buy_counts.get(today, 0) + 1
             )
             self._daily_open_counts[today] = self._daily_open_counts.get(today, 0) + 1
+            self._persist_daily_counts()
             return ExecutionResult(
                 "open_long_oversold",
                 f"price={current_price},rsi={rsi:.1f},"
@@ -1228,12 +1528,14 @@ class TradingBot:
             atr_percent=atr_percent,
             stop_price_override=short_rr_result.stop_loss_price,
             tp_price_override=short_rr_result.take_profit_price,
+            origin="climax",
         )
         if opened:
             self._climax_short_counts[today] = (
                 self._climax_short_counts.get(today, 0) + 1
             )
             self._daily_open_counts[today] = self._daily_open_counts.get(today, 0) + 1
+            self._persist_daily_counts()
             return ExecutionResult(
                 "open_short_climax",
                 f"price={current_price},rr={short_rr_result.rr_ratio:.2f},"
@@ -1386,6 +1688,54 @@ class TradingBot:
             )
             return None
 
+        # 2026-11-26 P1-7: HTF(4h) 对齐——高级别趋势与入场方向一致才入场。
+        # 11-25 复盘: T2/T3 入场时 HTF=sideways (震荡), 趋势通道开空后仅
+        # 存活数分钟。SMA10/20 口径与 AI 层 HTF 结构判定同向;
+        # 数据不足 (1h < 84 根) → fail-open + WARNING (其余门禁仍在,
+        # 数据降级不应让整个通道静默死亡)。
+        htf = "unknown"
+        if cfg.trend_follow_require_htf_alignment:
+            htf = self._htf_trend_direction(market_data.get("price_history") or [])
+            if htf == "unknown":
+                logger.warning(
+                    "[趋势跟踪] HTF 对齐检查数据不足 (需 ≥84 根 1h 收盘), "
+                    "本轮放行 (其余门禁仍生效)"
+                )
+            elif (side == "short" and htf != "down") or (
+                side == "long" and htf != "up"
+            ):
+                logger.info("[趋势跟踪] 跳过(HTF(4h)=%s 与方向 %s 不对齐)", htf, side)
+                return None
+
+        # 2026-11-26 P1-7: 端点禁追——价格在 24h 极值内侧 x% 内 (区间末端
+        # 拐头区) 跳过; 突破极值之外 (新低点/新高点) 是趋势延续, 放行。
+        # 11-25 复盘: T2 入场 57,421 距 24h 低点 0.04% (区间末端), RSI≈24,
+        # 随后反弹; 三笔全亏。三重区内 (极值内侧) 禁止, 区外允许。
+        extreme_pct = cfg.trend_follow_extreme_distance_pct
+        if extreme_pct > 0:
+            if side == "short":
+                low_24h = min(low_history[-24:])
+                if low_24h <= current_price < low_24h * (1 + extreme_pct):
+                    logger.info(
+                        "[趋势跟踪] 跳过(端点禁追: 价 %.1f 在 24h 低点 %.1f "
+                        "内侧 %.2f%% 区间, 区间末端不追空)",
+                        current_price,
+                        low_24h,
+                        extreme_pct * 100,
+                    )
+                    return None
+            else:
+                high_24h = max(high_history[-24:])
+                if high_24h * (1 - extreme_pct) < current_price <= high_24h:
+                    logger.info(
+                        "[趋势跟踪] 跳过(端点禁追: 价 %.1f 在 24h 高点 %.1f "
+                        "内侧 %.2f%% 区间, 区间末端不追多)",
+                        current_price,
+                        high_24h,
+                        extreme_pct * 100,
+                    )
+                    return None
+
         # ---- 既有门禁 (顺序与 BUY/SHORT 分支一致) ----
         today = datetime.now().strftime("%Y-%m-%d")
         if self._drawdown_status is not None and self._drawdown_status.halted:
@@ -1456,12 +1806,14 @@ class TradingBot:
             atr_percent=atr_percent if atr_percent > 0 else None,
             stop_price_override=stop,
             tp_price_override=tp,
+            origin="trend",
         )
         if opened:
             self._trend_follow_counts[today] = (
                 self._trend_follow_counts.get(today, 0) + 1
             )
             self._daily_open_counts[today] = self._daily_open_counts.get(today, 0) + 1
+            self._persist_daily_counts()
             return ExecutionResult(
                 "open_trend_follow",
                 f"price={current_price},side={side},stop={stop:.2f},tp={tp:.2f}",
@@ -1514,6 +1866,7 @@ class TradingBot:
         atr_percent: Optional[float] = None,
         stop_price_override: Optional[float] = None,
         tp_price_override: Optional[float] = None,
+        origin: str = "ai",
     ) -> bool:
         """开仓 - 根据余额动态计算交易量 (2026-11-24: 多空双向)
 
@@ -1530,6 +1883,8 @@ class TradingBot:
             stop_price_override: 结构止损价 (高潮做空通道传入 R/R 计算器的
                 摆动止损), 传入时优先于 ATR/默认止损。
             tp_price_override: 结构止盈价 (同上, 传入时优先于 RR 倍数止盈)。
+            origin: 开仓来源 (trend/oversold/climax/ai, 2026-11-26 P0-2
+                反手保护用, 持久化跨重启)。
 
         Returns:
             是否成功开仓 (订单创建成功, 含 TEST_MODE 模拟单)。
@@ -1643,7 +1998,7 @@ class TradingBot:
         logger.info(f"[开仓] 订单创建成功: 订单ID={order_id}")
 
         self.position_manager.update_position(
-            amount, price, self.config.exchange.symbol, side=side
+            amount, price, self.config.exchange.symbol, side=side, origin=origin
         )
 
         # 2026-11-24: 方向感知止损价 (多=下方, 空=上方)

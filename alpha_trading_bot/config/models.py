@@ -139,7 +139,17 @@ class TradingConfig:
     # 平仓最终置信度 54-67%（全部 <0.75）直接触发市价平仓，8 笔 BUY
     # 开仓全部为 LLM hold 翻转（最终 51-79%）。执行层此前零门禁。
     min_confidence_open: float = 0.65
-    min_confidence_close: float = 0.60
+    # 2026-11-26 P0-2: 0.60→0.70。11-25 复盘: 趋势通道开空后 4 分钟内 AI 单次
+    # BUY (最终 65%) 即触发平空亏损离场; 单 AI 置信度漂移大, 反向平仓必须
+    # 更高门槛 (趋势仓另受 trend_close_protection_minutes 反手保护)。
+    min_confidence_close: float = 0.70
+    # ---- 2026-11-26 P2-10: 信号连续确认 (单 AI 置信度漂移防护) ----
+    # 开仓/反向平仓要求同一方向信号连续 N 个周期 (1=关闭, 即现状)。
+    # 11-25 两笔亏损平仓均为孤立单次 BUY (前后周期均 HOLD)。
+    signal_confirm_cycles: int = 1
+    # ---- 2026-11-26 P1-4: 重启后首个周期只同步不交易 ----
+    # 11-25 22:04/22:06 两次重启的"首次立即周期"直接造成开仓+平仓。
+    startup_sync_only: bool = True
     # ---- 每日新开仓上限（2026-11 底部捕获配套 / 成本防护）----
     # 门禁下调 (0.75→0.65) 后配套的成本控制: 每日最多新开仓 N 笔 (0=关闭)。
     # 手续费出血的根源是高频 churn, 而非单笔开仓; 限频 + 置信度门禁
@@ -194,13 +204,27 @@ class TradingConfig:
     # (11-24 17:00 空 @60,223, 11-25 15:45 仍持仓 +1.06R 且保本已生效)。
     trend_follow_enabled: bool = True
     trend_follow_change_pct: float = 2.0  # 24h 涨跌幅门槛 (%)
-    trend_follow_short_rsi_floor: float = 20.0  # RSI(1h) < 此值禁空 (防末端追空)
-    trend_follow_long_rsi_ceil: float = 80.0  # RSI(1h) > 此值禁多 (防末端追多)
+    # 2026-11-26 P1-7: 20→30 / 80→70。11-25 两笔亏损空单入场 RSI(1h) 24.3/28.8
+    # (旧门槛 20 拦不住末端追空)。
+    trend_follow_short_rsi_floor: float = 30.0  # RSI(1h) < 此值禁空 (防末端追空)
+    trend_follow_long_rsi_ceil: float = 70.0  # RSI(1h) > 此值禁多 (防末端追多)
     trend_follow_stop_atr_buffer: float = 0.5  # 止损 = 24h 摆动点 ± 0.5×ATR(1h)
     trend_follow_max_stop_pct: float = 0.025  # 止损距离上限 2.5%
     trend_follow_safety_tp_r: float = 10.0  # 10R 安全止盈 (正常由追踪止损离场)
     trend_follow_daily_limit: int = 1  # 每方向每日最多触发次数
     trend_follow_position_factor: float = 0.5  # 半仓
+    # 2026-11-26 P1-7 超伸过滤: 价格距 24h 低点/高点不足该比例时禁空/禁多
+    # (0=关闭)。11-25 22:44 空单入场价距 24h 低点仅 ~0.3%。
+    trend_follow_extreme_distance_pct: float = 0.005
+    # 2026-11-26 P1-7 HTF 一致性: 开空要求 4h 聚合趋势=down, 开多要求 up
+    # (数据不足时 fail-closed 跳过)。11-26 00:00 那笔 HTF(4h)=sideways 不应开空。
+    trend_follow_require_htf_alignment: bool = True
+    # ---- 2026-11-26 P0-2: 趋势通道新仓反手保护 ----
+    # 开仓后 N 分钟内, 反向 AI 信号平仓需同时满足: 置信度 ≥
+    # trend_close_min_confidence 且 1h 技术趋势已反转 (或 24h 涨跌号翻转);
+    # 且 P0-A 亏损态门禁下移对趋势仓不生效 (0=关闭保护)。
+    trend_close_protection_minutes: int = 60
+    trend_close_min_confidence: float = 0.75
     # ---- 追踪止盈 (2026-11-25 / 模块 1): 1R 保本 + 2R 起 3×ATR(1h) 追踪, 只收紧 ----
     # 回放依据: 11-21 多 +3.48R / 11-22 空 +2.53R 为追踪贡献大头 (固定 2R 止盈只有 +0.5R);
     # 11-21 多单 2R 后回撤 -1.08R 被追踪在 +0.9R 接住 (固定止盈会坐过山车回 0R 附近)。
@@ -272,6 +296,27 @@ class TradingConfig:
         if self.daily_open_limit < 0:
             errors.append(
                 f"daily_open_limit ({self.daily_open_limit}) 不能为负数 (0=关闭)"
+            )
+        if self.signal_confirm_cycles < 1:
+            errors.append(
+                f"signal_confirm_cycles ({self.signal_confirm_cycles}) "
+                "不能小于 1 (1=关闭连续确认)"
+            )
+        if not 0 <= self.trend_close_protection_minutes <= 1440:
+            errors.append(
+                f"trend_close_protection_minutes "
+                f"({self.trend_close_protection_minutes}) 不在有效范围 [0-1440]"
+            )
+        if not 0 <= self.trend_close_min_confidence <= 1:
+            errors.append(
+                f"trend_close_min_confidence ({self.trend_close_min_confidence}) "
+                "不在有效范围 [0-1]"
+            )
+        if not 0 <= self.trend_follow_extreme_distance_pct <= 0.1:
+            errors.append(
+                f"trend_follow_extreme_distance_pct "
+                f"({self.trend_follow_extreme_distance_pct}) "
+                "不在有效范围 [0-0.1] (0=关闭超伸过滤)"
             )
         if not 0 < self.oversold_buy_rsi_max <= 100:
             errors.append(
@@ -843,8 +888,17 @@ class Config:
                 risk_per_trade_max=float(os.getenv("RISK_PER_TRADE_MAX", "0.10")),
                 risk_resume=os.getenv("RISK_RESUME", "false").lower() in ("true", "1"),
                 min_confidence_open=float(os.getenv("MIN_CONFIDENCE_OPEN", "0.65")),
-                min_confidence_close=float(os.getenv("MIN_CONFIDENCE_CLOSE", "0.60")),
+                min_confidence_close=float(os.getenv("MIN_CONFIDENCE_CLOSE", "0.70")),
                 daily_open_limit=int(os.getenv("DAILY_OPEN_LIMIT", "2")),
+                signal_confirm_cycles=int(os.getenv("SIGNAL_CONFIRM_CYCLES", "1")),
+                startup_sync_only=os.getenv("STARTUP_SYNC_ONLY", "true").lower()
+                == "true",
+                trend_close_protection_minutes=int(
+                    os.getenv("TREND_CLOSE_PROTECTION_MINUTES", "60")
+                ),
+                trend_close_min_confidence=float(
+                    os.getenv("TREND_CLOSE_MIN_CONFIDENCE", "0.75")
+                ),
                 oversold_buy_enabled=os.getenv("OVERSOLD_BUY_ENABLED", "true").lower()
                 == "true",
                 oversold_buy_rsi_max=float(os.getenv("OVERSOLD_BUY_RSI_MAX", "20.0")),
@@ -887,11 +941,18 @@ class Config:
                     os.getenv("TREND_FOLLOW_CHANGE_PCT", "2.0")
                 ),
                 trend_follow_short_rsi_floor=float(
-                    os.getenv("TREND_FOLLOW_SHORT_RSI_FLOOR", "20.0")
+                    os.getenv("TREND_FOLLOW_SHORT_RSI_FLOOR", "30.0")
                 ),
                 trend_follow_long_rsi_ceil=float(
-                    os.getenv("TREND_FOLLOW_LONG_RSI_CEIL", "80.0")
+                    os.getenv("TREND_FOLLOW_LONG_RSI_CEIL", "70.0")
                 ),
+                trend_follow_extreme_distance_pct=float(
+                    os.getenv("TREND_FOLLOW_EXTREME_DISTANCE_PCT", "0.005")
+                ),
+                trend_follow_require_htf_alignment=os.getenv(
+                    "TREND_FOLLOW_REQUIRE_HTF_ALIGNMENT", "true"
+                ).lower()
+                == "true",
                 trend_follow_stop_atr_buffer=float(
                     os.getenv("TREND_FOLLOW_STOP_ATR_BUFFER", "0.5")
                 ),
